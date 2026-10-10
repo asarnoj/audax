@@ -1,0 +1,7 @@
+# Bevakningslista: företag vars alla jobbannonser bevakas (sinnet "ats" i sources.yaml).
+# Lägg till med careers_url och identifiera systemet: uv run python -m agent.sources.watchlist detect
+# ats: lever | greenhouse | ashby | smartrecruiters | teamtailor (slug = karriärsidans host)
+
+companies:
+  - {name: Spotify, ats: lever, slug: spotify}
+  - {name: Elastic, ats: greenhouse, slug: elastic}

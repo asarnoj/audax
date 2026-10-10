@@ -1,0 +1,248 @@
+"""The persistent chat session with användaren: the agent's only voice (docs/ARCHITECTURE.md).
+
+the owner's messages that arrive while Claude is busy are buffered and sent together as one turn.
+Proactive messages are written here too: the dispatcher calls `speak()` with an internal instruction,
+so everything the agent says lives in one conversation with one style.
+"""
+
+from __future__ import annotations
+
+import asyncio
+import logging
+from collections.abc import Awaitable, Callable
+from dataclasses import dataclass
+from datetime import datetime
+from zoneinfo import ZoneInfo
+
+from agent.claude_gate import ClaudeGate, ClaudeTask, Priority, QuotaPaused
+from agent.config import Settings
+from agent.db import Database
+from agent.inbox import Inbox
+from agent.memory import MemoryRepo
+from agent.prompts import prompt as prompt_template
+from agent.schedule import Schedule
+from agent.tools import TurnContext, build_chat_tools, build_github_tools, build_web_tools
+
+log = logging.getLogger(__name__)
+
+SESSION_KEY = "chat.session_id"
+SEEN_KEY = "chat.seen_message_id"  # highest messages.id already shown to the chat session
+PROACTIVE_LIMIT = 5
+WEEKDAYS = ["mån", "tis", "ons", "tor", "fre", "lör", "sön"]
+MONTHS = ["jan", "feb", "mar", "apr", "maj", "jun", "jul", "aug", "sep", "okt", "nov", "dec"]
+
+# Tools for the chat session; paths are relative to workspace/ and further limited by
+# workspace/.claude/settings.json (e.g. policy.md is read-only).
+CHAT_TOOLS = [
+    "Read(./memory/**)",
+    "Edit(./memory/**)",
+    "Write(./memory/**)",
+    "WebSearch",
+]
+
+
+@dataclass
+class Incoming:
+    text: str
+    replied_to_message_id: int | None = None  # messages.id
+    replied_to_text: str | None = None
+    internal: bool = False  # an instruction from the system (dispatcher, Director, Manager), not from användaren
+    done: asyncio.Future | None = None  # internal turns: resolved with the messages.id rows that were sent
+
+
+Send = Callable[..., Awaitable[list[int]]]
+Typing = Callable[[], Awaitable[None]]
+
+
+class ChatSession:
+    def __init__(
+        self,
+        settings: Settings,
+        db: Database,
+        gate: ClaudeGate,
+        memory: MemoryRepo,
+        send: Send,
+        typing: Typing,
+        schedule: Schedule | None = None,
+    ):
+        self.settings = settings
+        self.schedule = schedule
+        self.controls = None  # set by main once the dispatcher exists
+        self.builder = None  # set by main
+        self.wake_director = None  # set by main: () -> None, runs Director's daily pass soon
+        self.github = None  # set by main: read-only GitHubReader
+        self.web = None  # set by main: WebReader (web_read tool)
+        self.db = db
+        self.inbox = Inbox(db)
+        self.gate = gate
+        self.memory = memory
+        self._send = send
+        self._typing = typing
+        self._buffer: list[Incoming] = []
+        self._worker: asyncio.Task | None = None
+
+    def submit(self, msg: Incoming) -> None:
+        self._buffer.append(msg)
+        if self._worker is None or self._worker.done():
+            self._worker = asyncio.create_task(self._drain())
+
+    async def speak(self, instruction: str) -> list[int]:
+        """Have the session write and send a message itself. Raises if it couldn't (caller falls back)."""
+        fut: asyncio.Future = asyncio.get_running_loop().create_future()
+        self.submit(Incoming(text=instruction, internal=True, done=fut))
+        return await fut
+
+    async def start_interview(self) -> None:
+        self.submit(Incoming(text=prompt_template("interview")))
+
+    async def reset(self) -> None:
+        await self.db.kv_set(SESSION_KEY, None)
+
+    # --- internals --------------------------------------------------------
+
+    async def _drain(self) -> None:
+        while self._buffer:
+            if self._buffer[0].internal:  # internal instructions get a turn of their own
+                batch, self._buffer = [self._buffer[0]], self._buffer[1:]
+            else:  # consecutive messages from the owner are answered together
+                n = next((i for i, m in enumerate(self._buffer) if m.internal), len(self._buffer))
+                batch, self._buffer = self._buffer[:n], self._buffer[n:]
+            try:
+                await self._turn(batch)
+            except Exception as e:
+                log.exception("chat turn failed")
+                if batch[0].internal:
+                    if batch[0].done and not batch[0].done.done():
+                        batch[0].done.set_exception(e)
+                else:
+                    await self._send("Något gick fel på min sida. Försök igen om en stund.", origin="chat", in_session=True)
+
+    def _now(self) -> str:
+        now = datetime.now(ZoneInfo(self.settings.timezone))
+        return f"{WEEKDAYS[now.weekday()]} {now.day} {MONTHS[now.month - 1]} {now:%H:%M}"
+
+    async def _prompt(self, batch: list[Incoming]) -> str:
+        parts = [f"[tid: {self._now()}]"]
+        if self.schedule is not None:
+            try:
+                parts.append(f"[schema: {(await self.schedule.availability()).status_line()}]")
+            except Exception:
+                log.exception("availability failed")
+        if not await self.db.kv_get(SESSION_KEY) and (seed := await self.db.kv_get("chat.seed_summary")):
+            parts.append(f"[ny session: sammanfattning av tidigare samtal]\n{seed}\n[slut]")
+        parts.extend(await self._proactive_since_last_turn())
+        if not batch[0].internal and (req := await self.inbox.open_request()):
+            parts.append(
+                f"[öppen fråga #{req['id']} från {req['owner']}. Väv bara in den om det passar naturligt i samtalet nu, "
+                f"annars låt bli. Om du ställer den: anropa mark_request_asked. Vad: {req['what']} · Varför: {req['why']}]"
+            )
+        for m in batch:
+            if m.internal:
+                parts.append(f"[internt uppdrag, inte från användaren. Ditt svar skickas ordagrant till användaren som ett meddelande från dig]\n{m.text}")
+                continue
+            if m.replied_to_text:
+                quoted = m.replied_to_text if len(m.replied_to_text) <= 300 else m.replied_to_text[:300] + "…"
+                parts.append(f'[svarar på: "{quoted}"]')
+            parts.append(m.text)
+        return "\n".join(parts)
+
+    async def _recent_conversation(self, limit: int = 30) -> str:
+        """Bridges a lost session (e.g. after moving machines) with the latest messages from the database."""
+        rows = await self.db.fetchall(
+            "SELECT direction, origin, text FROM messages WHERE text != '' ORDER BY id DESC LIMIT ?", (limit,)
+        )
+        if not rows:
+            return ""
+        lines = []
+        for r in reversed(rows):
+            who = "användaren" if r["direction"] == "in" else ("du (på eget initiativ)" if r["origin"] == "proactive" else "du")
+            text = r["text"] if len(r["text"]) <= 600 else r["text"][:600] + "…"
+            lines.append(f"{who}: {text}")
+        return "[ny session: de senaste meddelandena från förra sessionen, som bakgrund]\n" + "\n".join(lines) + "\n[slut]\n"
+
+    async def _proactive_since_last_turn(self) -> list[str]:
+        """Messages sent outside the session since the last turn (polls, proposals, fallback deliveries).
+
+        The session didn't write those itself, so without this it wouldn't know about them."""
+        seen = await self.db.kv_get(SEEN_KEY, 0)
+        rows = await self.db.fetchall(
+            "SELECT id, text, created_at FROM messages WHERE direction = 'out' AND COALESCE(origin, 'chat') != 'chat' "
+            "AND in_session = 0 AND id > ? ORDER BY id",
+            (seen,),
+        )
+        top = await self.db.fetchone("SELECT max(id) AS m FROM messages")
+        await self.db.kv_set(SEEN_KEY, top["m"] or 0)
+        out = []
+        tz = ZoneInfo(self.settings.timezone)
+        for r in rows[-PROACTIVE_LIMIT:]:
+            when = datetime.fromisoformat(r["created_at"] + "+00:00").astimezone(tz)
+            text = r["text"] if len(r["text"]) <= 1500 else r["text"][:1500] + "…"
+            out.append(f"[du skickade på eget initiativ {WEEKDAYS[when.weekday()]} {when:%H:%M}]\n{text}\n[slut]")
+        return out
+
+    async def _turn(self, batch: list[Incoming]) -> None:
+        turn = TurnContext(replied_to_message_id=next((m.replied_to_message_id for m in reversed(batch) if m.replied_to_message_id), None))
+        mcp_servers, tool_names = build_chat_tools(self.db, turn, self.schedule, self.controls, self.builder, self.inbox, self.wake_director)
+        if self.web is not None:
+            w_servers, w_names = build_web_tools(self.web)
+            mcp_servers, tool_names = {**mcp_servers, **w_servers}, tool_names + w_names
+        if self.github is not None:
+            gh_servers, gh_names = build_github_tools(self.github)
+            mcp_servers, tool_names = {**mcp_servers, **gh_servers}, tool_names + gh_names
+        internal = batch[0].internal
+        session_id = await self.db.kv_get(SESSION_KEY)
+        prompt = await self._prompt(batch)
+
+        def task(resume: str | None, prefix: str = "") -> ClaudeTask:
+            return ClaudeTask(
+                kind="chat",
+                prompt=prefix + prompt,
+                priority=Priority.CHAT,
+                model=self.settings.models.chat,
+                resume=resume,
+                allowed_tools=CHAT_TOOLS + tool_names,
+                mcp_servers=mcp_servers,
+                system_prompt_append=prompt_template("chat")
+                + "\n\n# Stilguide och läge (ägs av Manager, följ dem)\n"
+                + self.memory.read("style.md", "state.md"),
+            )
+
+        typing = None if internal else asyncio.create_task(self._keep_typing())
+        try:
+            result = await self.gate.run(task(session_id))
+            if result.is_error and session_id:
+                # The stored session may be gone (e.g. new machine); start a fresh one once.
+                log.warning("chat resume failed (%s), starting a new session", result.error)
+                result = await self.gate.run(task(None, await self._recent_conversation()))
+        except QuotaPaused as e:
+            if internal:
+                raise
+            await self._send(f"Min Claude-kvot är slut just nu. Den återställs {datetime.fromtimestamp(e.resets_at):%H:%M}.", origin="chat", in_session=True)
+            return
+        finally:
+            if typing:
+                typing.cancel()
+
+        if result.is_error:
+            if internal:
+                raise RuntimeError(result.error or "chat error")
+            await self._send(f"Det blev fel: {result.error or 'okänt'}", origin="chat", in_session=True)
+            return
+
+        if result.session_id:
+            await self.db.kv_set(SESSION_KEY, result.session_id)
+            await self.db.kv_set("chat.seed_summary", None)
+        ids: list[int] = []
+        if result.text.strip():
+            ids = await self._send(result.text.strip(), origin="proactive" if internal else "chat", in_session=True)
+        if internal and batch[0].done and not batch[0].done.done():
+            batch[0].done.set_result(ids)
+        await self.memory.commit_if_changed(f"chat {self._now()}")
+
+    async def _keep_typing(self) -> None:
+        while True:
+            try:
+                await self._typing()
+            except Exception:
+                pass
+            await asyncio.sleep(4.5)

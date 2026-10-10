@@ -1,0 +1,64 @@
+# Källor (sinnen). Hemligheter (URL:er, lösenord) ligger i .env och refereras med *_env.
+# Se docs/SENSES.md och agent/sources/streams.py för alla typer och fält.
+
+calendars:
+  poll_minutes: 30
+  window_days: 21
+  sources:
+    - id: school
+      type: ics
+      url_env: TIMEEDIT_ICS_URL
+      relevance: ask       # alla pass gäller inte ägaren; agenten frågar sig fram
+    - id: apple
+      type: caldav
+      url: https://caldav.icloud.com
+      username_env: APPLE_ID
+      password_env: APPLE_APP_PASSWORD
+      calendars_env: APPLE_CALENDARS
+      relevance: mine
+
+# Strömmar: rss, websocket, jobtech, devpost, ats, hn_hiring, page.
+# baseline: true (standard) = första hämtningen läses bara in; false = det som redan finns bedöms också.
+streams:
+  - id: hn-best
+    type: rss
+    url: https://hnrss.org/best
+    poll_minutes: 30
+    kind: news
+    note: Hacker News mest uppröstade. Det mesta är brus; ta bara med det som rör ägarens intressen.
+
+  - id: devpost
+    type: devpost
+    kind: event
+    baseline: false
+    poll_minutes: 720
+    params:
+      locations: [Online]
+      pages: 3
+    note: Hackathons. Bäst om temat passar ägarens projekt eller har stora priser.
+
+  - id: watchlist-jobs
+    type: ats
+    kind: opportunity
+    baseline: false
+    poll_minutes: 240
+    params:
+      locations: [Remote, Europe]
+      roles: [intern, internship, summer, student, graduate, "new grad", trainee, junior, thesis, part-time]
+    note: Studentroller hos företag på bevakningslistan.
+
+  # Arbetsförmedlingens öppna API (Sverige). Taxonomi-id: https://taxonomy.api.jobtechdev.se
+  # - id: jobtech
+  #   type: jobtech
+  #   kind: opportunity
+  #   baseline: false
+  #   poll_minutes: 180
+  #   params: {occupation_field: apaJ_2ja_LuF, region_id: CifL_Rzy_Mku, queries: [sommarjobb, praktik, student, trainee]}
+  #   filter: {title_only: true, include: [sommar, praktik, student, trainee, intern, junior]}
+
+  # Websocket-källa: fälten pekar ut titel/url/id i varje JSON-meddelande.
+  # - id: min-ws
+  #   type: websocket
+  #   url_env: MIN_WS_URL
+  #   subscribe: '{"action": "subscribe"}'
+  #   fields: {id: "data.id", title: "data.headline", url: "data.link"}

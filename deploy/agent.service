@@ -1,0 +1,19 @@
+[Unit]
+Description=Audax personal agent (Worker, Manager, Director)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=__USER__
+WorkingDirectory=__REPO__
+Environment=PATH=__HOME__/.local/bin:/usr/local/bin:/usr/bin:/bin
+ExecStart=__HOME__/.local/bin/uv run --no-dev python -m agent.main
+Restart=on-failure
+RestartSec=10
+# Pi 400 has 4 GB: keep the agent from starving the system.
+MemoryHigh=2G
+MemoryMax=3G
+
+[Install]
+WantedBy=multi-user.target

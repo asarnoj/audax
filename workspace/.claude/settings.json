@@ -1,0 +1,19 @@
+{
+  "permissions": {
+    "deny": [
+      "Write(./memory/direction/**)",
+      "Edit(./memory/direction/**)",
+      "Edit(./memory/policy.md)",
+      "Write(./memory/policy.md)",
+      "Write(./memory/state.md)",
+      "Edit(./memory/state.md)",
+      "Write(./memory/style.md)",
+      "Edit(./memory/style.md)",
+      "Edit(./CLAUDE.md)",
+      "Write(./CLAUDE.md)",
+      "Edit(./.claude/**)",
+      "Write(./.claude/**)",
+      "Bash"
+    ]
+  }
+}

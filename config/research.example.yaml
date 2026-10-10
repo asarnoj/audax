@@ -1,0 +1,17 @@
+# Schemalagda undersökningar (uppdrag). Director äger dem och justerar goal, scope och interval_days.
+# Varje uppdrag får en egen portfölj av sökfrågor (docs/SENSES.md).
+
+- id: jobs-internships
+  goal: >
+    Hitta deltidsjobb, sommarjobb och internships som passar ägarens utbildning, erfarenhet och mål.
+    Fokus på öppna ansökningar med deadline.
+  scope: Där ägaren bor eller remote
+  interval_days: 2
+  enabled: true
+
+- id: events
+  goal: >
+    Hitta events, hackathons, tävlingar och meetups som passar ägarens intressen och projekt.
+  scope: Lokalt eller online, de kommande 6 veckorna
+  interval_days: 3
+  enabled: true

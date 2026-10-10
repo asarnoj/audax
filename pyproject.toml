@@ -1,0 +1,30 @@
+[project]
+name = "audax"
+version = "0.1.0"
+requires-python = ">=3.11"
+dependencies = [
+    "aiosqlite>=0.22.1",
+    "apscheduler>=3.11.3",
+    "caldav>=3.4.0",
+    "claude-agent-sdk>=0.2.165",
+    "feedparser>=6.0.14",
+    "httpx>=0.28.1",
+    "icalendar>=7.3.0",
+    "pydantic>=2.14.0",
+    "python-dotenv>=1.2.4",
+    "python-telegram-bot>=21",
+    "pyyaml>=6.0.3",
+    "recurring-ical-events>=3.8.2",
+    "websockets>=17.2",
+]
+
+[dependency-groups]
+dev = [
+    "pytest>=9.1.1",
+    "pytest-asyncio>=1.4.0",
+]
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+testpaths = ["tests"]
+pythonpath = ["."]

@@ -1,0 +1,19 @@
+.venv/
+__pycache__/
+*.pyc
+.pytest_cache/
+
+# Secrets and local settings
+.env
+config/settings.yaml
+
+# Personal data never leaves the Pi
+data/
+workspace/memory/
+
+# Instance: everything about one person (own git repo, private)
+instance/
+# Generated from agent/prompts/claude_md.md with the owner name
+workspace/CLAUDE.md
+# Local deploy target (Pi host)
+.deploy.env

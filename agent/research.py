@@ -1,0 +1,272 @@
+"""Scheduled research: Claude searches the web for opportunities and returns structured findings as events."""
+
+from __future__ import annotations
+
+import json
+import logging
+from dataclasses import dataclass
+from datetime import datetime, timedelta
+from zoneinfo import ZoneInfo
+
+import yaml
+
+from agent.claude_gate import ClaudeGate, ClaudeTask, Priority, QuotaPaused
+from agent.config import Settings, instance_config
+from agent.db import Database
+from agent.memory import MemoryRepo
+from agent.prompts import prompt as prompt_template
+from agent.tools import build_web_tools
+
+log = logging.getLogger(__name__)
+
+MEMORY_FILES = ("direction/goals.md", "direction/now.md", "profile.md", "interests.md", "projects.md", "school.md")
+
+FINDINGS_SCHEMA = {
+    "type": "object",
+    "properties": {
+        "findings": {
+            "type": "array",
+            "items": {
+                "type": "object",
+                "properties": {
+                    "title": {"type": "string"},
+                    "url": {"type": "string"},
+                    "summary": {"type": "string"},
+                    "why_you": {"type": "string"},
+                    "kind": {"type": "string", "enum": ["opportunity", "event", "news", "tool", "social"]},
+                    "deadline": {"type": ["string", "null"], "description": "YYYY-MM-DD"},
+                    "date": {"type": ["string", "null"], "description": "YYYY-MM-DD för event"},
+                    "location": {"type": ["string", "null"]},
+                    "query": {"type": "string", "description": "Frågan (exakt) som ledde till fyndet"},
+                },
+                "required": ["title", "url", "summary", "why_you", "kind", "query"],
+            },
+        }
+    },
+    "required": ["findings"],
+}
+
+
+QUERIES_SCHEMA = {
+    "type": "object",
+    "properties": {
+        "queries": {
+            "type": "array",
+            "items": {
+                "type": "object",
+                "properties": {"query": {"type": "string"}, "rationale": {"type": "string"}},
+                "required": ["query", "rationale"],
+            },
+        }
+    },
+    "required": ["queries"],
+}
+
+# Portfolio mechanics (docs/SENSES.md, layer 3). These are search mechanics, not attention policy.
+BATCH = 6  # queries per run
+EXPLORE = 2  # of which untested
+MIN_ACTIVE = 10  # generate more below this
+GENERATE = 8
+RETIRE_AFTER_RUNS = 3  # without a single kept finding
+
+KEPT = ("sent", "shelved", "pulled")
+
+
+@dataclass(frozen=True)
+class ResearchTask:
+    id: str
+    goal: str
+    scope: str
+    interval_days: float
+    enabled: bool
+
+
+def load_research() -> list[ResearchTask]:
+    data = yaml.safe_load(instance_config("research.yaml").read_text()) or []
+    return [
+        ResearchTask(
+            id=r["id"],
+            goal=" ".join(r["goal"].split()),
+            scope=r.get("scope", ""),
+            interval_days=float(r.get("interval_days", 7)),
+            enabled=r.get("enabled", True),
+        )
+        for r in data
+    ]
+
+
+def normalize_url(url: str) -> str:
+    """Dedupe key: no fragment, no tracking query, no trailing slash."""
+    url = url.strip().split("#")[0]
+    if "utm_" in url:
+        url = url.split("?")[0]
+    return url.rstrip("/").lower()
+
+
+class Portfolio:
+    """The query portfolio of one mission: generate, select (explore/exploit), retire."""
+
+    def __init__(self, db: Database, gate: ClaudeGate, memory: MemoryRepo, settings: Settings):
+        self.db = db
+        self.gate = gate
+        self.memory = memory
+        self.settings = settings
+
+    async def stats(self, mission: str) -> list[dict]:
+        """Every query with runs, findings and kept findings (sent, shelved or pulled from the shelf)."""
+        rows = await self.db.fetchall(
+            "SELECT q.id, q.query, q.status, q.runs, "
+            "(SELECT count(*) FROM events e WHERE e.source = 'research:' || q.mission "
+            "   AND json_extract(e.payload, '$.query') = q.query) AS found, "
+            "(SELECT count(*) FROM events e JOIN candidates c ON c.event_id = e.id WHERE e.source = 'research:' || q.mission "
+            "   AND json_extract(e.payload, '$.query') = q.query AND c.status IN ('sent', 'shelved', 'pulled')) AS kept "
+            "FROM scout_queries q WHERE q.mission = ? ORDER BY q.id",
+            (mission,),
+        )
+        return [dict(r) for r in rows]
+
+    async def select(self, task: ResearchTask) -> list[str]:
+        await self._retire(task.id)
+        active = [q for q in await self.stats(task.id) if q["status"] == "active"]
+        if len(active) < MIN_ACTIVE:
+            await self._generate(task)
+            active = [q for q in await self.stats(task.id) if q["status"] == "active"]
+        untested = [q for q in active if q["runs"] == 0]
+        tested = sorted((q for q in active if q["runs"] > 0), key=lambda q: (q["kept"] + 1) / (q["runs"] + 2), reverse=True)
+        explore = untested[:EXPLORE]
+        exploit = tested[: BATCH - len(explore)]
+        chosen = explore + exploit
+        if len(chosen) < BATCH:  # not enough history yet: fill with more untested
+            chosen += [q for q in untested if q not in chosen][: BATCH - len(chosen)]
+        return [q["query"] for q in chosen]
+
+    async def record_run(self, mission: str, queries: list[str]) -> None:
+        for q in queries:
+            await self.db.execute(
+                "UPDATE scout_queries SET runs = runs + 1, last_run = datetime('now') WHERE mission = ? AND query = ?", (mission, q)
+            )
+
+    async def _retire(self, mission: str) -> None:
+        for q in await self.stats(mission):
+            if q["status"] == "active" and q["runs"] >= RETIRE_AFTER_RUNS and q["kept"] == 0:
+                await self.db.execute("UPDATE scout_queries SET status = 'retired' WHERE id = ?", (q["id"],))
+
+    async def _generate(self, task: ResearchTask) -> None:
+        stats = await self.stats(task.id)
+        good = sorted((q for q in stats if q["kept"] > 0), key=lambda q: q["kept"], reverse=True)[:10]
+        prompt = prompt_template("scout_queries").format(
+            id=task.id,
+            goal=task.goal,
+            scope=task.scope,
+            today=datetime.now(ZoneInfo(self.settings.timezone)).date().isoformat(),
+            memory=self.memory.read("profile.md", "interests.md", "projects.md"),
+            good="\n".join(f"- {q['query']} → {q['kept']}" for q in good) or "(ingen historik än)",
+            existing="\n".join(f"- {q['query']}" for q in stats) or "(inga)",
+            n=GENERATE,
+        )
+        r = await self.gate.run(
+            ClaudeTask(
+                kind="scout_queries",
+                prompt=prompt,
+                priority=Priority.RESEARCH,
+                model=self.settings.models.research,
+                output_schema=QUERIES_SCHEMA,
+                max_turns=2,
+            )
+        )
+        if r.is_error or not isinstance(r.structured, dict):
+            log.warning("query generation for %s failed: %s", task.id, r.error)
+            return
+        for q in r.structured.get("queries", []):
+            await self.db.execute(
+                "INSERT OR IGNORE INTO scout_queries (mission, query, rationale) VALUES (?, ?, ?)",
+                (task.id, q["query"].strip(), q.get("rationale", "")),
+            )
+        log.info("scout %s: generated %d queries", task.id, len(r.structured.get("queries", [])))
+
+
+class Researcher:
+    def __init__(self, settings: Settings, db: Database, gate: ClaudeGate, memory: MemoryRepo):
+        self.settings = settings
+        self.db = db
+        self.gate = gate
+        self.memory = memory
+        self.tz = ZoneInfo(settings.timezone)
+        self.portfolio = Portfolio(db, gate, memory, settings)
+        self.web = None  # WebReader, set by main
+
+    async def due(self) -> list[ResearchTask]:
+        now = datetime.now(self.tz)
+        out = []
+        for t in load_research():
+            if not t.enabled:
+                continue
+            last = await self.db.kv_get(f"research.last_run.{t.id}")
+            if last is None or now - datetime.fromisoformat(last) >= timedelta(days=t.interval_days):
+                out.append(t)
+        return out
+
+    async def run(self, task: ResearchTask) -> int:
+        """Runs one research task; returns the number of new findings stored as events."""
+        source = f"research:{task.id}"
+        seen = await self.db.fetchall(
+            "SELECT payload FROM events WHERE source = ? AND created_at >= datetime('now', '-90 days') ORDER BY id DESC LIMIT 60",
+            (source,),
+        )
+        seen_lines = [f"- {json.loads(r['payload'])['title']} ({json.loads(r['payload'])['url']})" for r in seen]
+        try:
+            queries = await self.portfolio.select(task)
+        except QuotaPaused:
+            log.info("research %s postponed: quota paused", task.id)
+            return 0
+        web_servers, web_names = build_web_tools(self.web) if self.web else ({}, [])
+        prompt = prompt_template("research").format(
+            queries="\n".join(f"- {q}" for q in queries) or "(inga, sök fritt)",
+            id=task.id,
+            goal=task.goal,
+            scope=task.scope,
+            today=datetime.now(self.tz).date().isoformat(),
+            memory=self.memory.read(*MEMORY_FILES),
+            seen="\n".join(seen_lines) or "(inget än)",
+        )
+        try:
+            result = await self.gate.run(
+                ClaudeTask(
+                    kind="research",
+                    prompt=prompt,
+                    priority=Priority.RESEARCH,
+                    model=self.settings.models.research,
+                    allowed_tools=["WebSearch", *web_names],
+                    mcp_servers=web_servers,
+                    output_schema=FINDINGS_SCHEMA,
+                    max_turns=40,
+                )
+            )
+        except QuotaPaused:
+            log.info("research %s postponed: quota paused", task.id)
+            return 0
+
+        # Count the attempt even on failure so a broken task doesn't retry every 30 minutes.
+        await self.db.kv_set(f"research.last_run.{task.id}", datetime.now(self.tz).isoformat())
+        await self.portfolio.record_run(task.id, queries)
+        if result.is_error or not isinstance(result.structured, dict):
+            error = result.error or "inget strukturerat svar"
+            await self.db.execute("INSERT INTO research_runs (research_id, error) VALUES (?, ?)", (task.id, error))
+            log.warning("research %s failed: %s", task.id, error)
+            return 0
+
+        new = 0
+        for f in result.structured.get("findings", []):
+            if not f.get("url") or not f.get("title"):
+                continue
+            if f.get("query") not in queries:  # keep yield attribution honest
+                f["query"] = next((q for q in queries if q.lower() in str(f.get("query", "")).lower()), f.get("query"))
+            cur = await self.db.conn.execute(
+                "INSERT OR IGNORE INTO events (source, kind, dedupe_key, payload) VALUES (?, ?, ?, ?)",
+                (source, f.get("kind", "opportunity"), normalize_url(f["url"]), json.dumps(f, ensure_ascii=False)),
+            )
+            new += cur.rowcount
+        await self.db.conn.commit()
+        await self.db.execute("INSERT INTO research_runs (research_id, findings) VALUES (?, ?)", (task.id, new))
+        log.info("research %s: %d new findings (%.0fs)", task.id, new, (result.duration_ms or 0) / 1000)
+        return new

@@ -1,0 +1,26 @@
+# Exempel. Kopieras till instance/config/settings.yaml vid första starten. Instansen är privat.
+
+# Den agenten är till för. Fyller {owner} i alla promptar.
+owner: ""
+
+timezone: Europe/Stockholm
+
+# Nattro: den enda hårda regeln för utskick. Chatten fungerar alltid.
+quiet_hours:
+  start: "23:00"
+  end: "06:30"
+
+# Modell per typ av körning. Alias ("haiku", "sonnet", "opus") eller fullständiga modell-id:n.
+models:
+  chat: sonnet
+  triage: haiku
+  dispatcher: haiku
+  research: sonnet
+  manager: sonnet
+  builder: sonnet
+  director: sonnet   # daglig genomgång
+  reflect: opus      # djup reflektion 2–3 ggr/vecka
+
+paths:
+  workspace: workspace
+  database: data/agent.db
