@@ -54,3 +54,7 @@ From a development machine: put `PI_HOST=user@host` in `.deploy.env`, then `./de
 ```bash
 uv run pytest
 ```
+
+## License
+
+MIT, see [LICENSE](LICENSE).
