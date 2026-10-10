@@ -41,9 +41,14 @@ FINDINGS_SCHEMA = {
                 },
                 "required": ["title", "url", "summary", "why_you", "kind", "query"],
             },
-        }
+        },
+        "skipped": {
+            "type": "array",
+            "description": "Det du hittade men valde bort (redan känt, utgånget, inte intresserad av, passar inte), med kort skäl",
+            "items": {"type": "object", "properties": {"title": {"type": "string"}, "reason": {"type": "string"}}, "required": ["title", "reason"]},
+        },
     },
-    "required": ["findings"],
+    "required": ["findings", "skipped"],
 }
 
 
@@ -256,7 +261,8 @@ class Researcher:
             return 0
 
         new = 0
-        for f in result.structured.get("findings", []):
+        findings = result.structured.get("findings", [])
+        for f in findings:
             if not f.get("url") or not f.get("title"):
                 continue
             if f.get("query") not in queries:  # keep yield attribution honest
@@ -267,6 +273,14 @@ class Researcher:
             )
             new += cur.rowcount
         await self.db.conn.commit()
-        await self.db.execute("INSERT INTO research_runs (research_id, findings) VALUES (?, ?)", (task.id, new))
-        log.info("research %s: %d new findings (%.0fs)", task.id, new, (result.duration_ms or 0) / 1000)
+        skipped = result.structured.get("skipped") or []
+        await self.db.execute(
+            "INSERT INTO research_runs (research_id, findings, returned, skipped) VALUES (?, ?, ?, ?)",
+            (task.id, new, len(findings), json.dumps(skipped, ensure_ascii=False)),
+        )
+        searches = sum(1 for t in result.trace if t["tool"] == "WebSearch")
+        log.info(
+            "research %s: %d searches, %d findings returned, %d new, %d skipped (%.0fs)",
+            task.id, searches, len(findings), new, len(skipped), (result.duration_ms or 0) / 1000,
+        )
         return new

@@ -237,7 +237,18 @@ def _control_tools(controls: Controls, turn: TurnContext) -> list:
     async def run_research(args: dict[str, Any]) -> dict[str, Any]:
         return _text(await controls.start_research(args["research_id"]))
 
-    return [pause_messages, get_shelf, explain_message, source_overview, run_research]
+    @tool(
+        "activity_report",
+        "Vad agenten har gjort idag och om allt fungerar: hälsa, händelser från sinnena, dispatcherns beslut, undersökningar "
+        "och vad som skickats. Använd när {owner} undrar om du fungerar, varför du varit tyst eller vad du gjort.",
+        {"type": "object", "properties": {}},
+    )
+    async def activity_report(args: dict[str, Any]) -> dict[str, Any]:
+        from agent.inspect import Inspector
+
+        return _text(await Inspector(controls.db).summary())
+
+    return [pause_messages, get_shelf, explain_message, source_overview, run_research, activity_report]
 
 
 def _inbox_tools(inbox: Inbox, wake_director=None) -> list:

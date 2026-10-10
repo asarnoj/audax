@@ -28,6 +28,9 @@ from claude_agent_sdk import (
     RateLimitInfo,
     ResultMessage,
     TextBlock,
+    ToolResultBlock,
+    ToolUseBlock,
+    UserMessage,
     query,
 )
 
@@ -70,6 +73,7 @@ class RunResult:
     duration_ms: int | None = None
     is_error: bool = False
     error: str | None = None
+    trace: list[dict] = field(default_factory=list)  # tool calls: {"tool", "input", "error"}
 
 
 class QuotaPaused(Exception):
@@ -108,18 +112,30 @@ async def sdk_runner(task: ClaudeTask, workspace: Path, on_rate_limit: OnRateLim
     )
 
     texts: list[str] = []
+    trace: list[dict] = []
+    by_id: dict[str, dict] = {}
     result: ResultMessage | None = None
     async for msg in query(prompt=task.prompt, options=options):
         if isinstance(msg, AssistantMessage):
             texts.extend(b.text for b in msg.content if isinstance(b, TextBlock))
+            for b in msg.content:
+                if isinstance(b, ToolUseBlock) and b.name != "ToolSearch":
+                    entry = {"tool": b.name.removeprefix("mcp__"), "input": _short(b.input), "error": False}
+                    trace.append(entry)
+                    by_id[b.id] = entry
+        elif isinstance(msg, UserMessage) and isinstance(msg.content, list):
+            for b in msg.content:
+                if isinstance(b, ToolResultBlock) and b.tool_use_id in by_id and b.is_error:
+                    by_id[b.tool_use_id]["error"] = True
         elif isinstance(msg, RateLimitEvent):
             on_rate_limit(msg.rate_limit_info)
         elif isinstance(msg, ResultMessage):
             result = msg
 
     if result is None:
-        return RunResult(text="", is_error=True, error="no result message")
+        return RunResult(text="", is_error=True, error="no result message", trace=trace)
     return RunResult(
+        trace=trace,
         text=result.result or "\n".join(texts),
         session_id=result.session_id,
         structured=result.structured_output,
@@ -138,6 +154,17 @@ class QuotaState:
     paused_from: Priority | None = None
     paused_until: float = 0.0
     last_rate_limit: RateLimitInfo | None = None
+
+
+def _short(value: Any, limit: int = 160) -> str:
+    """Tool input for the trace: the interesting part (query, url, path), not whole documents."""
+    if isinstance(value, dict):
+        for key in ("query", "url", "path", "file_path", "pattern", "repo", "action", "mode", "minutes"):
+            if key in value:
+                rest = {k: v for k, v in value.items() if k in ("repo", "path", "action") and k != key}
+                return (str(value[key]) + (f" {rest}" if rest else ""))[:limit]
+        return json.dumps(value, ensure_ascii=False)[:limit]
+    return str(value)[:limit]
 
 
 class ClaudeGate:
@@ -232,8 +259,8 @@ class ClaudeGate:
     async def _log(self, task: ClaudeTask, r: RunResult) -> None:
         rl = self.quota.last_rate_limit
         await self.db.execute(
-            "INSERT INTO claude_runs (kind, model, session_id, duration_ms, cost_usd, is_error, error, rate_limit) "
-            "VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+            "INSERT INTO claude_runs (kind, model, session_id, duration_ms, cost_usd, is_error, error, rate_limit, trace, output) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
             (
                 task.kind,
                 task.model,
@@ -245,6 +272,8 @@ class ClaudeGate:
                 json.dumps({"status": rl.status, "type": rl.rate_limit_type, "utilization": rl.utilization})
                 if rl
                 else None,
+                json.dumps(r.trace, ensure_ascii=False) if r.trace else None,
+                (r.text or "")[:600] or None,
             ),
         )
 

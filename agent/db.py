@@ -257,6 +257,13 @@ MIGRATIONS: list[str] = [
         PRIMARY KEY (domain, method)
     );
     """,
+    # 10: observability - what each Claude run actually did
+    """
+    ALTER TABLE claude_runs ADD COLUMN trace TEXT;     -- JSON: tool calls (name, input, error)
+    ALTER TABLE claude_runs ADD COLUMN output TEXT;    -- start of the final answer
+    ALTER TABLE research_runs ADD COLUMN returned INTEGER;  -- findings returned (new + already known)
+    ALTER TABLE research_runs ADD COLUMN skipped TEXT;       -- JSON: what was found but left out, and why
+    """,
 ]
 
 

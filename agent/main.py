@@ -15,6 +15,7 @@ from agent.claude_gate import ClaudeGate
 from agent.controls import Controls
 from agent.config import assert_subscription_auth, ensure_instance, instance_config, load_settings
 from agent.director import Director
+from agent.inspect import Inspector
 from agent.prompts import prompt, set_owner
 from agent.web import WebReader
 from agent.windows import GitHubReader, all_windows
@@ -141,6 +142,20 @@ async def run() -> None:
     scheduler.add_job(sync_calendars, "interval", minutes=cal_options.get("poll_minutes", 30), next_run_time=datetime.now(),
                       id="calendar_sync", max_instances=1, coalesce=True)
     scheduler.add_job(dispatcher.run, "interval", minutes=10, id="dispatcher", max_instances=1, coalesce=True)
+    inspector = Inspector(db, settings.timezone)
+
+    async def health_watch() -> None:
+        """Silence must never mean broken: real failures are reported, once per problem and half day."""
+        for problem in await inspector.health():
+            key = "health.alerted." + problem.split("(")[0].strip()[:60]
+            last = await db.kv_get(key)
+            if last and datetime.fromisoformat(last) > datetime.now() - timedelta(hours=12):
+                continue
+            await db.kv_set(key, datetime.now().isoformat())
+            await bot.send(f"Något fungerar inte som det ska: {problem}.", origin="command")
+            log.warning("health: %s", problem)
+
+    scheduler.add_job(health_watch, "interval", minutes=30, id="health", max_instances=1)
     scheduler.add_job(manager.run, "cron", hour=3, minute=30, id="manager", max_instances=1)
     scheduler.add_job(director.run, "cron", hour=4, minute=15, args=["understand"], id="director_understand", max_instances=1)
     scheduler.add_job(director.run, "cron", day_of_week="mon,wed,sat", hour=5, minute=0, args=["reflect"], id="director_reflect", max_instances=1)

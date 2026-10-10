@@ -20,6 +20,7 @@ Gör så här:
 - Läs sidor med `web_read` (WebFetch finns inte). Om en sida blockeras: läs en annan sida från samma källa, eller sök vidare.
 - Öppna källsidan och kontrollera att saken är aktuell: deadlinen eller datumet har inte passerat och ansökan är öppen.
 - Ange för varje fynd vilken av frågorna ovan som ledde dit (`query`, exakt som den står).
+- Lista i `skipped` det du hittade men valde bort, med ett kort skäl (redan känt, utgånget, står under "Inte intresserad av", passar inte). Då syns det varför en körning gav få fynd.
 - Hoppa över allt som står under "Inte intresserad av" i minnet.
 - Kvalitet går före mängd. Ta hellre med 0–5 riktigt bra fynd än 10 halvbra. Att inte hitta något är ett giltigt och ärligt resultat.
 - För varje fynd: varför passar det just {owner}? Var konkret och koppla till mål, projekt eller kurser. Om du inte kan motivera det, ta inte med det.

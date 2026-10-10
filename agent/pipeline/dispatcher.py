@@ -128,7 +128,7 @@ class Dispatcher:
                     priority=Priority.URGENT,
                     model=self.settings.models.dispatcher,
                     output_schema=SCHEMA,
-                    max_turns=3,
+                    max_turns=6,
                 )
             )
         except QuotaPaused:

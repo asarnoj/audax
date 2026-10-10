@@ -1,0 +1,20 @@
+#!/usr/bin/env bash
+# Look inside the running agent from this machine (read-only).
+#   ./deploy/audax                 today: health, messages, research, decisions, senses, Claude runs
+#   ./deploy/audax day 2026-10-10  a specific day
+#   ./deploy/audax runs [kind] [n] Claude runs with tool-call traces (kind: research, chat, dispatcher, director_reflect, ...)
+#   ./deploy/audax decisions [n]   dispatcher decisions with reasons
+#   ./deploy/audax research        search portfolios
+#   ./deploy/audax senses          per-source yield and readability per domain
+#   ./deploy/audax errors          recent failures
+#   ./deploy/audax logs            follow the service log
+#   ./deploy/audax memory          what changed in memory and instance lately (git log)
+set -euo pipefail
+[ -f "$(dirname "$0")/../.deploy.env" ] && . "$(dirname "$0")/../.deploy.env"
+: "${PI_HOST:?Sätt PI_HOST=user@host i .deploy.env}"
+DIR="${PI_DIR:-Projekt/audax}"
+case "${1:-today}" in
+  logs)   exec ssh -t "$PI_HOST" "journalctl -u agent -f -o cat" ;;
+  memory) exec ssh "$PI_HOST" "cd $DIR && echo '== minne' && git -C workspace/memory log --since='3 days ago' --format='%ad %s' --date=format:'%d/%m %H:%M' | head -25 && echo && echo '== instans' && git -C instance log --since='7 days ago' --format='%ad %s' --date=format:'%d/%m %H:%M' | head -15" ;;
+  *)      exec ssh "$PI_HOST" "cd $DIR && .venv/bin/python -m agent.inspect $*" ;;
+esac
