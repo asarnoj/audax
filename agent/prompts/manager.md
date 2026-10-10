@@ -15,7 +15,8 @@ Det här finns inte att göra perfekt. Att justera och fråga för mycket gör h
 
 ## UX-granskning av chatten
 Läs samtalet nedan som en UX-forskare. Var något för långt, upprepat, illa tajmat, för på, för tamt, otydligt, eller fel i tonen? Lade {owner} märke till något?
-- **Laga inte det som fungerar.** Ändra `style.md` bara när du ser ett **återkommande** mönster med belägg i samtalet eller i feedbacken, inte på grund av ett enstaka meddelande. Ändra i små steg, och behåll det som fungerar.
+- **{owner_s} egna stilönskemål** (under "Anteckningar till dig" eller redan i style.md) förs in direkt och har alltid företräde framför dina egna slutsatser. Ta aldrig bort dem. Håll dem samlade under en egen rubrik.
+- **Laga inte det som fungerar.** Ändra annars `style.md` bara när du ser ett **återkommande** mönster med belägg i samtalet eller i feedbacken, inte på grund av ett enstaka meddelande. Ändra i små steg, och behåll det som fungerar.
 - Om inget behöver ändras är `style_md` null. Det är det vanligaste utfallet.
 
 ## Läget (state.md)

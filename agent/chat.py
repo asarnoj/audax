@@ -204,7 +204,9 @@ class ChatSession:
                 mcp_servers=mcp_servers,
                 system_prompt_append=prompt_template("chat")
                 + "\n\n# Stilguide och läge (ägs av Manager, följ dem)\n"
-                + self.memory.read("style.md", "state.md"),
+                + self.memory.read("style.md", "state.md")
+                + "\n\n# Intressen och vad som INTE ska föreslås (gäller alltid, även om ni tidigare pratat om något annat)\n"
+                + self.memory.read("interests.md"),
             )
 
         typing = None if internal else asyncio.create_task(self._keep_typing())
