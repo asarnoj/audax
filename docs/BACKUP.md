@@ -4,10 +4,10 @@
 
 | Vad | Var | Säkerhetskopia |
 |---|---|---|
-| Koden | Macen + Pi:n (`git`), GitHub när remote finns | git på flera ställen |
+| Koden (motorn) | Macen + Pi:n + publikt GitHub-repo | `deploy.sh` pushar via Pi:n |
 | Minnet (`workspace/memory/`, eget git-repo) | bara Pi:n | **Macen**, dagligen kl. 12 med hela historiken (`~/Backups/audax/memory`) |
 | Databasen (`data/agent.db`) | bara Pi:n | Pi:n varje natt kl. 03:15 (`data/backups/`, 7 dagar) + **Macen** dagligen (`~/Backups/audax/db`) |
-| Instansen (`instance/`, eget git-repo: config om ägaren) | Pi:n | **Macen** dagligen med historik, och vidare till ett privat GitHub-repo om remoten `github` finns i `~/Backups/audax/instance` |
+| Instansen (`instance/`, eget git-repo: config om ägaren) | Pi:n | privat GitHub-repo (remoten `github` på Pi:n, pushas vid varje ändring) + **Macen** dagligen med historik |
 | `.env` (hemligheter) | Pi:n + Macen | **ingen kopia**. Återskapas från `.env.example` |
 
 Det dagliga jobbet på Macen är `deploy/backup.sh` via launchd (`~/Library/LaunchAgents/audax.backup.plist`, installeras från `deploy/audax-backup.plist`). Pi:ns adress läses från `.deploy.env`. Om Macen sover kl. 12 körs det när den vaknar. Loggen finns i `~/Backups/audax/backup.log`, och senaste körningen står i `last-backup`.

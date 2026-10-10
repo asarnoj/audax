@@ -30,7 +30,7 @@ def _write_yaml_keep_header(path, data) -> None:
 
 def commit_config(message: str) -> None:
     """The agent's own config edits are committed at once in the instance repo, so every change is
-    versioned, reversible and included in the backup."""
+    versioned, reversible and included in the backup, and pushed to the instance's `github` remote."""
     files = [str(p.relative_to(INSTANCE)) for p in (RESEARCH_FILE, WATCHLIST_FILE, SOURCES_FILE) if p.is_relative_to(INSTANCE)]
     if not files or not (INSTANCE / ".git").exists():
         return  # tests point the files elsewhere
@@ -38,6 +38,9 @@ def commit_config(message: str) -> None:
     try:
         if subprocess.run([*git, "diff", "--quiet", "--", *files]).returncode != 0:
             subprocess.run([*git, "commit", "-q", "-m", message, "--", *files], check=True, capture_output=True)
+            # Off-site copy: push to the private instance repo if one is configured (in the background).
+            if subprocess.run([*git, "remote", "get-url", "github"], capture_output=True).returncode == 0:
+                subprocess.Popen([*git, "push", "-q", "github", "main"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
     except Exception as e:  # never let bookkeeping break the agent
         log.warning("config commit failed: %s", e)
 
