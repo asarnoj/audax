@@ -15,7 +15,7 @@ Status: steg B, förteckning · 2026-10-11 · hör till [ARCHITECTURE.md](ARCHIT
 | `research.md` (+ djupsvepsingress) | sökuppdrag | per intervall, veckovis | mål, minne, frågor, tidigare fynd | fynd + bortvalda | 1,7k |
 | `scout_queries.md` | sökportföljen | när portföljen är tunn | mål, bra frågor, befintliga | nya frågor | 1,3k |
 | inbakad i `sources/pages.py` | sidbevakning | när en sida ändrats | nya rader | saker | 0,5k |
-| `manager.md` | Manager | varje natt + när den väcks | policy, samtal, feedback, hylla … | policy/stil/läge, frågor, journal | 5,6k |
+| `manager.md` | Manager | varje natt + när den väcks | policy, samtal, feedback, hylla … | policy/stil/läge, frågor, journal, sammanfattning (läser minnet, skriver det inte) | 5,9k |
 | `director_understand.md` | Director | varje natt + när den väcks | bild, minne, tid, samtal, uppdrag, fönster | bild/mål/trådar, uppdrag, sinnen | 4,8k |
 | `director_reflect.md` | Director | mån, ons och lör | som ovan + idéutfall | idéer, delningar, frågor | 5,4k |
 | `builder.md` | byggläget | när ägaren ber om en ändring | önskad ändring | ändrade filer + sammanfattning | 2,0k |
