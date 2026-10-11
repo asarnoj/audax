@@ -126,3 +126,16 @@ async def test_page_poller_only_extracts_when_page_changes(db):
         page["v"] = "<li>Event A</li><li>Event B</li><li>Footer stuff</li>"
         assert [i.title for i in await poller(c1, c)] == ["Event B"]  # only the new line
     assert len(seen_lines) == 2 and seen_lines[1] == ["Event B"]
+
+
+async def test_topic_combines_news_and_hn():
+    from agent.sources.connectors import poll_topic
+
+    rss = "<rss><channel><item><title>Ny inkubator</title><link>https://n/1</link><guid>g1</guid></item></channel></rss>"
+    routes = {
+        "https://news.google.com/rss/search": rss,
+        "https://hn.algolia.com/api/v1/search_by_date": {"hits": [{"objectID": "9", "title": "Show HN: X", "url": "https://x", "points": 5}]},
+    }
+    async with client(routes) as c:
+        items = await poll_topic(cfg("topic", query="KTH Innovation", lang="sv"), c)
+    assert [i.key for i in items] == ["news:g1", "hn:9"] and items[1].url == "https://x"

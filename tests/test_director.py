@@ -48,7 +48,7 @@ def director(db, memory, tmp_path, structured=None, calls=None):
     return Director(load_settings(), db, ClaudeGate(db, tmp_path, runner=runner), memory, Schedule(load_settings(), db, []))
 
 
-BASE = {"now_md": None, "goals_md": None, "log": ""}
+BASE = {"person_md": None, "now_md": None, "goals_md": None, "log": ""}
 
 
 async def test_apply_writes_direction_threads_missions_senses_questions_ideas(env, tmp_path):

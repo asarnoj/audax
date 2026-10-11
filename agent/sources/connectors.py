@@ -225,7 +225,47 @@ async def poll_hn_hiring(config: StreamConfig, client: httpx.AsyncClient) -> lis
     return items
 
 
+# --- Topics: follow news about something specific ----------------------------------
+
+
+def _news_url(query: str, lang: str) -> str:
+    from urllib.parse import quote
+
+    hl, gl, ceid = ("sv", "SE", "SE:sv") if lang == "sv" else ("en-US", "US", "US:en")
+    return f"https://news.google.com/rss/search?q={quote(query)}+when:7d&hl={hl}&gl={gl}&ceid={ceid}"
+
+
+async def poll_topic(config: StreamConfig, client: httpx.AsyncClient) -> list[StreamItem]:
+    """News (Google News search feed) and Hacker News about a topic.
+    params: query, lang (sv|en), sources ([news, hn])."""
+    p = config.params
+    query, items = p["query"], []
+    sources = p.get("sources") or ["news", "hn"]
+    if "news" in sources:
+        r = await client.get(_news_url(query, p.get("lang", "en")))
+        r.raise_for_status()
+        items += [StreamItem(key=f"news:{i.key}", title=i.title, url=i.url, text=i.text, published=i.published) for i in parse_feed(r.content)]
+    if "hn" in sources:
+        r = await client.get(
+            "https://hn.algolia.com/api/v1/search_by_date", params={"query": query, "tags": "story", "hitsPerPage": 20}
+        )
+        r.raise_for_status()
+        items += [
+            StreamItem(
+                key=f"hn:{h['objectID']}",
+                title=h["title"],
+                url=h.get("url") or f"https://news.ycombinator.com/item?id={h['objectID']}",
+                text=f"Hacker News, {h.get('points', 0)} poäng, {h.get('num_comments', 0)} kommentarer",
+                published=h.get("created_at"),
+            )
+            for h in r.json().get("hits", [])
+            if h.get("title")
+        ]
+    return items
+
+
 POLLERS: dict[str, Poller] = {
+    "topic": poll_topic,
     "rss": poll_rss,
     "jobtech": poll_jobtech,
     "devpost": poll_devpost,

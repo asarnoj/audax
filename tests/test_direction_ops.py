@@ -52,3 +52,11 @@ async def test_add_company_detects_ats(files, monkeypatch):
     assert "bevakas nu (ashby)" in await ops.add_company("Acme", "https://acme/careers")
     assert "redan" in await ops.add_company("acme", "https://acme/careers")
     assert yaml.safe_load(watchlist.read_text())["companies"][-1] == {"name": "Acme", "careers_url": "https://acme/careers", "ats": "ashby", "slug": "acme"}
+
+
+def test_add_topic_appends_baselined_topic_stream(files):
+    _, sources, _ = files
+    assert "Följer nyheter om Claude Code" in ops.add_topic("Claude Code", "Claude Code", "en")
+    assert "redan" in ops.add_topic("Claude Code", "Claude Code")
+    s = yaml.safe_load(sources.read_text())["streams"][-1]
+    assert (s["id"], s["type"], s["params"]["query"]) == ("topic-claude-code", "topic", "Claude Code") and "baseline" not in s

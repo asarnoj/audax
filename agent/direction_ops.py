@@ -115,3 +115,21 @@ def add_page(page_id: str, url: str, note: str = "", kind: str = "event", type_:
         f.write(block)
     commit_config(f"agent: bevaka {url}")
     return f"Bevakar {url} från och med nu."
+
+
+def add_topic(name: str, query: str, lang: str = "en", note: str = "") -> str:
+    """Follow news and Hacker News about a topic. The first poll only records what exists (baseline),
+    so only new articles reach triage."""
+    sid = "topic-" + slug(name)
+    data = yaml.safe_load(SOURCES_FILE.read_text()) or {}
+    if any(s.get("id") == sid for s in data.get("streams") or []):
+        return f"Ämnet {name} följs redan."
+    block = (
+        f"\n  - id: {sid}\n    type: topic\n    kind: news\n    poll_minutes: 120\n"
+        f"    params: {{query: {json.dumps(query, ensure_ascii=False)}, lang: {lang}}}\n"
+        f"    note: {json.dumps(note or f'Nyheter om {name}. Bara det som är verkligt nytt eller viktigt.', ensure_ascii=False)}\n"
+    )
+    with SOURCES_FILE.open("a") as f:
+        f.write(block)
+    commit_config(f"agent: följ ämnet {name}")
+    return f"Följer nyheter om {name} från och med nu. Jag hör av mig när något nytt och viktigt dyker upp."

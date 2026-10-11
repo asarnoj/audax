@@ -35,6 +35,7 @@ LEVEL = {"type": "string", "enum": ["low", "medium", "high"]}
 SCHEMA = {
     "type": "object",
     "properties": {
+        "person_md": {"type": ["string", "null"], "description": "Hela nya person.md, eller null om oförändrad"},
         "now_md": {"type": ["string", "null"], "description": "Hela nya now.md, eller null om oförändrad"},
         "goals_md": {"type": ["string", "null"], "description": "Hela nya goals.md, eller null"},
         "threads": {
@@ -70,9 +71,9 @@ SCHEMA = {
             "items": {
                 "type": "object",
                 "properties": {
-                    "op": {"type": "string", "enum": ["add_page", "add_feed", "add_company"]},
-                    "name": {"type": "string", "description": "id för sida/flöde, eller företagsnamn"},
-                    "url": {"type": "string", "description": "sidans/flödets URL, eller företagets karriärsida"},
+                    "op": {"type": "string", "enum": ["add_page", "add_feed", "add_company", "add_topic"]},
+                    "name": {"type": "string", "description": "id för sida/flöde, företagsnamn eller ämnets namn"},
+                    "url": {"type": "string", "description": "sidans/flödets URL, företagets karriärsida, eller för add_topic: sökfrågan"},
                     "note": {"type": ["string", "null"], "description": "vad som är värdefullt från källan"},
                     "kind": {"type": ["string", "null"]},
                     "reason": {"type": "string"},
@@ -103,7 +104,7 @@ SCHEMA = {
         },
         "log": {"type": "string", "description": "Vad du ändrade och varför, kort. Tom om inget."},
     },
-    "required": ["now_md", "goals_md", "log"],
+    "required": ["person_md", "now_md", "goals_md", "log"],
 }
 MEMORY_FILES = ("profile.md", "projects.md", "interests.md", "school.md", "schedule.md", "open-questions.md")
 
@@ -183,7 +184,7 @@ class Director:
         changes: list[str] = []
         self.dir.mkdir(exist_ok=True)
         (self.dir / "threads").mkdir(exist_ok=True)
-        for name, key in (("now.md", "now_md"), ("goals.md", "goals_md"), ("ideas.md", "ideas_md")):
+        for name, key in (("person.md", "person_md"), ("now.md", "now_md"), ("goals.md", "goals_md"), ("ideas.md", "ideas_md")):
             if out.get(key):
                 (self.dir / name).write_text(out[key].strip() + "\n")
                 changes.append(f"{name} uppdaterad")
@@ -200,6 +201,8 @@ class Director:
         for s in out.get("senses") or []:
             if s["op"] == "add_company":
                 changes.append(await ops.add_company(s["name"], s["url"]))
+            elif s["op"] == "add_topic":
+                changes.append(ops.add_topic(s["name"], s["url"], "sv" if any(c in s["url"] for c in "åäö") else "en", s.get("note") or ""))
             else:
                 changes.append(
                     ops.add_page(s["name"], s["url"], s.get("note") or "", s.get("kind") or "event", "rss" if s["op"] == "add_feed" else "page")
@@ -246,7 +249,7 @@ class Director:
     # --- context ----------------------------------------------------------
 
     def _direction(self) -> str:
-        parts = [self.memory.read("direction/now.md", "direction/goals.md", "direction/ideas.md")]
+        parts = [self.memory.read("direction/person.md", "direction/now.md", "direction/goals.md", "direction/ideas.md")]
         threads = sorted((self.dir / "threads").glob("*.md")) if (self.dir / "threads").exists() else []
         parts += [f"--- direction/threads/{t.name} ---\n{t.read_text().strip()}" for t in threads]
         return "\n\n".join(p for p in parts if p) or "Tomt."

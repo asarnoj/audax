@@ -31,6 +31,7 @@ Konflikter löses genom att det användaren senast uttryckligen har sagt gäller
 **Läser:** chatten (via de sorterade svaren och journalen), schemat (hur tiden faktiskt används), utfall från sinnena, och efter hand fönstren mot användarens arbete: GitHub, anteckningar och texter, todo-sidan och bloggen. Alla fönster är skrivskyddade.
 
 **Skriver i `direction/`:**
+- `person.md`: **grunden.** Vem användaren är och vad hen vill: önskningar, intentioner, drivkrafter, värderingar, mönster. Det som är sagt skiljs från det som är slutsatser, och slutsatser är hypoteser med belägg.
 - `now.md`: den levande bilden. Vad användaren lägger tid på, vad som rör sig och vad som står still, vad som skaver, vad som har hänt nyligen.
 - `goals.md`: mål med djup analys. Varför målet spelar roll, vad som skulle hjälpa, vad som skulle vara värt att veta. **Worker läser filen vid varje sökning och triage.**
 - `threads/*.md`: saker som drivs över tid (t.ex. "hitta en praktikplats"). Varje tråd har mål, läge, vad som har prövats, nästa steg och de uppdrag och sinnen som hör till.

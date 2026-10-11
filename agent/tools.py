@@ -286,13 +286,15 @@ def _inbox_tools(inbox: Inbox, wake_director=None) -> list:
     @tool(
         "watch_source",
         "Börja bevaka en källa permanent när {owner} ber om det: en sida (t.ex. en eventkalender), ett RSS-flöde, "
-        "eller ett företags alla jobbannonser (ange karriärsidan).",
+        "ett företags alla jobbannonser (ange karriärsidan), eller ett ämne/en händelse att följa i nyheterna "
+        "(type=topic, url=sökfrågan, t.ex. 'KTH Innovation' eller 'Claude Code').",
         {
             "type": "object",
             "properties": {
-                "type": {"type": "string", "enum": ["page", "feed", "company"]},
+                "type": {"type": "string", "enum": ["page", "feed", "company", "topic"]},
                 "name": {"type": "string", "description": "kort namn, eller företagsnamn"},
-                "url": {"type": "string"},
+                "url": {"type": "string", "description": "URL, eller för topic: sökfrågan"},
+                "lang": {"type": "string", "enum": ["sv", "en"], "description": "topic: nyheter på svenska eller engelska"},
                 "note": {"type": "string", "description": "vad som är värdefullt från källan för {owner}"},
             },
             "required": ["type", "name", "url"],
@@ -303,6 +305,8 @@ def _inbox_tools(inbox: Inbox, wake_director=None) -> list:
 
         if args["type"] == "company":
             return _text(await ops.add_company(args["name"], args["url"]))
+        if args["type"] == "topic":
+            return _text(ops.add_topic(args["name"], args["url"], args.get("lang", "en"), args.get("note", "")))
         return _text(ops.add_page(args["name"], args["url"], args.get("note", ""), "event", "rss" if args["type"] == "feed" else "page"))
 
     @tool(
