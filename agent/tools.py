@@ -222,10 +222,13 @@ def _control_tools(controls: Controls, turn: TurnContext) -> list:
 
     @tool(
         "source_overview",
-        "Visa agentens källor och undersökningar, och hur många händelser de har gett och vad som hände med dem.",
-        {"type": "object", "properties": {}},
+        "Visa vad du bevakar och hur ofta, och vad det har gett. Med `source` (t.ex. 'machinarium', 'devpost', 'jobtech') "
+        "listas de senaste sakerna från den källan och vad som hände med var och en, och varför.",
+        {"type": "object", "properties": {"source": {"type": "string"}}},
     )
     async def source_overview(args: dict[str, Any]) -> dict[str, Any]:
+        if args.get("source"):
+            return _text(await controls.recent_items(args["source"]))
         return _text(await controls.sources())
 
     @tool(

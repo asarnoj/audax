@@ -116,6 +116,26 @@ class Controls:
         lines.append(f"Undersökningar: {research or 'inga'}")
         return "\n".join(lines)
 
+    async def recent_items(self, source: str, n: int = 10) -> str:
+        """The latest items from one sense (matched loosely on its id), with what happened to each and why."""
+        rows = await self.db.fetchall(
+            "SELECT e.source, e.created_at, json_extract(e.payload, '$.title') AS title, c.status, "
+            "(SELECT d.reason FROM decisions d WHERE d.candidate_id = c.id ORDER BY d.id DESC LIMIT 1) AS reason, "
+            "json_extract(c.features, '$.reason') AS triage "
+            "FROM events e LEFT JOIN candidates c ON c.event_id = e.id "
+            "WHERE e.source LIKE ? AND COALESCE(e.triaged_at, '') != 'baseline' ORDER BY e.id DESC LIMIT ?",
+            (f"%{source}%", n),
+        )
+        if not rows:
+            return f"Inget har kommit in från {source} ännu (utöver det som fanns när bevakningen startade)."
+        status = {"sent": "skickat", "shelved": "på hyllan", "pulled": "hämtat från hyllan", "dropped": "bortsorterat",
+                  "pending": "väntar", "expired": "gick ut", None: "inte bedömt än"}
+        return "\n".join(
+            f"- {r['created_at'][:10]} {r['title'] or '?'} → {status.get(r['status'], r['status'])}"
+            + (f": {(r['reason'] or r['triage'] or '')[:140]}" if (r["reason"] or r["triage"]) else "")
+            for r in rows
+        )
+
     def research_ids(self) -> list[str]:
         return [t.id for t in load_research()]
 

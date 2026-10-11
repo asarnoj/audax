@@ -87,3 +87,14 @@ async def test_research_runs_in_background_and_notifies(setup):
     assert "Startade" in await c.start_research(rid)
     await asyncio.sleep(0.05)
     assert notes == [f"{rid}: klar, 3 nya fynd. Det som inte skickades ligger på hyllan."]
+
+
+
+async def test_recent_items_explain_what_happened(setup):
+    db, c, outbox, *_ = setup
+    eid = await db.execute("INSERT INTO events (source, kind, dedupe_key, payload) VALUES ('stream:topic-machinarium-2', 'news', 'a', '{\"title\": \"Machinarium 2 trailer\"}')")
+    cid = await db.execute("INSERT INTO candidates (event_id, kind, title, body, status, features) VALUES (?, 'news', 't', 'b', 'dropped', '{\"reason\": \"bara en recension\"}')", (eid,))
+    await outbox.record(cid, "dispatcher@1", "drop", "inget nytt", {})
+    text = await c.recent_items("machinarium")
+    assert "Machinarium 2 trailer → bortsorterat: inget nytt" in text
+    assert "Inget har kommit in" in await c.recent_items("nope")
