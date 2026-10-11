@@ -296,10 +296,10 @@ def _inbox_tools(inbox: Inbox, wake_director=None) -> list:
         if args.get("act_now") and wake_director:
             wake_director(args["owner"])
             return _text(personalize(
-                "[internt] Sparat. Arbetet med det här börjar i bakgrunden inom någon minut: en tråd, sökningar och "
-                "bevakning efter behov. Bekräfta kort för {owner} att du tar tag i det."
+                "[internal] Saved. Work on this starts in the background within a minute: a thread, searches and "
+                "watching as needed. Confirm briefly to {owner} that you are on it."
             ))
-        return _text("[internt] Sparat.")
+        return _text("[internal] Saved.")
 
     @tool(
         "watch_source",
@@ -372,7 +372,7 @@ def _inbox_tools(inbox: Inbox, wake_director=None) -> list:
     )
     async def mark_request_asked(args: dict[str, Any]) -> dict[str, Any]:
         await inbox.mark_asked(args["request_id"])
-        return _text("[internt] Noterat.")
+        return _text("[internal] Noted.")
 
     return [route_note, mark_request_asked, watch_source, change_watch]
 

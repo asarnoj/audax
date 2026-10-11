@@ -63,7 +63,7 @@ async def test_messages_during_busy_turn_are_batched(db, tmp_path):
 
     assert len(prompts) == 2
     assert "första" in prompts[0]
-    assert "andra" in prompts[1] and "tredje" in prompts[1] and '[svarar på: "ett tidigare meddelande"]' in prompts[1]
+    assert "andra" in prompts[1] and "tredje" in prompts[1] and '[replying to: "ett tidigare meddelande"]' in prompts[1]
     assert resumes == [None, "s1"]  # second turn resumes the stored session
     assert sent == ["svar 1", "svar 2"]
     assert await db.kv_get(SESSION_KEY) == "s1"
@@ -138,7 +138,7 @@ async def test_proactive_messages_are_shown_to_the_chat_once(db, tmp_path):
     chat.submit(Incoming(text="tack"))
     await wait_idle(chat)
 
-    assert "[du skickade på eget initiativ" in prompts[0] and "Google-praktik i Stockholm" in prompts[0]
+    assert "[you sent proactively" in prompts[0] and "Google-praktik i Stockholm" in prompts[0]
     assert "Google-praktik" not in prompts[1]  # shown once
     assert "SVAR-123" not in prompts[1]  # the chat's own replies are never echoed back
 
@@ -149,7 +149,7 @@ async def test_speak_writes_proactive_message_in_session_and_is_not_echoed_back(
 
     async def runner(task, ws, on_rl):
         prompts.append(task.prompt)
-        reply = "Hackathon på Uni i nov, passar sidoprojektet." if "internt uppdrag" in task.prompt else "svar"
+        reply = "Hackathon på Uni i nov, passar sidoprojektet." if "internal task" in task.prompt else "svar"
         return RunResult(text=reply, session_id="s")
 
     async def send(text, candidate_id=None, origin=None, in_session=False):
@@ -166,7 +166,7 @@ async def test_speak_writes_proactive_message_in_session_and_is_not_echoed_back(
     assert len(ids) == 1
     row = await db.fetchone("SELECT origin, in_session, text FROM messages WHERE id = ?", (ids[0],))
     assert (row["origin"], row["in_session"]) == ("proactive", 1)
-    assert sum("internt uppdrag" in p for p in prompts) == 1  # its own turn, not merged with the owner's message
+    assert sum("internal task" in p for p in prompts) == 1  # its own turn, not merged with the owner's message
     chat.submit(Incoming(text="kul"))
     await wait_idle(chat)
     assert "Hackathon på Uni" not in prompts[-1]  # already in the session: not injected again
@@ -207,7 +207,7 @@ async def test_open_request_is_offered_and_answer_routed_verbatim(db, tmp_path):
     chat = ChatSession(load_settings(), db, ClaudeGate(db, tmp_path, runner=runner), FakeMemory(), send, typing)
     chat.submit(Incoming(text="tråkig dag"))
     await wait_idle(chat)
-    assert f"[öppen fråga #{rid} från director" in prompts[0]
+    assert f"[open question #{rid} from director" in prompts[0]
 
     await inbox.mark_asked(rid)
     assert await inbox.open_request() is None  # one question at a time

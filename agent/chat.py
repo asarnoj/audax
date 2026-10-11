@@ -122,28 +122,28 @@ class ChatSession:
         return f"{WEEKDAYS[now.weekday()]} {now.day} {MONTHS[now.month - 1]} {now:%H:%M}"
 
     async def _prompt(self, batch: list[Incoming]) -> str:
-        parts = [f"[tid: {self._now()}]"]
+        parts = [f"[time: {self._now()}]"]
         if self.schedule is not None:
             try:
-                parts.append(f"[schema: {(await self.schedule.availability()).status_line()}]")
+                parts.append(f"[schedule: {(await self.schedule.availability()).status_line()}]")
             except Exception:
                 log.exception("availability failed")
         if not await self.db.kv_get(SESSION_KEY) and (seed := await self.db.kv_get("chat.seed_summary")):
-            parts.append(f"[ny session: sammanfattning av tidigare samtal]\n{seed}\n[slut]")
+            parts.append(f"[new session: summary of the conversation so far]\n{seed}\n[end]")
             parts.append(await self._recent_conversation(limit=12))
         parts.extend(await self._proactive_since_last_turn())
         if not batch[0].internal and (req := await self.inbox.open_request()):
             parts.append(
-                f"[öppen fråga #{req['id']} från {req['owner']}. Väv bara in den om det passar naturligt i samtalet nu, "
-                f"annars låt bli. Om du ställer den: anropa mark_request_asked. Vad: {req['what']} · Varför: {req['why']}]"
+                f"[open question #{req['id']} from {req['owner']}: ask only if it fits naturally now; if you ask it, call "
+                f"mark_request_asked. What: {req['what']} · Why: {req['why']}]"
             )
         for m in batch:
             if m.internal:
-                parts.append(f"[internt uppdrag, inte från användaren. Ditt svar skickas ordagrant till användaren som ett meddelande från dig]\n{m.text}")
+                parts.append(f"[internal task: not from the owner. Your reply is sent to them verbatim as a message from you]\n{m.text}")
                 continue
             if m.replied_to_text:
                 quoted = m.replied_to_text if len(m.replied_to_text) <= 300 else m.replied_to_text[:300] + "…"
-                parts.append(f'[svarar på: "{quoted}"]')
+                parts.append(f'[replying to: "{quoted}"]')
             parts.append(m.text)
         return "\n".join(parts)
 
@@ -156,10 +156,10 @@ class ChatSession:
             return ""
         lines = []
         for r in reversed(rows):
-            who = "användaren" if r["direction"] == "in" else ("du (på eget initiativ)" if r["origin"] == "proactive" else "du")
+            who = "owner" if r["direction"] == "in" else ("you (proactively)" if r["origin"] == "proactive" else "you")
             text = r["text"] if len(r["text"]) <= 600 else r["text"][:600] + "…"
             lines.append(f"{who}: {text}")
-        return "[ny session: de senaste meddelandena från förra sessionen, som bakgrund]\n" + "\n".join(lines) + "\n[slut]\n"
+        return "[new session: the latest messages before this session, for context]\n" + "\n".join(lines) + "\n[end]\n"
 
     async def _proactive_since_last_turn(self) -> list[str]:
         """Messages sent outside the session since the last turn (polls, proposals, fallback deliveries).
@@ -178,7 +178,7 @@ class ChatSession:
         for r in rows[-PROACTIVE_LIMIT:]:
             when = datetime.fromisoformat(r["created_at"] + "+00:00").astimezone(tz)
             text = r["text"] if len(r["text"]) <= 1500 else r["text"][:1500] + "…"
-            out.append(f"[du skickade på eget initiativ {WEEKDAYS[when.weekday()]} {when:%H:%M}]\n{text}\n[slut]")
+            out.append(f"[you sent proactively {WEEKDAYS[when.weekday()]} {when:%H:%M}]\n{text}\n[end]")
         return out
 
     async def _turn(self, batch: list[Incoming]) -> None:
@@ -204,9 +204,9 @@ class ChatSession:
                 allowed_tools=CHAT_TOOLS + tool_names,
                 mcp_servers=mcp_servers,
                 system_prompt_append=prompt_template("chat")
-                + "\n\n# Stilguide och läge (ägs av Manager, följ dem)\n"
+                + "\n\n# Style guide and current state (owned by Manager; follow them)\n"
                 + self.memory.read("style.md", "state.md")
-                + "\n\n# Intressen och vad som INTE ska föreslås (gäller alltid, även om ni tidigare pratat om något annat)\n"
+                + "\n\n# Interests, and what never to suggest (applies even to things discussed earlier)\n"
                 + self.memory.read("interests.md"),
             )
 

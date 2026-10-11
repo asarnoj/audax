@@ -231,9 +231,9 @@ class Dispatcher:
             return
         try:
             ids = await self.outbox.speak(
-                f"{req['owner'].capitalize()} vill veta något. Ställ frågan till användaren naturligt och kort, som en del av ert "
-                f"samtal och inte som ett formulär. Om användaren svarar senare: route_note med request_id {req['id']}.\n"
-                f"Vad: {req['what']}\nVarför (för din skull, behöver inte sägas): {req['why']}"
+                f"{req['owner'].capitalize()} wants to know something. Ask the owner naturally and briefly, as part of your "
+                f"conversation, not as a form. When they answer later, use route_note with request_id {req['id']}.\n"
+                f"What: {req['what']}\nWhy (for you; no need to say it): {req['why']}"
             )
         except Exception as e:
             log.warning("couldn't ask request %s: %s", req["id"], e)

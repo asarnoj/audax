@@ -67,9 +67,9 @@ class Outbox:
             items = "\n".join(f"- {r['title']}: {r['body'].strip()} {r['url'] or ''}".strip() for r in rows)
             try:
                 message_ids = await self.speak(
-                    "Dispatchern har bestämt att det här ska fram nu. Skriv meddelandet till användaren enligt stilen: "
-                    "kort, en rad per sak, med länkarna. Om ni nyss pratat om något som hör ihop, knyt an kort.\n"
-                    f"Underlag:\n{items}" + (f"\n\nFörslag på formulering:\n{text}" if text else "")
+                    "Deliver this to the owner now: one short message in your usual style, one line per item, links kept. "
+                    "If you were just talking about something related, connect to it briefly.\n"
+                    f"Items:\n{items}" + (f"\n\nSuggested wording:\n{text}" if text else "")
                 )
             except Exception as e:
                 log.warning("chat session couldn't deliver (%s); sending the draft as-is", e)

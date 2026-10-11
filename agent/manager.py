@@ -135,7 +135,7 @@ class Manager:
                     prompt=prompt,
                     priority=Priority.MANAGER,
                     model=self.settings.models.manager,
-                    allowed_tools=["Read(./memory/**)", "Edit(./memory/**)", "Write(./memory/**)"],
+                    allowed_tools=["Read(./memory/**)"],  # Manager's own files are written by Python from its answer
                     output_schema=SCHEMA,
                     max_turns=25,
                 )
