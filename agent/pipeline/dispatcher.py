@@ -1,6 +1,6 @@
 """Dispatcher: decides whether, when and how outbox candidates reach användaren (docs/ATTENTION.md §4.4).
 
-Hard rules in code: quiet hours, /tyst and /fokus, no duplicates. Everything else is judgment against policy.md.
+Hard rules in code: quiet hours, silence and focus modes, no duplicates. Everything else is judgment against policy.md.
 """
 
 from __future__ import annotations
@@ -35,12 +35,11 @@ SCHEMA = {
                     "candidate_id": {"type": "integer"},
                     "tier": {"type": "string", "enum": TIERS},
                     "send_now": {"type": "boolean"},
-                    "reason": {"type": "string"},
+                    "reason": {"type": "string", "description": "Swedish, shown to the owner if they ask why"},
                 },
                 "required": ["candidate_id", "tier", "send_now", "reason"],
             },
         },
-        "combined_message": {"type": ["string", "null"]},
     },
     "required": ["decisions"],
 }
@@ -148,7 +147,7 @@ class Dispatcher:
                 continue
             tier = d["tier"]
             if focus and tier != "interrupt":
-                d["send_now"] = False  # /fokus: only interruptions get through
+                d["send_now"] = False  # focus mode: only interruptions get through
             if tier == "shelf":
                 await self.outbox.set_tier(row["id"], tier, "shelved")
             elif tier == "drop":
@@ -160,9 +159,7 @@ class Dispatcher:
             await self.outbox.record(row["id"], MODULE, tier + (" (nu)" if d.get("send_now") and tier not in ("shelf", "drop") else ""), d.get("reason", ""), trace)
 
         if to_send:
-            combined = (result.structured.get("combined_message") or "").strip()
-            text = combined if len(to_send) > 1 and combined else None
-            await self.outbox.deliver(to_send, text)
+            await self.outbox.deliver(to_send)  # the chat writes the message
 
     async def _context(self, pending: list, avail) -> dict:
         now = self.schedule.now()
@@ -172,16 +169,16 @@ class Dispatcher:
             age = now - datetime.fromisoformat(r["created_at"] + "+00:00").astimezone(now.tzinfo)
             candidates.append(
                 f"[id {r['id']}] {r['kind']} · {r['title']}\n"
-                f"egenskaper: {r['features']}\n"
-                f"väntat: {int(age.total_seconds() // 3600)} h · tidigare beslut: {r['tier'] or '-'} · går ut: {r['expires_at'] or '-'}\n"
-                f"utkast: {r['body']}"
+                f"features: {r['features']}\n"
+                f"waiting: {int(age.total_seconds() // 3600)} h · earlier decision: {r['tier'] or '-'} · expires: {r['expires_at'] or '-'}\n"
+                f"brief: {r['body']}"
             )
         return {
             "now": f"{WEEKDAYS[now.weekday()]} {now:%Y-%m-%d %H:%M}",
             "availability": avail.status_line(),
-            "gaps": ", ".join(f"{a:%H:%M}–{b:%H:%M}" for a, b in gaps) or "inga fler idag",
+            "gaps": ", ".join(f"{a:%H:%M}–{b:%H:%M}" for a, b in gaps) or "none left today",
             "activity": await self._activity(),
-            "interrupt": self.memory.read("interrupt.md") or "(tom)",
+            "interrupt": self.memory.read("interrupt.md") or "(empty)",
             "policy": self.memory.read("policy.md", "state.md"),
             "candidates": "\n\n".join(candidates),
         }
@@ -199,11 +196,11 @@ class Dispatcher:
         )
         shelf = await self.db.fetchone("SELECT count(*) AS n FROM candidates WHERE status = 'shelved'")
         lines = [
-            f"Meddelanden från agenten senaste dygnet: {len(sent)}"
-            + (" (" + "; ".join(f"{self._local(r['created_at'])} {r['reactions'] or 'ingen reaktion'}" for r in sent[-8:]) + ")" if sent else ""),
-            f"användaren skrev senast: {self._local(last_in['created_at']) if last_in else 'aldrig'}",
-            "Feedback senaste veckan: " + (", ".join(f"{r['signal']}:{r['value']}×{r['n']}" for r in fb) or "ingen"),
-            f"På hyllan: {shelf['n']}",
+            f"Messages from Audax in the last 24 h: {len(sent)}"
+            + (" (" + "; ".join(f"{self._local(r['created_at'])} {r['reactions'] or 'no reaction'}" for r in sent[-8:]) + ")" if sent else ""),
+            f"Owner last wrote: {self._local(last_in['created_at']) if last_in else 'never'}",
+            "Feedback in the last week: " + (", ".join(f"{r['signal']}:{r['value']}×{r['n']}" for r in fb) or "none"),
+            f"On the shelf: {shelf['n']}",
         ]
         return "\n".join(lines)
 

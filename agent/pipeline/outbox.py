@@ -57,11 +57,11 @@ class Outbox:
     async def pending(self) -> list:
         return await self.db.fetchall("SELECT * FROM candidates WHERE status = 'pending' ORDER BY created_at")
 
-    async def deliver(self, rows: list, text: str | None = None) -> None:
-        """Sends one message carrying the given candidates and links them for replies, reactions and /varför."""
+    async def deliver(self, rows: list) -> None:
+        """Sends one message carrying the given candidates and links them for replies, reactions and "why did I get this?"."""
         if not rows:
             return
-        draft = text or (render(rows[0]) if len(rows) == 1 else "\n\n".join(render(r) for r in rows))
+        draft = (render(rows[0]) if len(rows) == 1 else "\n\n".join(render(r) for r in rows))
         message_ids: list[int] = []
         if self.speak is not None:
             items = "\n".join(f"- {r['title']}: {r['body'].strip()} {r['url'] or ''}".strip() for r in rows)
@@ -69,7 +69,7 @@ class Outbox:
                 message_ids = await self.speak(
                     "Deliver this to the owner now: one short message in your usual style, one line per item, links kept. "
                     "If you were just talking about something related, connect to it briefly.\n"
-                    f"Items:\n{items}" + (f"\n\nSuggested wording:\n{text}" if text else "")
+                    f"Items:\n{items}"
                 )
             except Exception as e:
                 log.warning("chat session couldn't deliver (%s); sending the draft as-is", e)
@@ -96,7 +96,7 @@ class Outbox:
         )
 
     async def pull_shelf(self, limit: int = 8) -> list:
-        """What /nytt shows: newest shelved items first. Pulled items count as a positive signal."""
+        """What the shelf returns when the owner asks what's new: newest shelved items first. Pulled items count as a positive signal."""
         rows = await self.db.fetchall(
             "SELECT * FROM candidates WHERE status = 'shelved' ORDER BY updated_at DESC LIMIT ?", (limit,)
         )

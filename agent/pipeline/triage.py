@@ -37,10 +37,10 @@ SCHEMA = {
                     "novelty": LEVEL,
                     "confidence": LEVEL,
                     "complement": LEVEL,
-                    "message": {"type": "string"},
-                    "reason": {"type": "string"},
+                    "brief": {"type": "string", "description": "Swedish, 1-3 sentences: what it is, why it fits, key facts"},
+                    "reason": {"type": "string", "description": "Swedish, one sentence on the judgement"},
                 },
-                "required": ["event_id", "keep", "relevance", "actionability", "time_sensitivity", "novelty", "confidence", "complement", "message", "reason"],
+                "required": ["event_id", "keep", "relevance", "actionability", "time_sensitivity", "novelty", "confidence", "complement", "brief", "reason"],
             },
         }
     },
@@ -70,7 +70,7 @@ class Triage:
 
     async def _batch(self, rows) -> int | None:
         now = datetime.now(ZoneInfo(self.settings.timezone))
-        events = "\n\n".join(f"[event_id {r['id']}] källa: {r['source']}\n{r['payload']}" for r in rows)
+        events = "\n\n".join(f"[event_id {r['id']}] source: {r['source']}\n{r['payload']}" for r in rows)
         prompt = prompt_template("triage").format(
             now=f"{now:%Y-%m-%d %H:%M}",
             memory=self.memory.read("direction/goals.md", "direction/now.md", "profile.md", "interests.md", "projects.md", "school.md"),
@@ -108,7 +108,7 @@ class Triage:
                 self.db,
                 kind=row["kind"],
                 title=payload.get("title", row["kind"]),
-                body=item.get("message") or payload.get("summary", ""),
+                body=item.get("brief") or payload.get("summary", ""),
                 features=features,
                 url=payload.get("url"),
                 expires_at=_expiry(payload, self.settings.timezone),

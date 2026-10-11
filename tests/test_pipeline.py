@@ -76,12 +76,11 @@ async def test_dispatcher_applies_tiers_and_bundles(db, tmp_path):
             {"candidate_id": c, "tier": "shelf", "send_now": False, "reason": "inte värt att störa"},
             {"candidate_id": e, "tier": "drop", "send_now": False, "reason": "utgånget"},
         ],
-        "combined_message": "Två saker: hackathon https://x/a och jobb https://x/b",
     }
     d, sent = await make_dispatcher(db, tmp_path, decisions)
     await d.run()
 
-    assert sent == ["Två saker: hackathon https://x/a och jobb https://x/b"]
+    assert len(sent) == 1 and "https://x/a" in sent[0] and "https://x/b" in sent[0]  # one message, both items
     status = {r["id"]: r["status"] for r in await db.fetchall("SELECT id, status FROM candidates")}
     assert status == {a: "sent", b: "sent", c: "shelved", e: "dropped"}
     links = await db.fetchall("SELECT candidate_id FROM message_candidates")
@@ -140,8 +139,8 @@ async def test_triage_creates_candidates_and_drops(db, tmp_path):
                           (json.dumps({"title": "Dåligt", "url": "https://b"}),))
     lv = dict(relevance="high", actionability="high", time_sensitivity="medium", novelty="high", confidence="high", complement="high")
     out = {"items": [
-        {"event_id": e1, "keep": True, "message": "Kolla in det här", "reason": "passar", **lv},
-        {"event_id": e2, "keep": False, "message": "-", "reason": "irrelevant", **lv},
+        {"event_id": e1, "keep": True, "brief": "Kolla in det här", "reason": "passar", **lv},
+        {"event_id": e2, "keep": False, "brief": "-", "reason": "irrelevant", **lv},
     ]}
     t = Triage(load_settings(), db, gate_returning(db, tmp_path, out), FakeMemory())
     assert await t.run() == 1
