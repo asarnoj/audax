@@ -113,12 +113,19 @@ async def run() -> None:
     web = WebReader(db, github=director.github)
     director.web = bot.chat.web = researcher.web = web
 
-    def wake_director() -> None:
-        """Chat asked the Director to act now: run the daily pass shortly (coalesced if already queued)."""
-        scheduler.add_job(director.run, "date", run_date=datetime.now() + timedelta(seconds=20), args=["understand"],
-                          id="director_now", replace_existing=True)
+    # Worker -> Director/Manager: a note marked act_now triggers that mind's pass soon instead of at night.
+    # Coalesced (one queued run per mind) and spaced (at most every 30 min), so a chatty day can't loop them.
+    last_wake: dict[str, datetime] = {}
 
-    bot.chat.wake_director = wake_director
+    def wake(owner: str) -> None:
+        if owner in last_wake and datetime.now() - last_wake[owner] < timedelta(minutes=30):
+            return  # the pending notes are picked up by the next run anyway
+        last_wake[owner] = datetime.now()
+        job, args = (director.run, ["understand"]) if owner == "director" else (manager.run, [])
+        scheduler.add_job(job, "date", run_date=datetime.now() + timedelta(seconds=20), args=args, id=f"{owner}_now", replace_existing=True)
+        log.info("woke %s on request from the chat", owner)
+
+    bot.chat.wake_director = wake
 
     async def process_new_events() -> None:
         if await triage.run():

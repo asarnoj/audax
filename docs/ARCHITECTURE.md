@@ -26,6 +26,39 @@ Bara Worker pratar med användaren, i en enda Telegram-chatt, i **en** pågåend
 
 Konflikter löses genom att det användaren senast uttryckligen har sagt gäller, och eftersom originalen sparas syns alltid varför.
 
+## Hur delarna kommunicerar (protokollet)
+
+Tre kanaler, och inga andra. Ingen roll anropar en annan direkt och ingen skriver i en annans filer.
+
+### 1. Delat tillstånd: filer med en ägare
+Varje fil har exakt en ägare som skriver. Alla andra läser.
+
+| Fil | Ägare | Läses av |
+|---|---|---|
+| `direction/` (person, now, goals, threads, ideas) | Director | Worker (triage, sökning, chatt), Manager |
+| `policy.md`, `style.md`, `state.md` | Manager | Worker (chatt, triage, dispatcher), Director |
+| minnet om användaren (profile, interests, projects …) | Worker (chatten) | alla |
+| instansens config (källor, uppdrag, bevakningslista) | Director, och Worker när användaren uttryckligen ber om det | Worker (sinnena) |
+
+### 2. Anteckningar: Worker → Director/Manager
+Det användaren säger som rör en annan roll skickas som en **anteckning**: användarens exakta ord, chattens tolkning, och vilken fråga det svarar på. Anteckningar behandlas vid mottagarens nästa körning.
+- **`act_now`** väcker mottagaren nu i stället för vid nästa schemalagda körning. Det gäller Director när något ska drivas ("hjälp mig hitta X") och Manager vid tydlig feedback om upplevelsen ("det här blir för mycket"). Väckningar slås ihop och sker högst var 30:e minut per roll.
+- När Worker själv ändrar config på användarens begäran (lägger till, stänger av, ändrar takt) får Director automatiskt en anteckning, så att dess bild stämmer.
+
+### 3. Förfrågningar: Director/Manager → användaren (via Worker)
+En roll som behöver något av användaren, som ett svar eller en åtkomst, lämnar en **förfrågan** med *vad* och *varför*. Dispatchern avgör när, och Worker ställer den med egna ord. Det finns en öppen fråga åt gången, för alla roller tillsammans. Svaret går tillbaka som en anteckning.
+
+### Rytm
+| Vad | När |
+|---|---|
+| Sinnen, triage, dispatcher | löpande (sinnena efter egen takt) |
+| Manager | varje natt 03:30, och när den väcks |
+| Director, genomgång | varje natt 04:15, och när den väcks |
+| Director, reflektion | mån, ons och lör 05:00 |
+| Sökuppdrag | efter sitt intervall, plus djupsvep varje vecka |
+
+Manager och Director påverkar varandra bara genom sina filer: Managers *läge* får Director att prioritera, och Directors *mål* styr vad Worker letar efter. Det gör strukturen enkel att resonera om. Varje ändring har en ägare, en kanal och ett spår i loggen.
+
 ## Director
 
 **Läser:** chatten (via de sorterade svaren och journalen), schemat (hur tiden faktiskt används), utfall från sinnena, och efter hand fönstren mot användarens arbete: GitHub, anteckningar och texter, todo-sidan och bloggen. Alla fönster är skrivskyddade.

@@ -177,3 +177,26 @@ def disable_sense(stream_id: str, reason: str = "") -> str:
         return f"Hittar inget sinne {stream_id}."
     commit_config(f"agent: stäng av {stream_id}\n\n{reason}")
     return f"{stream_id}: avstängt"
+
+
+async def verify_source(type_: str, url_or_query: str, lang: str = "en") -> str:
+    """Fetches a new source once so the owner hears whether it works, not 'I haven't tested it'."""
+    from agent.sources.connectors import poll_topic
+    from agent.sources.pages import page_text
+    from agent.sources.streams import StreamConfig, parse_feed
+
+    try:
+        async with httpx.AsyncClient(timeout=20, follow_redirects=True, headers={"User-Agent": USER_AGENT}) as client:
+            if type_ == "topic":
+                items = await poll_topic(StreamConfig(id="t", type="topic", url="", params={"query": url_or_query, "lang": lang}), client)
+                return f"Kontrollerat: just nu {len(items)} artiklar om ämnet" + (f", senast \"{items[0].title[:70]}\"." if items else ".")
+            r = await client.get(url_or_query)
+            if r.status_code != 200:
+                return f"Varning: källan svarade {r.status_code}. Den bevakas, men kan behöva bytas."
+            if type_ == "rss":
+                items = parse_feed(r.content)
+                return f"Kontrollerat: flödet fungerar, {len(items)} inlägg" + (f", senast \"{items[0].title[:70]}\"." if items else ", men tomt just nu.")
+            lines = page_text(r.text, str(r.url))
+            return f"Kontrollerat: sidan går att läsa ({len(lines)} rader text). Nytt som dyker upp där fångas."
+    except Exception as e:
+        return f"Varning: källan gick inte att läsa just nu ({type(e).__name__})."

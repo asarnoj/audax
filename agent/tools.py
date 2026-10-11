@@ -283,8 +283,9 @@ def _inbox_tools(inbox: Inbox, wake_director=None) -> list:
                 "request_id": {"type": ["integer", "null"]},
                 "act_now": {
                     "type": "boolean",
-                    "description": "director: {owner} vill att något ska drivas nu (t.ex. 'hjälp mig hitta en praktikplats'). "
-                    "Director går då igenom det direkt, skapar en tråd och sätter igång sökandet.",
+                    "description": "Väck mottagaren nu i stället för i natt. director: {owner} vill att något ska drivas nu "
+                    "(t.ex. 'hjälp mig hitta en praktikplats'). manager: tydlig och viktig feedback om upplevelsen som "
+                    "inte bör vänta (t.ex. 'det här blir för mycket', 'sluta skriva så långt').",
                 },
             },
             "required": ["owner", "verbatim", "interpretation"],
@@ -292,8 +293,8 @@ def _inbox_tools(inbox: Inbox, wake_director=None) -> list:
     )
     async def route_note(args: dict[str, Any]) -> dict[str, Any]:
         await inbox.note(args["owner"], args["verbatim"], args["interpretation"], args.get("request_id"))
-        if args.get("act_now") and args["owner"] == "director" and wake_director:
-            wake_director()
+        if args.get("act_now") and wake_director:
+            wake_director(args["owner"])
             return _text(personalize(
                 "[internt] Sparat. Arbetet med det här börjar i bakgrunden inom någon minut: en tråd, sökningar och "
                 "bevakning efter behov. Bekräfta kort för {owner} att du tar tag i det."
@@ -321,10 +322,48 @@ def _inbox_tools(inbox: Inbox, wake_director=None) -> list:
         from agent import direction_ops as ops
 
         if args["type"] == "company":
-            return _text(await ops.add_company(args["name"], args["url"]))
-        if args["type"] == "topic":
-            return _text(ops.add_topic(args["name"], args["url"], args.get("lang", "en"), args.get("note", "")))
-        return _text(ops.add_page(args["name"], args["url"], args.get("note", ""), "event", "rss" if args["type"] == "feed" else "page"))
+            result = await ops.add_company(args["name"], args["url"])
+        elif args["type"] == "topic":
+            result = ops.add_topic(args["name"], args["url"], args.get("lang", "en"), args.get("note", ""))
+            result += " " + await ops.verify_source("topic", args["url"], args.get("lang", "en"))
+        else:
+            kind = "rss" if args["type"] == "feed" else "page"
+            result = ops.add_page(args["name"], args["url"], args.get("note", ""), "event", kind)
+            result += " " + await ops.verify_source(kind, args["url"])
+        await inbox.note("director", f"[bad om bevakning] {args['name']}: {args['url']}", f"Ägaren lade till en {args['type']}-bevakning: {result}")
+        return _text(result)
+
+    @tool(
+        "change_watch",
+        "Ändra en befintlig bevakning när {owner} ber om det: stäng av den (stop) eller ändra hur ofta den kollas (pace). "
+        "Ange källans id eller namn (se source_overview). Gäller direkt.",
+        {
+            "type": "object",
+            "properties": {
+                "source": {"type": "string", "description": "id, t.ex. hn-best eller topic-machinarium-2"},
+                "action": {"type": "string", "enum": ["stop", "pace"]},
+                "minutes": {"type": "integer", "description": "pace: hur många minuter mellan kontrollerna"},
+                "why": {"type": "string", "description": "{owner_s} skäl, med hens ord"},
+            },
+            "required": ["source", "action"],
+        },
+    )
+    async def change_watch(args: dict[str, Any]) -> dict[str, Any]:
+        from agent import direction_ops as ops
+        from agent.sources.streams import load_stream_configs
+
+        ids = [c.id for c in load_stream_configs()]
+        sid = args["source"] if args["source"] in ids else next((i for i in ids if args["source"].lower() in i), None)
+        if sid is None:
+            return _text(f"Ingen bevakning matchar {args['source']}. Finns: {', '.join(ids)}.")
+        if args["action"] == "stop":
+            result = ops.disable_sense(sid, args.get("why", ""))
+        elif args.get("minutes"):
+            result = ops.tune_sense(sid, args["minutes"], args.get("why", ""))
+        else:
+            return _text("Ange hur många minuter mellan kontrollerna.")
+        await inbox.note("director", args.get("why") or f"[bad om ändring] {sid}: {args['action']}", f"Ägaren ändrade bevakningen {sid}: {result}")
+        return _text(result.replace("avstängt", "avstängd, inget mer därifrån").replace(": var", " kollas nu var"))
 
     @tool(
         "mark_request_asked",
@@ -335,7 +374,7 @@ def _inbox_tools(inbox: Inbox, wake_director=None) -> list:
         await inbox.mark_asked(args["request_id"])
         return _text("[internt] Noterat.")
 
-    return [route_note, mark_request_asked, watch_source]
+    return [route_note, mark_request_asked, watch_source, change_watch]
 
 
 def build_github_tools(reader) -> tuple[dict[str, Any], list[str]]:

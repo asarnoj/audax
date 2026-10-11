@@ -215,3 +215,25 @@ async def test_open_request_is_offered_and_answer_routed_verbatim(db, tmp_path):
     notes = await inbox.unprocessed("director")
     assert notes[0]["verbatim"] == "Jag har fastnat på hur jag ska nå användare" and notes[0]["question"].startswith("Varför")
     assert (await db.fetchone("SELECT status FROM requests WHERE id = ?", (rid,)))["status"] == "answered"
+
+
+async def test_change_watch_stops_a_source_and_tells_the_director(db, monkeypatch):
+    from agent import direction_ops as ops
+    from agent.config import instance_config
+    from agent.inbox import Inbox
+    from agent.tools import _inbox_tools
+
+    sources = instance_config("sources.yaml")
+    sources.write_text("streams:\n  - id: hn-best\n    type: rss\n    url: https://hn\n")
+    monkeypatch.setattr(ops, "SOURCES_FILE", sources)
+    inbox = Inbox(db)
+    tools = {t.name: t for t in _inbox_tools(inbox)}
+
+    out = await tools["change_watch"].handler({"source": "hn", "action": "stop", "why": "behöver inte HN"})
+    assert "avstängd" in out["content"][0]["text"]
+    assert "enabled: false" in sources.read_text()
+    note = (await inbox.unprocessed("director"))[0]
+    assert note["verbatim"] == "behöver inte HN" and "hn-best" in note["interpretation"]
+
+    out = await tools["change_watch"].handler({"source": "nope", "action": "stop"})
+    assert "Ingen bevakning matchar" in out["content"][0]["text"]

@@ -93,7 +93,8 @@ async def sdk_runner(task: ClaudeTask, workspace: Path, on_rate_limit: OnRateLim
         model=task.model,
         resume=task.resume,
         allowed_tools=task.allowed_tools,
-        disallowed_tools=task.disallowed_tools,
+        # WebFetch is replaced by web_read; removing it entirely stops Claude reaching for it and misreading the denial.
+        disallowed_tools=[*task.disallowed_tools, "WebFetch"],
         # Non-interactive: anything not explicitly allowed is denied, never prompted.
         permission_mode="dontAsk",
         # Load workspace/CLAUDE.md and workspace/.claude/settings.json only.
