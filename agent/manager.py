@@ -37,16 +37,16 @@ AREAS = ["pacing", "timing", "content", "tone"]
 SCHEMA = {
     "type": "object",
     "properties": {
-        "policy_md": {"type": ["string", "null"], "description": "Hela nya policy.md, eller null om oförändrad"},
-        "policy_reason": {"type": "string"},
-        "style_md": {"type": ["string", "null"], "description": "Hela nya style.md, eller null. Bara vid återkommande mönster."},
-        "style_reason": {"type": ["string", "null"], "description": "Beläggen för stiländringen"},
-        "state_md": {"type": ["string", "null"], "description": "Hela nya state.md, eller null om läget är oförändrat"},
-        "resurface": {"type": "array", "items": {"type": "integer"}, "description": "Kandidat-id från hyllan att ta fram igen"},
+        "policy_md": {"type": ["string", "null"], "description": "Swedish. The whole new policy.md, or null if unchanged"},
+        "policy_reason": {"type": "string", "description": "Swedish, one sentence"},
+        "style_md": {"type": ["string", "null"], "description": "Swedish. The whole new style.md, or null. Only for a recurring pattern or the owner's own request."},
+        "style_reason": {"type": ["string", "null"], "description": "Swedish. The evidence for the style change"},
+        "state_md": {"type": ["string", "null"], "description": "Swedish. The whole new state.md, or null if the situation is unchanged"},
+        "resurface": {"type": "array", "items": {"type": "integer"}, "description": "Candidate ids from the shelf to bring back"},
         "questions": {
             "type": "array",
             "items": {"type": "object", "properties": {"what": {"type": "string"}, "why": {"type": "string"}}, "required": ["what", "why"]},
-            "description": "Högst en fråga om upplevelsen, som chatten väver in",
+            "description": "At most one question about the experience, in Swedish; the chat asks it when it fits",
         },
         "experiments_new": {
             "type": "array",
@@ -54,7 +54,7 @@ SCHEMA = {
                 "type": "object",
                 "properties": {
                     "area": {"type": "string", "enum": AREAS},
-                    "hypothesis": {"type": "string", "description": "Observation, ändring, förväntan"},
+                    "hypothesis": {"type": "string", "description": "Swedish: observation, change, expectation"},
                     "evaluate_after": {"type": "string", "description": "YYYY-MM-DD"},
                 },
                 "required": ["area", "hypothesis", "evaluate_after"],
@@ -77,16 +77,16 @@ SCHEMA = {
             "properties": {
                 "kind": {"type": "string", "enum": ["other"]},
                 "title": {"type": "string"},
-                "description": {"type": "string", "description": "Till användaren: vad och varför, 1–3 meningar"},
+                "description": {"type": "string", "description": "Swedish, to the owner: what and why, 1-3 sentences"},
             },
             "required": ["kind", "title", "description"],
         },
-        "checkin": {"type": "boolean", "description": "Skicka avstämningsfrågan nu"},
-        "journal_md": {"type": "string"},
-        "changelog": {"type": "string", "description": "Vad du ändrade och varför. Tom sträng om inget."},
-        "note_to_owner": {"type": ["string", "null"]},
-        "restart_chat": {"type": "boolean"},
-        "chat_summary": {"type": "string", "description": "Alltid: kort sammanfattning av samtalet hittills (pågående trådar, löften, vad som är aktuellt). Används om sessionen startas om."},
+        "checkin": {"type": "boolean", "description": "Send the check-in question now"},
+        "journal_md": {"type": "string", "description": "Swedish. Today's journal entry"},
+        "changelog": {"type": "string", "description": "Swedish. What you changed and why; empty string if nothing"},
+        "note_to_owner": {"type": ["string", "null"], "description": "Swedish brief for the chat, or null"},
+        "restart_chat": {"type": "boolean", "description": "Only if the conversation itself needs a fresh start"},
+        "chat_summary": {"type": "string", "description": "Always. Swedish: short summary of the conversation so far (ongoing threads, promises, what is current). Used if the session restarts."},
     },
     "required": ["policy_md", "policy_reason", "journal_md", "changelog", "checkin", "restart_chat", "chat_summary"],
 }
@@ -115,7 +115,7 @@ class Manager:
         since_sql = since.astimezone(ZoneInfo("UTC")).strftime("%Y-%m-%d %H:%M:%S")
 
         prompt = prompt_template("manager").format(
-            now=f"{now:%Y-%m-%d %H:%M} ({['mån', 'tis', 'ons', 'tor', 'fre', 'lör', 'sön'][now.weekday()]})",
+            now=f"{now:%Y-%m-%d %H:%M} ({['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'][now.weekday()]})",
             since=f"{since:%Y-%m-%d %H:%M}",
             policy=self.memory.read("policy.md"),
             experiments=await self._experiments(),
@@ -274,9 +274,9 @@ class Manager:
     async def _experiments(self) -> str:
         rows = await self.db.fetchall("SELECT * FROM experiments WHERE status = 'active' ORDER BY id")
         return "\n\n".join(
-            f"H-{r['id']:03d} ({r['area']}, sedan {r['created_at'][:10]}, utvärderas tidigast {r['evaluate_after']})\n{r['hypothesis']}"
+            f"H-{r['id']:03d} ({r['area']}, since {r['created_at'][:10]}, judge from {r['evaluate_after']})\n{r['hypothesis']}"
             for r in rows
-        ) or "Inga."
+        ) or "None."
 
     async def _activity(self, since: str) -> str:
         sent = await self.db.fetchall(
@@ -298,12 +298,12 @@ class Manager:
             "SELECT e.source, c.status, count(*) AS n FROM candidates c JOIN events e ON e.id = c.event_id "
             "WHERE c.created_at >= datetime('now', '-14 days') GROUP BY e.source, c.status"
         )
-        lines = [f"Proaktiva meddelanden: {len(sent)}"]
+        lines = [f"Proactive messages: {len(sent)}"]
         for r in sent:
-            lines.append(f"- {self._local(r['created_at'])} [{r['kinds'] or '?'}] {r['fb'] or 'ingen reaktion'} :: {r['text'][:140]!r}")
-        lines.append("Kandidater (kind/status): " + (", ".join(f"{r['kind']}/{r['status']}×{r['n']}" for r in outcomes) or "inga"))
-        lines.append("Undersökningar senaste veckan: " + (", ".join(f"{r['research_id']}: {r['runs']} körningar, {r['f']} fynd, {r['errors']} fel" for r in research) or "inga"))
-        lines.append("Utfall per källa (14 dagar): " + (", ".join(f"{r['source']}/{r['status']}×{r['n']}" for r in by_source) or "inga"))
+            lines.append(f"- {self._local(r['created_at'])} [{r['kinds'] or '?'}] {r['fb'] or 'no reaction'} :: {r['text'][:140]!r}")
+        lines.append("Candidates (kind/status): " + (", ".join(f"{r['kind']}/{r['status']}×{r['n']}" for r in outcomes) or "none"))
+        lines.append("Search missions in the last week: " + (", ".join(f"{r['research_id']}: {r['runs']} runs, {r['f']} findings, {r['errors']} errors" for r in research) or "none"))
+        lines.append("Outcome per source (14 days): " + (", ".join(f"{r['source']}/{r['status']}×{r['n']}" for r in by_source) or "none"))
         return "\n".join(lines)
 
     async def _feedback(self, since: str) -> str:
@@ -312,7 +312,7 @@ class Manager:
             "SELECT signal, value, count(*) AS n FROM feedback WHERE created_at >= datetime('now', '-7 days') GROUP BY signal, value ORDER BY n DESC"
         )
         lines = [f"- {self._local(r['created_at'])} {r['signal']}:{r['value']}" + (f" ({r['note'][:200]})" if r["note"] else "") for r in rows]
-        lines.append("Senaste veckan totalt: " + (", ".join(f"{r['signal']}:{r['value']}×{r['n']}" for r in week) or "ingen"))
+        lines.append("Last week in total: " + (", ".join(f"{r['signal']}:{r['value']}×{r['n']}" for r in week) or "none"))
         return "\n".join(lines)
 
     async def _conversation(self, since: str) -> str:
@@ -322,17 +322,17 @@ class Manager:
         )
         lines = []
         for r in rows[-80:]:
-            who = "användaren" if r["direction"] == "in" else ("agent (på eget initiativ)" if r["origin"] == "proactive" else "agent")
+            who = "owner" if r["direction"] == "in" else ("Audax (proactive)" if r["origin"] == "proactive" else "Audax")
             text = r["text"] if len(r["text"]) <= 1500 else r["text"][:1500] + "…"
-            lines.append(f"{self._local(r['created_at'])} {who} [{len(r['text'])} tecken]: {text}")
-        return "\n".join(lines) or "Inget."
+            lines.append(f"{self._local(r['created_at'])} {who} [{len(r['text'])} chars]: {text}")
+        return "\n".join(lines) or "Nothing."
 
     @staticmethod
     def _format_notes(notes: list[dict]) -> str:
         return "\n".join(
-            f"- \"{n['verbatim']}\" → {n['interpretation']}" + (f" (svar på: {n['question']})" if n.get("question") else "")
+            f"- \"{n['verbatim']}\" → {n['interpretation']}" + (f" (answer to: {n['question']})" if n.get("question") else "")
             for n in notes
-        ) or "Inga."
+        ) or "None."
 
     async def _shelf(self) -> str:
         await self.db.execute(  # mechanical hygiene: shelved items without a date go stale after three weeks
@@ -343,14 +343,14 @@ class Manager:
             "SELECT id, kind, title, features, expires_at, updated_at FROM candidates WHERE status = 'shelved' ORDER BY updated_at DESC LIMIT 25"
         )
         return "\n".join(
-            f"- [{r['id']}] {r['kind']} · {r['title'][:90]} · {json.loads(r['features']).get('relevance', '?')} relevans"
-            + (f" · går ut {r['expires_at'][:10]}" if r["expires_at"] else "")
+            f"- [{r['id']}] {r['kind']} · {r['title'][:90]} · relevance {json.loads(r['features']).get('relevance', '?')}"
+            + (f" · expires {r['expires_at'][:10]}" if r["expires_at"] else "")
             for r in rows
-        ) or "Tom."
+        ) or "Empty."
 
     async def _proposals(self) -> str:
         rows = await self.db.fetchall("SELECT title, status, decided_at FROM proposals ORDER BY id DESC LIMIT 10")
-        return "\n".join(f"- {r['title']}: {r['status']}" for r in rows) or "Inga än."
+        return "\n".join(f"- {r['title']}: {r['status']}" for r in rows) or "None yet."
 
     async def _misc(self) -> str:
         session = await self.db.kv_get("chat.session_id")
@@ -360,10 +360,10 @@ class Manager:
             "SELECT kind, count(*) AS n, sum(is_error) AS e FROM claude_runs WHERE created_at >= datetime('now', '-1 day') GROUP BY kind"
         )
         return "\n".join([
-            f"Chattsessionen: {turns} rundor sedan start",
-            f"Senaste avstämning: {checkin[:10] if checkin else 'aldrig'}",
-            "Claude-körningar senaste dygnet: " + (", ".join(f"{r['kind']}×{r['n']} ({r['e']} fel)" for r in runs) or "inga"),
-            f"Nattro: {self.settings.quiet_hours.start:%H:%M}–{self.settings.quiet_hours.end:%H:%M}",
+            f"Chat session: {turns} turns since it started",
+            f"Last check-in: {checkin[:10] if checkin else 'never'}",
+            "Claude runs in the last 24 h: " + (", ".join(f"{r['kind']}×{r['n']} ({r['e']} errors)" for r in runs) or "none"),
+            f"Quiet hours: {self.settings.quiet_hours.start:%H:%M}–{self.settings.quiet_hours.end:%H:%M}",
         ])
 
     def _local(self, sqlite_utc: str) -> str:
