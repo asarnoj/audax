@@ -35,7 +35,7 @@ def manager(db, memory, tmp_path, structured=None):
     return Manager(load_settings(), db, ClaudeGate(db, tmp_path, runner=runner), memory)
 
 
-BASE = {"policy_md": None, "policy_reason": "", "journal_md": "Lugn dag.", "changelog": "", "checkin": False, "restart_chat": False}
+BASE = {"policy_md": None, "policy_reason": "", "journal_md": "Lugn dag.", "changelog": "", "checkin": False, "restart_chat": False, "chat_summary": "Sammanfattning."}
 
 
 async def test_apply_writes_policy_journal_changelog_and_commits(env, tmp_path):
@@ -129,3 +129,20 @@ async def test_manager_v2_style_state_shelf_and_questions(env, tmp_path):
     assert [(r["owner"], r["what"]) for r in reqs] == [("manager", "Funkar kvällarna?")]  # at most one
     assert await Inbox(db).unprocessed("manager") == []
     assert "stilguide: två klagomål på längd" in (memory.path / "changelog.md").read_text()
+
+
+
+async def test_big_chat_session_is_restarted_from_the_summary(env, tmp_path):
+    db, memory, _ = env
+    await db.kv_set("chat.session_id", "big")
+    await db.execute("INSERT INTO claude_runs (kind, is_error, context_tokens) VALUES ('chat', 0, 109000)")
+    await manager(db, memory, tmp_path).apply({**BASE, "chat_summary": "Pratade om tentan."}, NOW)
+    assert await db.kv_get("chat.session_id") is None and await db.kv_get(CHAT_SEED_KEY) == "Pratade om tentan."
+
+
+async def test_small_chat_session_is_kept(env, tmp_path):
+    db, memory, _ = env
+    await db.kv_set("chat.session_id", "small")
+    await db.execute("INSERT INTO claude_runs (kind, is_error, context_tokens) VALUES ('chat', 0, 30000)")
+    await manager(db, memory, tmp_path).apply(BASE, NOW)
+    assert await db.kv_get("chat.session_id") == "small"

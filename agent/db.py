@@ -278,6 +278,10 @@ MIGRATIONS: list[str] = [
         last_error TEXT
     );
     """,
+    # 12: how big each run's context was (tokens sent per model call, the main driver of quota use)
+    """
+    ALTER TABLE claude_runs ADD COLUMN context_tokens INTEGER;
+    """,
 ]
 
 

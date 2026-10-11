@@ -26,3 +26,15 @@ async def test_watcher_calls_back_on_change_and_survives_errors(tmp_path):
     assert set(await w.check()) == {good, bad}  # a failing reload doesn't stop the others
     assert calls == ["good"]
     assert await w.check() == []
+
+
+def test_broken_sources_yaml_is_not_fatal_and_is_reported():
+    from agent.config import instance_config
+    from agent.sources.streams import CONFIG_ERRORS, load_stream_configs
+
+    instance_config("sources.yaml").write_text("streams: [this is: : broken")
+    assert load_stream_configs() == []
+    assert "sources.yaml" in CONFIG_ERRORS
+    instance_config("sources.yaml").write_text("streams: []\n")
+    load_stream_configs()
+    assert "sources.yaml" not in CONFIG_ERRORS

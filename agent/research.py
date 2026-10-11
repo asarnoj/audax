@@ -90,7 +90,15 @@ class ResearchTask:
 
 
 def load_research() -> list[ResearchTask]:
-    data = yaml.safe_load(instance_config("research.yaml").read_text()) or []
+    from agent.sources.streams import CONFIG_ERRORS
+
+    try:
+        data = yaml.safe_load(instance_config("research.yaml").read_text()) or []
+        CONFIG_ERRORS.pop("research.yaml", None)
+    except Exception as e:
+        CONFIG_ERRORS["research.yaml"] = f"{type(e).__name__}: {str(e)[:150]}"
+        log.error("research.yaml unreadable, no missions until fixed: %s", e)
+        return []
     return [
         ResearchTask(
             id=r["id"],

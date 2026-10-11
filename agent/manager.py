@@ -31,6 +31,7 @@ MODULE = "manager@1"
 LAST_RUN_KEY = "manager.last_run"
 CHECKIN_KEY = "manager.last_checkin"
 CHAT_SEED_KEY = "chat.seed_summary"
+CHAT_CONTEXT_LIMIT = 60_000  # tokens; above this the nightly pass starts the chat over from a summary
 AREAS = ["pacing", "timing", "content", "tone"]
 
 SCHEMA = {
@@ -85,9 +86,9 @@ SCHEMA = {
         "changelog": {"type": "string", "description": "Vad du ändrade och varför. Tom sträng om inget."},
         "note_to_owner": {"type": ["string", "null"]},
         "restart_chat": {"type": "boolean"},
-        "chat_summary": {"type": ["string", "null"]},
+        "chat_summary": {"type": "string", "description": "Alltid: kort sammanfattning av samtalet hittills (pågående trådar, löften, vad som är aktuellt). Används om sessionen startas om."},
     },
-    "required": ["policy_md", "policy_reason", "journal_md", "changelog", "checkin", "restart_chat"],
+    "required": ["policy_md", "policy_reason", "journal_md", "changelog", "checkin", "restart_chat", "chat_summary"],
 }
 
 CHECKIN_QUESTION = "Avstämning: hur har mängden meddelanden från mig känts senaste tiden?"
@@ -218,7 +219,11 @@ class Manager:
                 features={"time_sensitivity": "low", "relevance": "medium", "actionability": "low"},
             )
 
-        if out.get("restart_chat") and out.get("chat_summary"):
+        # Mechanical hygiene (not UX policy): a chat session that has grown big resends its whole history on
+        # every reply, which is what eats the subscription quota. Start it over from the summary.
+        last = await self.db.fetchone("SELECT context_tokens FROM claude_runs WHERE kind = 'chat' AND context_tokens IS NOT NULL ORDER BY id DESC LIMIT 1")
+        too_big = bool(last and last["context_tokens"] > CHAT_CONTEXT_LIMIT)
+        if (out.get("restart_chat") or too_big) and out.get("chat_summary"):
             await self.db.kv_set(CHAT_SEED_KEY, out["chat_summary"])
             await self.db.kv_set("chat.session_id", None)
             changes.append("chattsessionen startades om med sammanfattning")

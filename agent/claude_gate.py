@@ -74,6 +74,7 @@ class RunResult:
     is_error: bool = False
     error: str | None = None
     trace: list[dict] = field(default_factory=list)  # tool calls: {"tool", "input", "error"}
+    context_tokens: int | None = None  # largest single model call (input + cached), i.e. how much context is resent
 
 
 class QuotaPaused(Exception):
@@ -115,10 +116,14 @@ async def sdk_runner(task: ClaudeTask, workspace: Path, on_rate_limit: OnRateLim
     texts: list[str] = []
     trace: list[dict] = []
     by_id: dict[str, dict] = {}
+    context = 0
     result: ResultMessage | None = None
     async for msg in query(prompt=task.prompt, options=options):
         if isinstance(msg, AssistantMessage):
             texts.extend(b.text for b in msg.content if isinstance(b, TextBlock))
+            if msg.usage:
+                u = msg.usage
+                context = max(context, sum(u.get(k) or 0 for k in ("input_tokens", "cache_read_input_tokens", "cache_creation_input_tokens")))
             for b in msg.content:
                 if isinstance(b, ToolUseBlock) and b.name != "ToolSearch":
                     entry = {"tool": b.name.removeprefix("mcp__"), "input": _short(b.input), "error": False}
@@ -137,6 +142,7 @@ async def sdk_runner(task: ClaudeTask, workspace: Path, on_rate_limit: OnRateLim
         return RunResult(text="", is_error=True, error="no result message", trace=trace)
     return RunResult(
         trace=trace,
+        context_tokens=context or None,
         text=result.result or "\n".join(texts),
         session_id=result.session_id,
         structured=result.structured_output,
@@ -260,8 +266,8 @@ class ClaudeGate:
     async def _log(self, task: ClaudeTask, r: RunResult) -> None:
         rl = self.quota.last_rate_limit
         await self.db.execute(
-            "INSERT INTO claude_runs (kind, model, session_id, duration_ms, cost_usd, is_error, error, rate_limit, trace, output) "
-            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            "INSERT INTO claude_runs (kind, model, session_id, duration_ms, cost_usd, is_error, error, rate_limit, trace, output, context_tokens) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
             (
                 task.kind,
                 task.model,
@@ -275,6 +281,7 @@ class ClaudeGate:
                 else None,
                 json.dumps(r.trace, ensure_ascii=False) if r.trace else None,
                 (r.text or "")[:600] or None,
+                r.context_tokens,
             ),
         )
 

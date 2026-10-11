@@ -64,7 +64,13 @@ class CalendarSource(Protocol):
 
 
 def load_calendar_configs() -> tuple[list[CalendarConfig], dict]:
-    data = (yaml.safe_load(instance_config("sources.yaml").read_text()) or {}).get("calendars") or {"sources": []}
+    from agent.sources.streams import CONFIG_ERRORS
+
+    try:
+        data = (yaml.safe_load(instance_config("sources.yaml").read_text()) or {}).get("calendars") or {"sources": []}
+    except Exception as e:
+        CONFIG_ERRORS["sources.yaml"] = f"{type(e).__name__}: {str(e)[:150]}"
+        return [], {}
     env = lambda key: os.getenv(key, "").strip() if key else ""  # noqa: E731
     configs = []
     for s in data["sources"]:

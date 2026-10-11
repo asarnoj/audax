@@ -18,7 +18,7 @@ It runs on a Raspberry Pi, talks to you in a single Telegram chat, and uses Clau
 - **Attention** is treated as scarce: the default is silence, items can go to a shelf instead of interrupting, and every send is a logged decision you can ask about.
 - **Build mode:** ask in the chat for a change to how the agent works. Claude Code builds it on a branch in a sandboxed worktree, the tests run, and you approve with a button.
 
-Design docs (in Swedish): [ARCHITECTURE](docs/ARCHITECTURE.md) · [ATTENTION](docs/ATTENTION.md) · [SENSES](docs/SENSES.md) · [PLAN](docs/PLAN.md) · [BACKUP](docs/BACKUP.md)
+Design docs (in Swedish): [ARCHITECTURE](docs/ARCHITECTURE.md) · [OPERATIONS](docs/OPERATIONS.md) · [ATTENTION](docs/ATTENTION.md) · [SENSES](docs/SENSES.md) · [PLAN](docs/PLAN.md) · [BACKUP](docs/BACKUP.md)
 
 ## Engine and instance
 

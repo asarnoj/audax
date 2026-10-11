@@ -130,6 +130,7 @@ class ChatSession:
                 log.exception("availability failed")
         if not await self.db.kv_get(SESSION_KEY) and (seed := await self.db.kv_get("chat.seed_summary")):
             parts.append(f"[ny session: sammanfattning av tidigare samtal]\n{seed}\n[slut]")
+            parts.append(await self._recent_conversation(limit=12))
         parts.extend(await self._proactive_since_last_turn())
         if not batch[0].internal and (req := await self.inbox.open_request()):
             parts.append(

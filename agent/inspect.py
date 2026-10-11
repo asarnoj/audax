@@ -37,7 +37,9 @@ class Inspector:
 
     async def health(self) -> list[str]:
         """Problems worth knowing about. Empty list = healthy."""
-        problems = []
+        from agent.sources.streams import CONFIG_ERRORS
+
+        problems = [f"Inställningsfilen {f} går inte att läsa ({err})" for f, err in CONFIG_ERRORS.items()]
         recent = await self.db.fetchall(
             "SELECT kind, is_error, error FROM claude_runs WHERE created_at >= datetime('now', '-2 hours') ORDER BY id DESC LIMIT 6"
         )
@@ -214,6 +216,12 @@ class Inspector:
             r = rows.get(kind)
             model = getattr(models, c.model.split(".")[1].split(" ")[0], c.model) if c.model.startswith("models.") else c.model
             stat = (f"{r['n']}×, {r['e'] or 0} fel, ~{r['avg_s']:.0f}s, ${r['usd'] or 0:.2f} ({100 * (r['usd'] or 0) / total:.0f}%)" if r else "ingen körning")
+            ctx = await self.db.fetchone(
+                "SELECT avg(context_tokens) AS a, max(context_tokens) AS m FROM claude_runs WHERE kind = ? AND context_tokens IS NOT NULL "
+                "AND created_at >= datetime('now', ?)", (kind, f"-{days} days"),
+            )
+            if ctx and ctx["a"]:
+                stat += f" · sammanhang ~{ctx['a'] / 1000:.0f}k tokens (max {ctx['m'] / 1000:.0f}k)"
             out += [f"{kind} [{c.role}, {model}] {stat}", f"    {c.purpose}", f"    prompt: {c.prompt} · verktyg: {c.tools} · när: {c.trigger}"]
         return "\n".join(out)
 

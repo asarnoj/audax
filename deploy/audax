@@ -11,12 +11,16 @@
 #   ./deploy/audax errors          recent failures
 #   ./deploy/audax logs            follow the service log
 #   ./deploy/audax memory          what changed in memory and instance lately (git log)
+#   ./deploy/audax rollback        undo the engine's latest commit on the Pi (e.g. a build-mode change that broke it) and restart
 set -euo pipefail
 [ -f "$(dirname "$0")/../.deploy.env" ] && . "$(dirname "$0")/../.deploy.env"
 : "${PI_HOST:?Sätt PI_HOST=user@host i .deploy.env}"
 DIR="${PI_DIR:-Projekt/audax}"
 case "${1:-today}" in
   logs)   exec ssh -t "$PI_HOST" "journalctl -u agent -f -o cat" ;;
+  rollback)
+    ssh "$PI_HOST" "cd $DIR && echo 'Backar:' && git log -1 --format='  %h %s (%an, %ar)' && git revert --no-edit HEAD >/dev/null && ~/.local/bin/uv sync --no-dev -q && sudo systemctl restart agent && sleep 8 && systemctl is-active agent && git log -1 --format='Nu: %h %s'"
+    echo "Kör ./deploy/deploy.sh (eller git pull pi main) så att Macen får återställningen." ;;
   memory) exec ssh "$PI_HOST" "cd $DIR && echo '== minne' && git -C workspace/memory log --since='3 days ago' --format='%ad %s' --date=format:'%d/%m %H:%M' | head -25 && echo && echo '== instans' && git -C instance log --since='7 days ago' --format='%ad %s' --date=format:'%d/%m %H:%M' | head -15" ;;
   *)      exec ssh "$PI_HOST" "cd $DIR && .venv/bin/python -m agent.inspect $*" ;;
 esac

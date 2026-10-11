@@ -81,8 +81,18 @@ class Emit(Protocol):
     async def __call__(self, config: StreamConfig, items: list[StreamItem], baseline: bool = False) -> int: ...
 
 
+CONFIG_ERRORS: dict[str, str] = {}  # file -> problem, reported by the health watch
+
+
 def load_stream_configs() -> list[StreamConfig]:
-    data = (yaml.safe_load(instance_config("sources.yaml").read_text()) or {}).get("streams") or []
+    """Never fatal: a broken sources.yaml means no streams (and a health alert), not a crash loop."""
+    try:
+        data = (yaml.safe_load(instance_config("sources.yaml").read_text()) or {}).get("streams") or []
+        CONFIG_ERRORS.pop("sources.yaml", None)
+    except Exception as e:
+        CONFIG_ERRORS["sources.yaml"] = f"{type(e).__name__}: {str(e)[:150]}"
+        log.error("sources.yaml unreadable, running without streams: %s", e)
+        return []
     out = []
     for s in data:
         url = s.get("url") or os.getenv(s.get("url_env", ""), "").strip()
