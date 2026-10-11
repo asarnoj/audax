@@ -1,6 +1,6 @@
 """Inspection: what the agent has done, decided and failed at. Read-only.
 
-    uv run python -m agent.inspect [today|day YYYY-MM-DD|runs [kind] [n]|decisions [n]|research|senses|errors]
+    uv run python -m agent.inspect [today|day YYYY-MM-DD|jobs|claude|runs [kind] [n]|decisions [n]|research|senses|errors]
 
 From the development machine: ./deploy/audax <same arguments> (runs it on the Pi over SSH).
 The chat uses `summary()` to answer "what have you done today?".
@@ -154,6 +154,69 @@ class Inspector:
         out += [f"{r['created_at'][:16]} research {r['research_id']}: {r['error'][:140]}" for r in rr]
         return "\n".join(out) or "Inga fel loggade."
 
+    async def jobs(self) -> str:
+        """What the engine is scheduled to do next: its own jobs, each sense, each mission."""
+        from agent.research import load_research
+        from agent.sources.streams import load_stream_configs
+
+        now = datetime.now(self.tz)
+        snap = await self.db.kv_get("engine.snapshot")
+        out = []
+        if not snap:
+            out.append("Motorn har inte skrivit någon ögonblicksbild än (startar den?).")
+        else:
+            age = (now - datetime.fromisoformat(snap["at"])).total_seconds() / 60
+            out.append(f"Motorn: pid {snap['pid']}, senaste livstecken för {age:.0f} min sedan" + (" ⚠️ INAKTUELL" if age > 12 else " ✓"))
+            out.append("\nSchemalagda jobb (nästa körning):")
+            for j in sorted(snap["jobs"], key=lambda j: j["next"] or "9"):
+                when = datetime.fromisoformat(j["next"]).astimezone(self.tz).strftime("%a %d/%m %H:%M") if j["next"] else "-"
+                out.append(f"  {when:<16} {j['id']:<22} {j['trigger']}")
+        stats = {r["stream"]: r for r in await self.db.fetchall("SELECT * FROM stream_stats")}
+        out.append("\nSinnen (senast kollat → nästa):")
+        for c in load_stream_configs():
+            if not c.enabled:
+                out.append(f"  {'avstängt':<16} {c.id}")
+                continue
+            st = stats.get(c.id)
+            if st and st["last_poll"]:
+                last = datetime.fromisoformat(st["last_poll"] + "+00:00").astimezone(self.tz)
+                nxt = last + timedelta(minutes=c.poll_minutes)
+                out.append(f"  {nxt.strftime('%a %d/%m %H:%M'):<16} {c.id:<24} var {c.poll_minutes:g} min, senast {last:%H:%M}"
+                           + (f", {st['errors']} fel" if st["errors"] else ""))
+            else:
+                out.append(f"  {'?':<16} {c.id:<24} var {c.poll_minutes:g} min, ingen körning registrerad än")
+        out.append("\nSökuppdrag (nästa ordinarie → nästa djupsvep):")
+        for t in load_research():
+            last = await self.db.kv_get(f"research.last_run.{t.id}")
+            deep = await self.db.kv_get(f"research.last_deep.{t.id}")
+            nxt = (datetime.fromisoformat(last) + timedelta(days=t.interval_days)).astimezone(self.tz).strftime("%a %d/%m %H:%M") if last else "snarast"
+            dnx = (datetime.fromisoformat(deep) + timedelta(days=7)).astimezone(self.tz).strftime("%a %d/%m") if deep else "när inget annat står på tur"
+            out.append(f"  {nxt:<16} {t.id:<26} {'' if t.enabled else '(av) '}djupsvep: {dnx}")
+        return "\n".join(out)
+
+    async def claude(self, days: int = 7) -> str:
+        """Every way the engine calls Claude (agent/calls.py) with what it cost the last week."""
+        from agent.calls import CALLS
+        from agent.config import load_settings
+
+        models = load_settings().models
+        rows = {
+            r["kind"]: r
+            for r in await self.db.fetchall(
+                "SELECT kind, count(*) AS n, sum(is_error) AS e, avg(duration_ms) / 1000 AS avg_s, sum(duration_ms) / 1000 AS s, "
+                "sum(cost_usd) AS usd FROM claude_runs WHERE created_at >= datetime('now', ?) GROUP BY kind",
+                (f"-{days} days",),
+            )
+        }
+        total = sum(r["usd"] or 0 for r in rows.values()) or 1
+        out = [f"Claude-anrop, senaste {days} dagarna (API-ekvivalent kostnad = andel av kvoten):", ""]
+        for kind, c in sorted(CALLS.items(), key=lambda kv: -(rows.get(kv[0], {"usd": 0})["usd"] or 0)):
+            r = rows.get(kind)
+            model = getattr(models, c.model.split(".")[1].split(" ")[0], c.model) if c.model.startswith("models.") else c.model
+            stat = (f"{r['n']}×, {r['e'] or 0} fel, ~{r['avg_s']:.0f}s, ${r['usd'] or 0:.2f} ({100 * (r['usd'] or 0) / total:.0f}%)" if r else "ingen körning")
+            out += [f"{kind} [{c.role}, {model}] {stat}", f"    {c.purpose}", f"    prompt: {c.prompt} · verktyg: {c.tools} · när: {c.trigger}"]
+        return "\n".join(out)
+
     async def summary(self) -> str:
         """For the chat: today in a few lines, plus health."""
         today = datetime.now(self.tz).date()
@@ -196,7 +259,7 @@ async def _main(args: list[str]) -> None:
         print(await i.runs(kind, n))
     elif cmd == "decisions":
         print(await i.decisions(int(rest[0]) if rest else 20))
-    elif cmd in ("research", "senses", "errors"):
+    elif cmd in ("research", "senses", "errors", "jobs", "claude"):
         print(await getattr(i, cmd)())
     else:
         print(__doc__)

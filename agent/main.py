@@ -166,6 +166,16 @@ async def run() -> None:
             log.warning("health: %s", problem)
 
     scheduler.add_job(health_watch, "interval", minutes=30, id="health", max_instances=1)
+
+    async def snapshot() -> None:
+        """Heartbeat + the scheduler's own view of its jobs, for `audax jobs` (inspection runs in another process)."""
+        jobs = [
+            {"id": j.id, "next": j.next_run_time.isoformat() if j.next_run_time else None, "trigger": str(j.trigger)}
+            for j in scheduler.get_jobs()
+        ]
+        await db.kv_set("engine.snapshot", {"at": datetime.now().astimezone().isoformat(), "pid": os.getpid(), "jobs": jobs})
+
+    scheduler.add_job(snapshot, "interval", minutes=5, next_run_time=datetime.now() + timedelta(seconds=30), id="snapshot")
     scheduler.add_job(manager.run, "cron", hour=3, minute=30, id="manager", max_instances=1)
     scheduler.add_job(director.run, "cron", hour=4, minute=15, args=["understand"], id="director_understand", max_instances=1)
     scheduler.add_job(director.run, "cron", day_of_week="mon,wed,sat", hour=5, minute=0, args=["reflect"], id="director_reflect", max_instances=1)
