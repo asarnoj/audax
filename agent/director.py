@@ -72,14 +72,15 @@ SCHEMA = {
             "items": {
                 "type": "object",
                 "properties": {
-                    "op": {"type": "string", "enum": ["add_page", "add_feed", "add_company", "add_topic"]},
+                    "op": {"type": "string", "enum": ["add_page", "add_feed", "add_company", "add_topic", "tune", "disable"]},
                     "name": {"type": "string", "description": "id för sida/flöde, företagsnamn eller ämnets namn"},
-                    "url": {"type": "string", "description": "sidans/flödets URL, företagets karriärsida, eller för add_topic: sökfrågan"},
+                    "url": {"type": "string", "description": "sidans/flödets URL, företagets karriärsida, add_topic: sökfrågan, tune/disable: tomt"},
+                    "poll_minutes": {"type": ["number", "null"], "description": "tune: hur ofta sinnet ska kollas"},
                     "note": {"type": ["string", "null"], "description": "vad som är värdefullt från källan"},
                     "kind": {"type": ["string", "null"]},
                     "reason": {"type": "string"},
                 },
-                "required": ["op", "name", "url", "reason"],
+                "required": ["op", "name", "reason"],
             },
         },
         "questions": {
@@ -209,7 +210,13 @@ class Director:
         if missions := out.get("missions"):
             changes += ops.apply_missions(missions)
         for s in out.get("senses") or []:
-            if s["op"] == "add_company":
+            if s["op"] == "tune" and s.get("poll_minutes"):
+                changes.append(ops.tune_sense(s["name"], s["poll_minutes"], s["reason"]))
+            elif s["op"] == "disable":
+                changes.append(ops.disable_sense(s["name"], s["reason"]))
+            elif not s.get("url"):
+                continue
+            elif s["op"] == "add_company":
                 changes.append(await ops.add_company(s["name"], s["url"]))
             elif s["op"] == "add_topic":
                 changes.append(ops.add_topic(s["name"], s["url"], "sv" if any(c in s["url"] for c in "åäö") else "en", s.get("note") or ""))
@@ -326,8 +333,64 @@ class Director:
         )
         lines.append("Sinnen senaste 7 dagarna (in → skickat / hylla / bortsorterat):")
         lines += [f"- {r['source']}: {r['n']} → {r['sent'] or 0} / {r['shelf'] or 0} / {r['dropped'] or 0}" for r in rows] or ["- inga"]
+        lines.append(await self._sense_pace())
+        lines.append(self._catalog())
         if self.web is not None:
             lines.append("Läsning per domän (metod lyckade/försök), svårast först:\n" + await self.web.stats())
+        return "\n".join(lines)
+
+    async def _sense_pace(self) -> str:
+        """Per sense: how often it's checked, how often something new turns up, and whether it's worth anything."""
+        from agent.sources.streams import load_stream_configs
+
+        stats = {r["stream"]: r for r in await self.db.fetchall("SELECT * FROM stream_stats")}
+        kept = {
+            r["source"]: (r["n"], r["kept"])
+            for r in await self.db.fetchall(
+                "SELECT e.source, count(*) AS n, sum(c.status IN ('sent', 'shelved', 'pulled')) AS kept FROM events e "
+                "LEFT JOIN candidates c ON c.event_id = e.id WHERE COALESCE(e.triaged_at, '') != 'baseline' "
+                "AND e.created_at >= datetime('now', '-14 days') GROUP BY e.source"
+            )
+        }
+        total = sum(n for n, _ in kept.values()) or 1
+        lines = ["Sinnenas takt och utbyte (id · kollas var · nya per dygn · behållna/in 14 d · andel av allt in):"]
+        for c in load_stream_configs():
+            st = stats.get(c.id)
+            days = max((datetime.now(ZoneInfo("UTC")) - datetime.fromisoformat(st["first_poll"] + "+00:00")).total_seconds() / 86400, 0.1) if st else None
+            n, k = kept.get(c.source, (0, 0))
+            lines.append(
+                f"- {c.id} ({c.type}{'' if c.enabled else ', AV'}) · var {c.poll_minutes:g} min · "
+                + (f"{st['new'] / days:.1f} nya/dygn, {st['errors']} fel" if st else "ingen statistik än")
+                + f" · {k or 0}/{n} · {100 * n / total:.0f}%"
+            )
+        top = max(kept.items(), key=lambda x: x[1][0], default=None)
+        if top and top[1][0] / total > 0.4:
+            lines.append(f"OBS: {top[0]} står för {100 * top[1][0] / total:.0f}% av allt som kommer in. Underlaget är ensidigt.")
+        return "\n".join(lines)
+
+    def _catalog(self) -> str:
+        """Verified sources not yet in use (config/source_catalog.yaml)."""
+        import yaml
+
+        from agent.config import ROOT
+        from agent.sources.streams import load_stream_configs
+
+        path = ROOT / "config" / "source_catalog.yaml"
+        if not path.exists():
+            return ""
+        cat = yaml.safe_load(path.read_text()) or {}
+        used = {c.url for c in load_stream_configs()} | {str(c.params.get("query")) for c in load_stream_configs()}
+        lines = ["Källkatalog, verifierade men inte i bruk (add_feed / add_topic / add_page):"]
+        for group, feeds in (cat.get("feeds") or {}).items():
+            free = [f for f in feeds if f["url"] not in used]
+            if free:
+                lines.append(f"- flöden, {group}: " + ", ".join(f"{f['name']} <{f['url']}>" for f in free))
+        free_topics = [t for t in cat.get("topics") or [] if t["query"] not in used]
+        if free_topics:
+            lines.append("- ämnen: " + ", ".join(f"{t['name']} [{t['query']}, {t['lang']}]" for t in free_topics))
+        free_pages = [p for p in cat.get("pages") or [] if p["url"] not in used]
+        if free_pages:
+            lines.append("- sidor: " + ", ".join(f"{p['name']} <{p['url']}>" for p in free_pages))
         return "\n".join(lines)
 
     async def _idea_feedback(self) -> str:

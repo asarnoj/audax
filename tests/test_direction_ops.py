@@ -60,3 +60,19 @@ def test_add_topic_appends_baselined_topic_stream(files):
     assert "redan" in ops.add_topic("Claude Code", "Claude Code")
     s = yaml.safe_load(sources.read_text())["streams"][-1]
     assert (s["id"], s["type"], s["params"]["query"]) == ("topic-claude-code", "topic", "Claude Code") and "baseline" not in s
+
+
+def test_tune_and_disable_sense_keep_comments(files):
+    _, sources, _ = files
+    sources.write_text(
+        "streams:\n  # nyheter\n  - id: hn\n    type: rss\n    url: https://hn\n    poll_minutes: 30\n"
+        "  - id: dev\n    type: devpost\n  # sist\n"
+    )
+    assert ops.tune_sense("hn", 5, "lugn källa") == "hn: var 15 min"  # sanity bound
+    assert ops.tune_sense("dev", 600) == "dev: var 600 min"
+    assert "Hittar inget" in ops.tune_sense("nope", 60)
+    assert ops.disable_sense("hn") == "hn: avstängt"
+    text = sources.read_text()
+    data = {s["id"]: s for s in yaml.safe_load(text)["streams"]}
+    assert data["hn"]["poll_minutes"] == 15 and data["hn"]["enabled"] is False and data["dev"]["poll_minutes"] == 600
+    assert "# nyheter" in text and "# sist" in text

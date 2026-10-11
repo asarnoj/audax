@@ -134,7 +134,7 @@ def parse_feed(content: bytes | str) -> list[StreamItem]:
     return items
 
 
-async def run_poller(config: StreamConfig, emit: Emit, poller, first_poll_is_baseline: bool) -> None:
+async def run_poller(config: StreamConfig, emit: Emit, poller, first_poll_is_baseline: bool, on_error=None) -> None:
     """Generic loop for every polled sense (rss, jobtech, ats, page, ...)."""
     baseline = first_poll_is_baseline
     while True:
@@ -149,6 +149,11 @@ async def run_poller(config: StreamConfig, emit: Emit, poller, first_poll_is_bas
             raise
         except Exception as e:
             log.warning("stream %s poll failed: %s", config.id, e)
+            if on_error:
+                try:
+                    await on_error(config, e)
+                except Exception:
+                    pass
         await asyncio.sleep(config.poll_minutes * 60)
 
 

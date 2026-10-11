@@ -85,13 +85,16 @@ async def run() -> None:
         With task_id (from /sok) that task runs now regardless of schedule. Returns new findings."""
         if task_id is None and schedule.settings.quiet_hours.contains(schedule.now().time()):
             return 0  # research at night would only queue up for the morning; run it during the day
+        deep = False
         if task_id is not None:
             tasks = [t for t in load_research() if t.id == task_id]
         else:
             tasks = (await researcher.due())[:1]
+            if not tasks and (d := await researcher.due_deep()):  # nothing routine due: time for a weekly deep sweep
+                tasks, deep = [d], True
         found = 0
         for t in tasks:
-            found += await researcher.run(t)
+            found += await researcher.run(t, deep=deep)
         if await triage.run():
             await dispatcher.run(force=True)
         return found

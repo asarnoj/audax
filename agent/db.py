@@ -264,6 +264,20 @@ MIGRATIONS: list[str] = [
     ALTER TABLE research_runs ADD COLUMN returned INTEGER;  -- findings returned (new + already known)
     ALTER TABLE research_runs ADD COLUMN skipped TEXT;       -- JSON: what was found but left out, and why
     """,
+    # 11: per-sense pace and yield, so the Director can tune how often each one is checked
+    """
+    CREATE TABLE stream_stats (
+        stream TEXT PRIMARY KEY,
+        polls INTEGER NOT NULL DEFAULT 0,
+        fetched INTEGER NOT NULL DEFAULT 0,   -- items seen (before prefilter and dedupe)
+        new INTEGER NOT NULL DEFAULT 0,       -- new events created
+        errors INTEGER NOT NULL DEFAULT 0,
+        first_poll TEXT NOT NULL DEFAULT (datetime('now')),
+        last_poll TEXT,
+        last_new TEXT,
+        last_error TEXT
+    );
+    """,
 ]
 
 

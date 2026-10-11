@@ -1,4 +1,5 @@
 import json
+import re
 
 import pytest
 
@@ -30,8 +31,9 @@ def gate(db, tmp_path, calls):
     async def runner(task, ws, on_rl):
         calls.append(task)
         if task.kind == "scout_queries":
-            qs = [{"query": f"q{counter['n'] + i}", "rationale": "r"} for i in range(8)]
-            counter["n"] += 8
+            n = int(re.search(r"Ta fram (\d+) nya frågor", task.prompt).group(1))
+            qs = [{"query": f"q{counter['n'] + i}", "rationale": "r"} for i in range(n)]
+            counter["n"] += n
             return RunResult(text="", structured={"queries": qs})
         given = [line[2:] for line in task.prompt.splitlines() if line.startswith("- q")]
         return RunResult(text="", structured={"findings": [
@@ -81,3 +83,14 @@ async def test_findings_are_attributed_to_their_query(db, tmp_path):
     assert await r.run(TASK) == BATCH
     stats = await r.portfolio.stats("jobs")
     assert sum(q["found"] for q in stats) == BATCH
+
+
+async def test_deep_sweep_uses_wide_batch_and_is_spaced(db, tmp_path):
+    from agent.research import DEEP_BATCH
+
+    calls = []
+    r = Researcher(load_settings(), db, gate(db, tmp_path, calls), FakeMemory())
+    assert await r.run(TASK, deep=True) == DEEP_BATCH
+    research = [c for c in calls if c.kind == "research_deep"]
+    assert len(research) == 1 and "DJUPSVEP" in research[0].prompt and research[0].max_turns == 120
+    assert await r.due_deep() is None  # spaced: no second deep sweep right after

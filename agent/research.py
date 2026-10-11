@@ -70,6 +70,9 @@ QUERIES_SCHEMA = {
 # Portfolio mechanics (docs/SENSES.md, layer 3). These are search mechanics, not attention policy.
 BATCH = 6  # queries per run
 EXPLORE = 2  # of which untested
+DEEP_BATCH = 20  # weekly deep sweep: wide, like a deep-research run
+DEEP_EVERY = timedelta(days=7)
+DEEP_SPACING = timedelta(hours=3)  # never two deep sweeps close together (quota)
 MIN_ACTIVE = 10  # generate more below this
 GENERATE = 8
 RETIRE_AFTER_RUNS = 3  # without a single kept finding
@@ -130,19 +133,19 @@ class Portfolio:
         )
         return [dict(r) for r in rows]
 
-    async def select(self, task: ResearchTask) -> list[str]:
+    async def select(self, task: ResearchTask, batch: int = BATCH) -> list[str]:
         await self._retire(task.id)
         active = [q for q in await self.stats(task.id) if q["status"] == "active"]
-        if len(active) < MIN_ACTIVE:
-            await self._generate(task)
+        if len(active) < max(MIN_ACTIVE, batch):
+            await self._generate(task, max(GENERATE, batch - len(active)))
             active = [q for q in await self.stats(task.id) if q["status"] == "active"]
         untested = [q for q in active if q["runs"] == 0]
         tested = sorted((q for q in active if q["runs"] > 0), key=lambda q: (q["kept"] + 1) / (q["runs"] + 2), reverse=True)
-        explore = untested[:EXPLORE]
-        exploit = tested[: BATCH - len(explore)]
+        explore = untested[: max(EXPLORE, batch // 3)]
+        exploit = tested[: batch - len(explore)]
         chosen = explore + exploit
-        if len(chosen) < BATCH:  # not enough history yet: fill with more untested
-            chosen += [q for q in untested if q not in chosen][: BATCH - len(chosen)]
+        if len(chosen) < batch:  # not enough history yet: fill with more untested
+            chosen += [q for q in untested if q not in chosen][: batch - len(chosen)]
         return [q["query"] for q in chosen]
 
     async def record_run(self, mission: str, queries: list[str]) -> None:
@@ -156,7 +159,7 @@ class Portfolio:
             if q["status"] == "active" and q["runs"] >= RETIRE_AFTER_RUNS and q["kept"] == 0:
                 await self.db.execute("UPDATE scout_queries SET status = 'retired' WHERE id = ?", (q["id"],))
 
-    async def _generate(self, task: ResearchTask) -> None:
+    async def _generate(self, task: ResearchTask, n: int = GENERATE) -> None:
         stats = await self.stats(task.id)
         good = sorted((q for q in stats if q["kept"] > 0), key=lambda q: q["kept"], reverse=True)[:10]
         prompt = prompt_template("scout_queries").format(
@@ -167,7 +170,7 @@ class Portfolio:
             memory=self.memory.read("profile.md", "interests.md", "projects.md"),
             good="\n".join(f"- {q['query']} → {q['kept']}" for q in good) or "(ingen historik än)",
             existing="\n".join(f"- {q['query']}" for q in stats) or "(inga)",
-            n=GENERATE,
+            n=n,
         )
         r = await self.gate.run(
             ClaudeTask(
@@ -211,7 +214,20 @@ class Researcher:
                 out.append(t)
         return out
 
-    async def run(self, task: ResearchTask) -> int:
+    async def due_deep(self) -> ResearchTask | None:
+        """The mission most overdue for its weekly deep sweep, if any is due and none ran recently."""
+        now = datetime.now(self.tz)
+        last_any = await self.db.kv_get("research.last_deep_any")
+        if last_any and now - datetime.fromisoformat(last_any) < DEEP_SPACING:
+            return None
+        due = []
+        for t in load_research():
+            last = await self.db.kv_get(f"research.last_deep.{t.id}")
+            if t.enabled and (last is None or now - datetime.fromisoformat(last) >= DEEP_EVERY):
+                due.append((last or "", t))
+        return min(due, key=lambda x: x[0])[1] if due else None
+
+    async def run(self, task: ResearchTask, deep: bool = False) -> int:
         """Runs one research task; returns the number of new findings stored as events."""
         source = f"research:{task.id}"
         seen = await self.db.fetchall(
@@ -220,12 +236,17 @@ class Researcher:
         )
         seen_lines = [f"- {json.loads(r['payload'])['title']} ({json.loads(r['payload'])['url']})" for r in seen]
         try:
-            queries = await self.portfolio.select(task)
+            queries = await self.portfolio.select(task, DEEP_BATCH if deep else BATCH)
         except QuotaPaused:
             log.info("research %s postponed: quota paused", task.id)
             return 0
         web_servers, web_names = build_web_tools(self.web) if self.web else ({}, [])
-        prompt = prompt_template("research").format(
+        if deep:
+            now = datetime.now(self.tz).isoformat()
+            await self.db.kv_set(f"research.last_deep.{task.id}", now)
+            await self.db.kv_set("research.last_deep_any", now)
+        prompt = ("[DJUPSVEP: veckans breda genomgång. Kör alla frågor, följ ledtrådar, läs gärna 20–40 sidor och "
+                  "leta även i angränsande vinklar och nya typer av källor. Bättre täckning, samma krav på kvalitet.]\n\n" if deep else "") + prompt_template("research").format(
             queries="\n".join(f"- {q}" for q in queries) or "(inga, sök fritt)",
             id=task.id,
             goal=task.goal,
@@ -237,14 +258,14 @@ class Researcher:
         try:
             result = await self.gate.run(
                 ClaudeTask(
-                    kind="research",
+                    kind="research_deep" if deep else "research",
                     prompt=prompt,
                     priority=Priority.RESEARCH,
                     model=self.settings.models.research,
                     allowed_tools=["WebSearch", *web_names],
                     mcp_servers=web_servers,
                     output_schema=FINDINGS_SCHEMA,
-                    max_turns=40,
+                    max_turns=120 if deep else 40,
                 )
             )
         except QuotaPaused:

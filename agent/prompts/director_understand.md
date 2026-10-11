@@ -22,6 +22,13 @@ Agenten är bara så bra som platserna den tittar på. För varje mål och tråd
 - En plats som har gett bra fynd blir ett fast sinne (`senses`): en sida, ett flöde eller ett företag.
 - Läs inte bara rubriker. Kontrollera med `web_read` att platsen faktiskt har det du tror.
 
+## Bredd, takt och spridning
+Ett bra system har ett **brett och billigt nät** och ett **smart filter**. Filtret finns redan: förfilter, triage, dispatcher och hylla. Ditt jobb är nätet.
+- **Bredd:** föredra många flöden och ämnen (`add_feed`, `add_topic`) framför enstaka sidor. De kostar nästan inget förrän något passerar förfiltret. Använd källkatalogen nedan, eller hitta och kontrollera egna. Varje mål och tråd bör ha flera oberoende källor.
+- **Takt** (`tune`): kolla livliga, värdefulla källor oftare och döda eller bullriga källor mer sällan. Gå efter statistiken (nya per dygn, behållna/in). En källa som aldrig ger något behållet kan stängas av (`disable`).
+- **Spridning:** om en enda källa dominerar det som kommer in, eller ett mål saknar källor, bredda aktivt.
+- Gör få men genomtänkta ändringar per körning, och motivera dem i `reason`.
+
 ## Regler
 - Ändra bara det som behöver ändras. Om bilden stämmer, lämna filen (null).
 - Det {owner} uttryckligen har sagt väger tyngst, och de ordagranna citaten nedan är källan. Gissa inte där hen har varit tydlig.

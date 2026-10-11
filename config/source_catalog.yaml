@@ -1,0 +1,41 @@
+# Källkatalog: verifierade, publika källor som Director kan välja bland för att bredda nätet.
+# Inga personliga uppgifter. Kontrollerade 2026-10-11 (HTTP 200 och innehåll). Director lägger till
+# det som passar ägarens mål i instansen; allt filtreras sedan av förfilter, triage och dispatcher.
+
+feeds:
+  tech:
+    - {name: TechCrunch, url: "https://techcrunch.com/feed/"}
+    - {name: The Verge, url: "https://www.theverge.com/rss/index.xml"}
+    - {name: Ars Technica, url: "https://feeds.arstechnica.com/arstechnica/index"}
+    - {name: MIT Technology Review, url: "https://www.technologyreview.com/feed/"}
+    - {name: Lobsters, url: "https://lobste.rs/rss"}
+    - {name: GitHub blog, url: "https://github.blog/feed/"}
+    - {name: Computer Sweden, url: "https://computersweden.se/feed/"}
+  ai:
+    - {name: Simon Willison, url: "https://simonwillison.net/atom/everything/"}
+    - {name: Hugging Face blog, url: "https://huggingface.co/blog/feed.xml"}
+    - {name: OpenAI news, url: "https://openai.com/news/rss.xml"}
+  startups:
+    - {name: Sifted (Europa), url: "https://sifted.eu/feed"}
+    - {name: EU-Startups, url: "https://www.eu-startups.com/feed/"}
+    - {name: Y Combinator blog, url: "https://www.ycombinator.com/blog/rss"}
+    - {name: Product Hunt, url: "https://www.producthunt.com/feed"}
+  security:
+    - {name: Krebs on Security, url: "https://krebsonsecurity.com/feed/"}
+    - {name: The Hacker News, url: "https://feeds.feedburner.com/TheHackersNews"}
+  design_web:
+    - {name: Smashing Magazine, url: "https://www.smashingmagazine.com/feed/"}
+  language_learning:
+    - {name: Language Log, url: "https://languagelog.ldc.upenn.edu/nll/?feed=rss2"}
+    - {name: Duolingo blog, url: "https://blog.duolingo.com/rss/"}
+
+# Ämnen (typ topic: nyhetssökning + Hacker News). Bra där en sajt saknar flöde, t.ex. svensk startuppress.
+topics:
+  - {name: Svenska startups, query: "startup Stockholm finansiering", lang: sv}
+  - {name: Studentjobb tech Stockholm, query: "sommarjobb studenter tech Stockholm", lang: sv}
+  - {name: Hackathons Sverige, query: "hackathon Stockholm", lang: sv}
+  - {name: Språkinlärning tech, query: "language learning app", lang: en}
+
+# Sidor utan flöde som har visat sig läsbara (typ page).
+pages:
+  - {name: Luma Stockholm, url: "https://luma.com/stockholm", note: "Tech- och startupevent i Stockholm"}

@@ -56,9 +56,23 @@ class Ingest:
             )
             new += cur.rowcount
         await self.db.conn.commit()
+        await self._stats(config.id, fetched=len(items), new=0 if baseline else new)
         if new and not baseline:
             self._wake.set()
         return new
+
+    async def _stats(self, stream: str, fetched: int = 0, new: int = 0, error: str | None = None) -> None:
+        await self.db.execute(
+            "INSERT INTO stream_stats (stream, polls, fetched, new, errors, last_poll, last_new, last_error) "
+            "VALUES (?, ?, ?, ?, ?, datetime('now'), CASE WHEN ? > 0 THEN datetime('now') END, ?) "
+            "ON CONFLICT(stream) DO UPDATE SET polls = polls + excluded.polls, fetched = fetched + excluded.fetched, "
+            "new = new + excluded.new, errors = errors + excluded.errors, last_poll = excluded.last_poll, "
+            "last_new = COALESCE(excluded.last_new, last_new), last_error = COALESCE(excluded.last_error, last_error)",
+            (stream, 0 if error else 1, fetched, new, 1 if error else 0, new, error),
+        )
+
+    async def record_error(self, config: StreamConfig, error: Exception) -> None:
+        await self._stats(config.id, error=f"{type(error).__name__}: {error}"[:200])
 
     async def start(self, configs: list[StreamConfig] | None = None) -> None:
         await self._start_streams(load_stream_configs() if configs is None else configs)
@@ -78,7 +92,9 @@ class Ingest:
             first = c.baseline and not await self.db.kv_get(f"stream.started.{c.id}", False)
             await self.db.kv_set(f"stream.started.{c.id}", True)
             if c.type in self._pollers:
-                self._streams.append(asyncio.create_task(run_poller(c, self.emit, self._pollers[c.type], first_poll_is_baseline=first)))
+                self._streams.append(asyncio.create_task(
+                    run_poller(c, self.emit, self._pollers[c.type], first_poll_is_baseline=first, on_error=self.record_error)
+                ))
             elif c.type == "websocket":
                 self._streams.append(asyncio.create_task(run_websocket(c, self.emit)))
             else:

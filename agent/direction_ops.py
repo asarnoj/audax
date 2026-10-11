@@ -133,3 +133,45 @@ def add_topic(name: str, query: str, lang: str = "en", note: str = "") -> str:
         f.write(block)
     commit_config(f"agent: följ ämnet {name}")
     return f"Följer nyheter om {name} från och med nu. Jag hör av mig när något nytt och viktigt dyker upp."
+
+
+def _stream_block(text: str, stream_id: str) -> tuple[int, int] | None:
+    """(start, end) of the '  - id: <stream_id>' block in sources.yaml, so edits keep comments and layout."""
+    m = re.search(rf"(?m)^  - id: {re.escape(stream_id)}\s*$", text)
+    if not m:
+        return None
+    nxt = re.search(r"(?m)^  (?:- |#)|^\S", text[m.end():])
+    return m.start(), (m.end() + nxt.start()) if nxt else len(text)
+
+
+def _set_field(stream_id: str, key: str, value: str) -> bool:
+    text = SOURCES_FILE.read_text()
+    span = _stream_block(text, stream_id)
+    if span is None:
+        return False
+    a, b = span
+    block = text[a:b]
+    line = f"    {key}: {value}\n"
+    if re.search(rf"(?m)^    {key}:.*\n", block):
+        block = re.sub(rf"(?m)^    {key}:.*\n", line, block, count=1)
+    else:
+        first_line_end = block.index("\n") + 1
+        block = block[:first_line_end] + line + block[first_line_end:]
+    SOURCES_FILE.write_text(text[:a] + block + text[b:])
+    return True
+
+
+def tune_sense(stream_id: str, poll_minutes: float, reason: str = "") -> str:
+    """How often a sense is checked. Sanity bounds only (not policy): 15 min to a week."""
+    minutes = int(min(max(float(poll_minutes), 15), 7 * 24 * 60))
+    if not _set_field(stream_id, "poll_minutes", str(minutes)):
+        return f"Hittar inget sinne {stream_id}."
+    commit_config(f"agent: takt {stream_id} -> {minutes} min\n\n{reason}")
+    return f"{stream_id}: var {minutes} min"
+
+
+def disable_sense(stream_id: str, reason: str = "") -> str:
+    if not _set_field(stream_id, "enabled", "false"):
+        return f"Hittar inget sinne {stream_id}."
+    commit_config(f"agent: stäng av {stream_id}\n\n{reason}")
+    return f"{stream_id}: avstängt"
