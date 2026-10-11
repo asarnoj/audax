@@ -248,7 +248,18 @@ def _control_tools(controls: Controls, turn: TurnContext) -> list:
 
         return _text(await Inspector(controls.db).summary())
 
-    return [pause_messages, get_shelf, explain_message, source_overview, run_research, activity_report]
+    @tool(
+        "how_i_work",
+        "Hur du (Audax) fungerar: delarna, när de kör, flödet från källa till meddelande, gränser, integritet, och vad du "
+        "bevakar just nu. Använd när {owner} vill förstå hur du fungerar eller varför något händer som det gör.",
+        {"type": "object", "properties": {}},
+    )
+    async def how_i_work(args: dict[str, Any]) -> dict[str, Any]:
+        from agent.prompts import prompt
+
+        return _text(prompt("self") + "\n\n## Just nu\n" + await controls.sources())
+
+    return [pause_messages, get_shelf, explain_message, source_overview, run_research, activity_report, how_i_work]
 
 
 def _inbox_tools(inbox: Inbox, wake_director=None) -> list:
