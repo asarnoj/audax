@@ -12,6 +12,7 @@ via direction_ops, questions via the inbox, ideas as outbox candidates.
 from __future__ import annotations
 
 import logging
+import re
 from collections import defaultdict
 from datetime import datetime, timedelta
 from zoneinfo import ZoneInfo
@@ -132,6 +133,9 @@ class Director:
         since = datetime.fromisoformat(last) if last else now - timedelta(days=7 if mode == "reflect" else 2)
         if mode == "reflect":
             since = min(since, now - timedelta(days=7))
+        first_picture = self._person_empty()
+        if first_picture:  # a first picture of a person needs the whole history, not just the latest messages
+            since = now - timedelta(days=60)
         since_sql = since.astimezone(ZoneInfo("UTC")).strftime("%Y-%m-%d %H:%M:%S")
 
         context = {
@@ -139,7 +143,13 @@ class Director:
             "direction": self._direction(),
             "memory": self.memory.read(*MEMORY_FILES),
             "time": await self._time(now),
-            "conversation": await self._conversation(since_sql, full=(mode == "understand")),
+            "conversation": (
+                "[person.md är tom. Bygg en första bild av personen utifrån hela historiken nedan och minnet ovan: "
+                "det som är sagt med citat, och det du drar slutsatser om som hypoteser med belägg.]\n"
+                if first_picture
+                else ""
+            )
+            + await self._conversation(since_sql, full=(mode == "understand")),
             "notes": self._notes(await self.inbox.unprocessed("director")),
             "missions": await self._missions(),
             "windows": await self.windows() if self.windows else "Inga fönster kopplade än (GitHub, anteckningar och todo-sidan kommer).",
@@ -247,6 +257,13 @@ class Director:
         return changes
 
     # --- context ----------------------------------------------------------
+
+    def _person_empty(self) -> bool:
+        p = self.dir / "person.md"
+        if not p.exists():
+            return True
+        text = re.sub(r"<!--.*?-->", "", p.read_text(), flags=re.DOTALL)
+        return not any(line.strip().startswith(("-", "*")) or (line.strip() and not line.startswith("#")) for line in text.splitlines())
 
     def _direction(self) -> str:
         parts = [self.memory.read("direction/person.md", "direction/now.md", "direction/goals.md", "direction/ideas.md")]

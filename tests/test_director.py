@@ -94,3 +94,19 @@ async def test_reflect_uses_opus_high_effort_with_web_and_understand_does_not(en
     assert (r.model, r.effort) == ("opus", "high") and "WebSearch" in r.allowed_tools
     assert "dolda tillgångar" in r.prompt.lower() and "Profil" in r.prompt
     assert await db.kv_get("director.last_reflect") is not None
+
+
+
+async def test_empty_person_md_triggers_first_picture_from_whole_history(env, tmp_path):
+    db, memory, *_ = env
+    (memory.path / "direction" / "person.md").write_text("# Personen\n\n## Vad hen vill\n<!-- kommentar -->\n")
+    await db.execute("INSERT INTO messages (telegram_message_id, direction, text, created_at) VALUES (1, 'in', 'jag vill bygga saker som folk använder', datetime('now', '-20 days'))")
+    calls = []
+    d = director(db, memory, tmp_path, structured=BASE, calls=calls)
+    await d.db.kv_set("director.last_understand", datetime.now().isoformat())  # last pass just now
+    await d.run("understand")
+    assert "person.md är tom" in calls[0].prompt and "folk använder" in calls[0].prompt
+
+    (memory.path / "direction" / "person.md").write_text("# Personen\n\n## Vad hen vill\n- Bygga saker som används\n")
+    await d.run("understand")
+    assert "person.md är tom" not in calls[1].prompt and "folk använder" not in calls[1].prompt
