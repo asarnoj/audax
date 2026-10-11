@@ -10,8 +10,8 @@ Status: steg B, förteckning · 2026-10-11 · hör till [ARCHITECTURE.md](ARCHIT
 | `chat.md` (+ style, state, interests) | chatten (Worker) | varje meddelande, varje utskick | samtalet + markörer | text till ägaren | 8,6k |
 | `interview.md` | chatten | `/intervju` | — | frågor, minnesfiler | 1,8k |
 | `self.md` | chattverktyget `how_i_work` | när ägaren frågar hur den fungerar | — | — | 3,4k |
-| `triage.md` | triage | nya händelser | minne, policy, händelser | egenskaper + utkast | 1,7k |
-| `dispatcher.md` | dispatchern | var 10:e min vid ändring | läge, luckor, aktivitet, kandidater | beslut + ihopslaget meddelande | 2,3k |
+| `triage.md` | triage | nya händelser | minne, policy, händelser | egenskaper + fakta-brief till chatten | 2,3k |
+| `dispatcher.md` | dispatchern | var 10:e min vid ändring | läge, luckor, aktivitet, kandidater | beslut med skäl (chatten skriver utskicket) | 2,1k |
 | `research.md` (+ djupsvepsingress) | sökuppdrag | per intervall, veckovis | mål, minne, frågor, tidigare fynd | fynd + bortvalda | 1,7k |
 | `scout_queries.md` | sökportföljen | när portföljen är tunn | mål, bra frågor, befintliga | nya frågor | 1,3k |
 | inbakad i `sources/pages.py` | sidbevakning | när en sida ändrats | nya rader | saker | 0,5k |
