@@ -114,7 +114,8 @@ def add_page(page_id: str, url: str, note: str = "", kind: str = "event", type_:
     with SOURCES_FILE.open("a") as f:
         f.write(block)
     commit_config(f"agent: bevaka {url}")
-    return f"Bevakar {url} från och med nu."
+    what = "flödet" if type_ == "rss" else "sidan"
+    return f"Bevakar {what} {url} från och med nu, kollar ungefär var 6:e timme. Bara det som är nytt räknas."
 
 
 def add_topic(name: str, query: str, lang: str = "en", note: str = "") -> str:
@@ -132,7 +133,8 @@ def add_topic(name: str, query: str, lang: str = "en", note: str = "") -> str:
     with SOURCES_FILE.open("a") as f:
         f.write(block)
     commit_config(f"agent: följ ämnet {name}")
-    return f"Följer nyheter om {name} från och med nu. Jag hör av mig när något nytt och viktigt dyker upp."
+    return (f"Följer nyheter om {name} från och med nu: nyhetssajter (via nyhetssök) och Hacker News, kollar varannan timme. "
+            f"Det som redan är publicerat räknas inte, bara nytt. Det som är värt något skickas, resten hamnar på hyllan.")
 
 
 def _stream_block(text: str, stream_id: str) -> tuple[int, int] | None:

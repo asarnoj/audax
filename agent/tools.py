@@ -280,8 +280,11 @@ def _inbox_tools(inbox: Inbox, wake_director=None) -> list:
         await inbox.note(args["owner"], args["verbatim"], args["interpretation"], args.get("request_id"))
         if args.get("act_now") and args["owner"] == "director" and wake_director:
             wake_director()
-            return _text("Vidarebefordrat. Director går igenom det nu och sätter igång sökandet.")
-        return _text("Vidarebefordrat.")
+            return _text(personalize(
+                "[internt] Sparat. Arbetet med det här börjar i bakgrunden inom någon minut: en tråd, sökningar och "
+                "bevakning efter behov. Bekräfta kort för {owner} att du tar tag i det."
+            ))
+        return _text("[internt] Sparat.")
 
     @tool(
         "watch_source",
@@ -316,7 +319,7 @@ def _inbox_tools(inbox: Inbox, wake_director=None) -> list:
     )
     async def mark_request_asked(args: dict[str, Any]) -> dict[str, Any]:
         await inbox.mark_asked(args["request_id"])
-        return _text("Noterat som ställd.")
+        return _text("[internt] Noterat.")
 
     return [route_note, mark_request_asked, watch_source]
 

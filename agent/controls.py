@@ -100,7 +100,18 @@ class Controls:
             "GROUP BY e.source ORDER BY n DESC"
         )
         research = ", ".join(f"{t.id} (var {t.interval_days:g}:e dag)" for t in load_research() if t.enabled)
-        lines = ["Källor senaste 7 dagarna (in → skickat / hylla / bortsorterat):"]
+        from agent.sources.streams import load_stream_configs
+
+        kinds = {"rss": "flöde", "page": "sida", "topic": "nyhetsbevakning (nyhetssök + Hacker News)", "jobtech": "Platsbanken",
+                 "ats": "företagens jobbannonser", "devpost": "Devpost-hackathons", "hn_hiring": "HN Who is hiring", "websocket": "liveflöde"}
+        def pace(m):
+            return f"var {m / 60:g}:e timme" if m >= 60 else f"var {m:g}:e minut"
+        senses = [
+            f"- {c.id}: {kinds.get(c.type, c.type)}, {pace(c.poll_minutes)}"
+            + (f" ({c.params.get('query')})" if c.params.get("query") else (f" ({c.url})" if c.url else ""))
+            for c in load_stream_configs() if c.enabled
+        ]
+        lines = ["Det jag bevakar och hur ofta:", *senses, "", "Utfall senaste 7 dagarna (in → skickat / hylla / bortsorterat):"]
         lines += [f"- {r['source']}: {r['n']} → {r['sent'] or 0} / {r['shelf'] or 0} / {r['dropped'] or 0}" for r in rows] or ["- inga händelser än"]
         lines.append(f"Undersökningar: {research or 'inga'}")
         return "\n".join(lines)
