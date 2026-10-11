@@ -40,3 +40,19 @@ async def test_day_and_runs_show_traces_and_skipped(db):
     runs = await i.runs("research")
     assert "WebSearch: summer internship 2027 Stockholm" in runs
     assert "Skickat på eget initiativ: 1" in await i.summary()
+
+
+async def test_usage_report_flags_waste(db):
+    for _ in range(2):
+        await db.execute("INSERT INTO claude_runs (kind, cost_usd, context_tokens, cache_write_tokens, cache_read_tokens, input_tokens, turns) "
+                         "VALUES ('chat', 1.0, 109000, 100000, 9000, 2, 3)")
+    await db.execute("INSERT INTO claude_runs (kind, cost_usd) VALUES ('triage', 0.01)")
+    await db.execute("INSERT INTO research_runs (research_id, findings, returned) VALUES ('jobs', 0, 0)")
+    for i in range(5):
+        eid = await db.execute("INSERT INTO events (source, kind, dedupe_key, payload) VALUES ('stream:hn', 'news', ?, '{}')", (str(i),))
+        await db.execute("INSERT INTO candidates (event_id, kind, title, body, status) VALUES (?, 'news', 't', 'b', 'dropped')", (eid,))
+    text = await Inspector(db).usage()
+    assert "chat" in text and "cache" in text
+    assert "bygga om cachen 2 gånger" in text and "109k" in text
+    assert "Sökuppdraget jobs: 1 körning(ar) utan ett enda fynd" in text
+    assert "stream:hn: 5 av 5" in text

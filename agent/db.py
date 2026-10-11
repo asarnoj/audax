@@ -282,6 +282,14 @@ MIGRATIONS: list[str] = [
     """
     ALTER TABLE claude_runs ADD COLUMN context_tokens INTEGER;
     """,
+    # 13: full token accounting per run, for usage analysis (audax usage)
+    """
+    ALTER TABLE claude_runs ADD COLUMN input_tokens INTEGER;
+    ALTER TABLE claude_runs ADD COLUMN output_tokens INTEGER;
+    ALTER TABLE claude_runs ADD COLUMN cache_read_tokens INTEGER;
+    ALTER TABLE claude_runs ADD COLUMN cache_write_tokens INTEGER;
+    ALTER TABLE claude_runs ADD COLUMN turns INTEGER;
+    """,
 ]
 
 

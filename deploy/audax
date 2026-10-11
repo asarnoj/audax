@@ -4,6 +4,7 @@
 #   ./deploy/audax day 2026-10-10  a specific day
 #   ./deploy/audax jobs            what the engine runs next: its jobs, each sense, each mission (+ heartbeat)
 #   ./deploy/audax claude          every way Claude is called: prompt, model, tools, trigger, last week's cost
+#   ./deploy/audax usage [days]    quota analysis: per day, per kind, cache hits, signs of waste, priciest runs
 #   ./deploy/audax runs [kind] [n] Claude runs with tool-call traces (kind: research, chat, dispatcher, director_reflect, ...)
 #   ./deploy/audax decisions [n]   dispatcher decisions with reasons
 #   ./deploy/audax research        search portfolios

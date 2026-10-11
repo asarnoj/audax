@@ -75,6 +75,7 @@ class RunResult:
     error: str | None = None
     trace: list[dict] = field(default_factory=list)  # tool calls: {"tool", "input", "error"}
     context_tokens: int | None = None  # largest single model call (input + cached), i.e. how much context is resent
+    usage: dict[str, int] = field(default_factory=dict)  # totals: input, output, cache_read, cache_write, turns
 
 
 class QuotaPaused(Exception):
@@ -140,9 +141,17 @@ async def sdk_runner(task: ClaudeTask, workspace: Path, on_rate_limit: OnRateLim
 
     if result is None:
         return RunResult(text="", is_error=True, error="no result message", trace=trace)
+    u = result.usage or {}
     return RunResult(
         trace=trace,
         context_tokens=context or None,
+        usage={
+            "input": u.get("input_tokens") or 0,
+            "output": u.get("output_tokens") or 0,
+            "cache_read": u.get("cache_read_input_tokens") or 0,
+            "cache_write": u.get("cache_creation_input_tokens") or 0,
+            "turns": result.num_turns or 0,
+        },
         text=result.result or "\n".join(texts),
         session_id=result.session_id,
         structured=result.structured_output,
@@ -266,8 +275,8 @@ class ClaudeGate:
     async def _log(self, task: ClaudeTask, r: RunResult) -> None:
         rl = self.quota.last_rate_limit
         await self.db.execute(
-            "INSERT INTO claude_runs (kind, model, session_id, duration_ms, cost_usd, is_error, error, rate_limit, trace, output, context_tokens) "
-            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            "INSERT INTO claude_runs (kind, model, session_id, duration_ms, cost_usd, is_error, error, rate_limit, trace, output, context_tokens, "
+            "input_tokens, output_tokens, cache_read_tokens, cache_write_tokens, turns) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
             (
                 task.kind,
                 task.model,
@@ -282,6 +291,11 @@ class ClaudeGate:
                 json.dumps(r.trace, ensure_ascii=False) if r.trace else None,
                 (r.text or "")[:600] or None,
                 r.context_tokens,
+                r.usage.get("input"),
+                r.usage.get("output"),
+                r.usage.get("cache_read"),
+                r.usage.get("cache_write"),
+                r.usage.get("turns"),
             ),
         )
 

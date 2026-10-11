@@ -225,6 +225,89 @@ class Inspector:
             out += [f"{kind} [{c.role}, {model}] {stat}", f"    {c.purpose}", f"    prompt: {c.prompt} · verktyg: {c.tools} · när: {c.trigger}"]
         return "\n".join(out)
 
+    async def usage(self, days: int = 7) -> str:
+        """Where the subscription quota goes, and signs of waste. For analysis from the dev machine, not the chat."""
+        since = f"-{days} days"
+        q = self.db.fetchall
+        out = [f"=== Användning, senaste {days} dagarna (kostnad = API-ekvivalent, ett mått på kvotandel) ==="]
+
+        daily = await q(
+            "SELECT date(created_at, 'localtime') AS d, count(*) AS n, sum(cost_usd) AS usd, "
+            "sum(COALESCE(input_tokens,0) + COALESCE(cache_read_tokens,0) + COALESCE(cache_write_tokens,0)) AS tin, "
+            "sum(output_tokens) AS tout FROM claude_runs WHERE created_at >= datetime('now', ?) GROUP BY d ORDER BY d", (since,)
+        )
+        total = sum(r["usd"] or 0 for r in daily) or 1
+        out.append("\nPer dag:")
+        peak = max((r["usd"] or 0) for r in daily) if daily else 1
+        for r in daily:
+            bar = "█" * max(1, int(20 * (r["usd"] or 0) / (peak or 1)))
+            out.append(f"  {r['d']}  {bar:<20} ${r['usd'] or 0:6.2f}  {r['n']:>4} körningar" + (f", {(r['tin'] or 0) / 1e6:.1f}M tokens in" if r["tin"] else ""))
+
+        kinds = await q(
+            "SELECT kind, count(*) AS n, sum(cost_usd) AS usd, avg(cost_usd) AS avg_usd, avg(context_tokens) AS ctx, avg(turns) AS turns, "
+            "sum(cache_read_tokens) AS cr, sum(cache_write_tokens) AS cw, sum(input_tokens) AS inp "
+            "FROM claude_runs WHERE created_at >= datetime('now', ?) GROUP BY kind ORDER BY usd DESC", (since,)
+        )
+        out.append("\nPer sorts anrop (andel · per körning · sammanhang · steg · cacheträff):")
+        for r in kinds:
+            cache = (r["cr"] or 0) / ((r["cr"] or 0) + (r["cw"] or 0) + (r["inp"] or 0)) if (r["cr"] or r["cw"] or r["inp"]) else None
+            out.append(
+                f"  {r['kind']:<20} {100 * (r['usd'] or 0) / total:4.0f}%  {r['n']:>4}×  ${r['avg_usd'] or 0:.3f}/st"
+                + (f"  ~{r['ctx'] / 1000:.0f}k" if r["ctx"] else "") + (f"  {r['turns']:.1f} steg" if r["turns"] else "")
+                + (f"  cache {100 * cache:.0f}%" if cache is not None else "")
+            )
+
+        out.append("\nSignaler på onödig användning:")
+        signals = []
+        cold = await q(
+            "SELECT count(*) AS n, sum(cost_usd) AS usd FROM claude_runs WHERE kind = 'chat' AND created_at >= datetime('now', ?) "
+            "AND cache_write_tokens > 30000", (since,)
+        )
+        if cold and cold[0]["n"]:
+            signals.append(f"Chatten fick bygga om cachen {cold[0]['n']} gånger (stort sammanhang + lång paus), ${cold[0]['usd'] or 0:.2f}. "
+                           "Hålls nere av att sessionen startas om när den blir stor.")
+        big = await q("SELECT max(context_tokens) AS m FROM claude_runs WHERE kind = 'chat' AND created_at >= datetime('now', ?)", (since,))
+        if big and (big[0]["m"] or 0) > 60000:
+            signals.append(f"Chattens största sammanhang: {big[0]['m'] / 1000:.0f}k tokens (gräns för omstart: 60k).")
+        noop = await q(
+            "SELECT count(*) AS n FROM claude_runs r WHERE r.kind = 'dispatcher' AND r.created_at >= datetime('now', ?) AND NOT EXISTS "
+            "(SELECT 1 FROM decisions d WHERE d.created_at BETWEEN datetime(r.created_at, '-2 minutes') AND datetime(r.created_at, '+2 minutes') "
+            "AND (d.tier LIKE '%(nu)%' OR d.tier IN ('shelf', 'drop')))", (since,)
+        )
+        disp = next((r for r in kinds if r["kind"] == "dispatcher"), None)
+        if disp and noop and noop[0]["n"]:
+            signals.append(f"Dispatchern: {noop[0]['n']} av {disp['n']} körningar ändrade inget (allt fick vänta).")
+        empty = await q(
+            "SELECT research_id, count(*) AS n FROM research_runs WHERE created_at >= datetime('now', ?) AND COALESCE(returned, findings) = 0 "
+            "GROUP BY research_id", (since,)
+        )
+        for r in empty:
+            signals.append(f"Sökuppdraget {r['research_id']}: {r['n']} körning(ar) utan ett enda fynd.")
+        noisy = await q(
+            "SELECT e.source, count(*) AS n, sum(c.status = 'dropped') AS dropped FROM events e JOIN candidates c ON c.event_id = e.id "
+            "WHERE e.created_at >= datetime('now', ?) GROUP BY e.source HAVING n >= 5 ORDER BY dropped * 1.0 / n DESC", (since,)
+        )
+        for r in noisy:
+            if (r["dropped"] or 0) / r["n"] >= 0.8:
+                signals.append(f"{r['source']}: {r['dropped']} av {r['n']} bedömda saker sorterades bort. Triage lägger kvot på brus; "
+                               "ett skarpare förfilter eller glesare takt skulle spara.")
+        out += [f"  - {x}" for x in signals] or ["  inga"]
+
+        top = await q(
+            "SELECT datetime(created_at, 'localtime') AS t, kind, cost_usd, context_tokens, turns, duration_ms FROM claude_runs "
+            "WHERE created_at >= datetime('now', ?) ORDER BY cost_usd DESC LIMIT 5", (since,)
+        )
+        out.append("\nDyraste enskilda körningar:")
+        out += [f"  {r['t']}  {r['kind']:<18} ${r['cost_usd'] or 0:.2f}" + (f"  ~{r['context_tokens'] / 1000:.0f}k" if r["context_tokens"] else "")
+                + (f"  {r['turns']} steg" if r["turns"] else "") + f"  {(r['duration_ms'] or 0) / 1000:.0f}s" for r in top]
+
+        rl = await self.db.fetchone("SELECT rate_limit, datetime(created_at, 'localtime') AS t FROM claude_runs WHERE rate_limit IS NOT NULL ORDER BY id DESC LIMIT 1")
+        if rl:
+            info = json.loads(rl["rate_limit"])
+            out.append(f"\nKvotfönster (senast {rl['t']}): {info.get('status')}, {info.get('type')}"
+                       + (f", {100 * info['utilization']:.0f}% använt" if info.get("utilization") is not None else ", användning rapporteras inte"))
+        return "\n".join(out)
+
     async def summary(self) -> str:
         """For the chat: today in a few lines, plus health."""
         today = datetime.now(self.tz).date()
@@ -267,6 +350,8 @@ async def _main(args: list[str]) -> None:
         print(await i.runs(kind, n))
     elif cmd == "decisions":
         print(await i.decisions(int(rest[0]) if rest else 20))
+    elif cmd == "usage":
+        print(await i.usage(int(rest[0]) if rest else 7))
     elif cmd in ("research", "senses", "errors", "jobs", "claude"):
         print(await getattr(i, cmd)())
     else:
