@@ -221,8 +221,10 @@ class Manager:
 
         # Mechanical hygiene (not UX policy): a chat session that has grown big resends its whole history on
         # every reply, which is what eats the subscription quota. Start it over from the summary.
-        last = await self.db.fetchone("SELECT context_tokens FROM claude_runs WHERE kind = 'chat' AND context_tokens IS NOT NULL ORDER BY id DESC LIMIT 1")
-        too_big = bool(last and last["context_tokens"] > CHAT_CONTEXT_LIMIT)
+        last = await self.db.fetchone("SELECT context_tokens, cost_usd FROM claude_runs WHERE kind = 'chat' ORDER BY id DESC LIMIT 1")
+        too_big = bool(last) and (
+            last["context_tokens"] > CHAT_CONTEXT_LIMIT if last["context_tokens"] else (last["cost_usd"] or 0) > 1.0  # unmeasured: cost as proxy
+        )
         if (out.get("restart_chat") or too_big) and out.get("chat_summary"):
             await self.db.kv_set(CHAT_SEED_KEY, out["chat_summary"])
             await self.db.kv_set("chat.session_id", None)
