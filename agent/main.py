@@ -40,6 +40,13 @@ log = logging.getLogger("agent")
 async def run() -> None:
     if created := ensure_instance():
         log.info("created instance config from examples: %s", ", ".join(created))
+    from agent import direction_ops
+
+    try:
+        if added := direction_ops.watch_unwatched_companies():
+            log.info("watching careers pages for companies without a known ATS: %s", ", ".join(added))
+    except Exception:
+        log.exception("couldn't check the watchlist for unwatched companies")
     settings = load_settings()
     assert_subscription_auth()
     set_owner(settings.owner)

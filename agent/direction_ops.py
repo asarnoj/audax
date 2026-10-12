@@ -99,7 +99,26 @@ async def add_company(name: str, careers_url: str) -> str:
     commit_config(f"agent: bevaka {name}")
     if "ats" in entry:
         return f"{name} bevakas nu ({entry['ats']})."
-    return f"{name} ligger på bevakningslistan, men rekryteringssystemet gick inte att hitta automatiskt."
+    # No known applicant tracking system: watch the careers page itself, so the company isn't silently unwatched.
+    add_page(f"careers-{name}", careers_url, CAREERS_NOTE.format(name=name), "opportunity")
+    return f"{name} bevakas nu via karriärsidan (inget känt rekryteringssystem)."
+
+
+CAREERS_NOTE = "Karriärsida för {name}. Värdefullt: praktik, sommarjobb, student-, trainee- och juniorroller inom mjukvara."
+
+
+def watch_unwatched_companies() -> list[str]:
+    """Companies on the watchlist without a known ATS were never polled (found 12 Oct). Watch their careers pages."""
+    data = yaml.safe_load(WATCHLIST_FILE.read_text()) or {}
+    streams = (yaml.safe_load(SOURCES_FILE.read_text()) or {}).get("streams") or []
+    urls = {s.get("url") for s in streams}
+    added = []
+    for c in data.get("companies") or []:
+        if c.get("ats") or not c.get("careers_url") or c["careers_url"] in urls:
+            continue
+        add_page(f"careers-{c['name']}", c["careers_url"], CAREERS_NOTE.format(name=c["name"]), "opportunity")
+        added.append(c["name"])
+    return added
 
 
 def add_page(page_id: str, url: str, note: str = "", kind: str = "event", type_: str = "page") -> str:

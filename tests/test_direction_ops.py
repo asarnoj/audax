@@ -76,3 +76,13 @@ def test_tune_and_disable_sense_keep_comments(files):
     data = {s["id"]: s for s in yaml.safe_load(text)["streams"]}
     assert data["hn"]["poll_minutes"] == 15 and data["hn"]["enabled"] is False and data["dev"]["poll_minutes"] == 600
     assert "# nyheter" in text and "# sist" in text
+
+
+def test_companies_without_a_known_ats_are_watched_through_their_careers_page(files):
+    _, sources, watchlist = files
+    watchlist.write_text(watchlist.read_text() + "  - {name: King, careers_url: https://careers.king.com}\n  - {name: Voi}\n")
+    assert ops.watch_unwatched_companies() == ["King"]  # Spotify has an ATS; Voi has no URL to watch
+    assert ops.watch_unwatched_companies() == []  # once
+    streams = yaml.safe_load(sources.read_text())["streams"]
+    king = next(s for s in streams if s["url"] == "https://careers.king.com")
+    assert king["type"] == "page" and king["kind"] == "opportunity" and "King" in king["note"]

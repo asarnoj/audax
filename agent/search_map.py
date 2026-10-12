@@ -83,10 +83,19 @@ async def _seen_corpus(db: Database) -> str:
     return "\n".join(r["payload"] for r in rows).lower()
 
 
+def _fold(text: str) -> str:
+    return text.lower().translate(str.maketrans("åäöéü", "aaoeu"))
+
+
 def _covered(name: str, watched: str, seen: str) -> str | None:
-    """'watched' if Audax watches it, 'seen' if it has turned up in what Audax read, else None."""
-    variants = {name.lower().strip(), re.sub(r"\s*\(.*?\)", "", name.lower()).strip()}
+    """'watched' if Audax watches it, 'seen' if it has turned up in what Audax read, else None.
+    Matches the full name, the name without a parenthesis, and its first word when that is distinctive
+    ("Mojang Studios" -> "mojang"), with å/ä/ö folded so URLs match too."""
+    base = _fold(re.sub(r"\s*\(.*?\)", "", name)).strip()
+    first = base.split()[0] if base.split() else ""
+    variants = {_fold(name).strip(), base} | ({first} if len(first) >= 5 else set())
     variants = {v for v in variants if len(v) >= 3}
+    watched, seen = _fold(watched), _fold(seen)
     if any(v in watched for v in variants):
         return "watched"
     if any(v in seen for v in variants):
