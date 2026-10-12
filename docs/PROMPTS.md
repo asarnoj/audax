@@ -12,9 +12,9 @@ Status: steg B, förteckning · 2026-10-11 · hör till [ARCHITECTURE.md](ARCHIT
 | `self.md` | chattverktyget `how_i_work` | när ägaren frågar hur den fungerar | — | — | 3,4k |
 | `triage.md` | triage | nya händelser | minne, policy, händelser | egenskaper + fakta-brief till chatten | 2,3k |
 | `dispatcher.md` | dispatchern | var 10:e min vid ändring | läge, luckor, aktivitet, kandidater | beslut med skäl (chatten skriver utskicket) | 2,1k |
-| `research.md` (+ djupsvepsingress) | sökuppdrag | per intervall, veckovis | mål, minne, frågor, tidigare fynd | fynd + bortvalda | 1,7k |
+| `research.md` (djupsvepet som en rad i samma prompt) | sökuppdrag | per intervall, veckovis | mål, minne, frågor, tidigare fynd | fynd + bortvalda | 1,7k |
 | `scout_queries.md` | sökportföljen | när portföljen är tunn | mål, bra frågor, befintliga | nya frågor | 1,3k |
-| inbakad i `sources/pages.py` | sidbevakning | när en sida ändrats | nya rader | saker | 0,5k |
+| inbakad i `sources/pages.py` (engelska) | sidbevakning | när en sida ändrats | nya rader | saker | 0,6k |
 | `manager.md` | Manager | varje natt + när den väcks | policy, samtal, feedback, hylla … | policy/stil/läge, frågor, journal, sammanfattning (läser minnet, skriver det inte) | 5,9k |
 | `director.md` (gemensam bas) + `director_understand.md` | Director | varje natt + när den väcks | bild, minne, tid, samtal, uppdrag, fönster | bild/mål/trådar, uppdrag, sinnen | 5,5k + 0,8k |
 | `director.md` + `director_reflect.md` | Director | mån, ons och lör | som ovan + idéutfall | idéer, delningar (fakta-brief till chatten), frågor | 5,5k + 2,8k |
