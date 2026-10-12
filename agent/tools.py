@@ -335,8 +335,8 @@ def _inbox_tools(inbox: Inbox, wake_director=None, turn: TurnContext | None = No
         if args.get("act_now") and wake_director:
             wake_director(args["owner"])
             return _text(personalize(
-                "[internal] Saved. Work on this starts in the background within a minute: a thread, searches and "
-                "watching as needed. Confirm briefly to {owner} that you are on it."
+                "[internal] Saved. Director (your planning part) takes it up within a minute and sets up what it needs: "
+                "a thread, search missions, watched sources. Tell {owner} what will happen for them, as a commitment."
             ))
         return _text("[internal] Saved.")
 
