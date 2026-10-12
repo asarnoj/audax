@@ -286,3 +286,11 @@ async def test_triage_sees_what_was_already_sent(db, tmp_path):
     t = Triage(load_settings(), db, gate_returning(db, tmp_path, {"items": []}, calls), FakeMemory())
     await t.run()
     assert "Machinarium 2 trailer" in calls[0].prompt and "https://yt/x" in calls[0].prompt
+
+
+def test_a_story_does_not_expire_on_its_publication_date():
+    from agent.pipeline.triage import _expiry
+
+    assert _expiry({"date": "2026-09-09"}, "Europe/Stockholm", "news") is None
+    assert _expiry({"date": "2026-10-20"}, "Europe/Stockholm", "event").startswith("2026-10-20T21:59")
+    assert _expiry({"deadline": "2026-10-23", "date": "2026-09-01"}, "Europe/Stockholm", "opportunity").startswith("2026-10-23")

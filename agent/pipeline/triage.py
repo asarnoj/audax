@@ -124,7 +124,7 @@ class Triage:
                     body=item.get("brief") or payload.get("summary", ""),
                     features=features,
                     url=payload.get("url"),
-                    expires_at=_expiry(payload, self.settings.timezone),
+                    expires_at=_expiry(payload, self.settings.timezone, row["kind"]),
                     event_id=row["id"],
                 )
             except sqlite3.IntegrityError:  # this event already has a candidate
@@ -154,9 +154,10 @@ class Triage:
         return "\n".join(f"- [{r['status']} {r['updated_at'][:10]}] {r['title'][:100]} {r['url'] or ''}".rstrip() for r in rows) or "(nothing)"
 
 
-def _expiry(payload: dict, tz: str) -> str | None:
-    """Candidates expire at the end of their deadline/event day."""
-    day = payload.get("deadline") or payload.get("date")
+def _expiry(payload: dict, tz: str, kind: str = "event") -> str | None:
+    """Candidates expire at the end of their deadline day, or for an event the day it happens. For anything else
+    `date` is just when it was published, not an end (stories expired the moment they arrived, 12 Oct)."""
+    day = payload.get("deadline") or (payload.get("date") if kind == "event" else None)
     if not day:
         return None
     try:
