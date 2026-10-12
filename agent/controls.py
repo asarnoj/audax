@@ -59,11 +59,12 @@ class Controls:
 
     # --- shelf ----------------------------------------------------------------
 
-    async def shelf(self) -> tuple[str, list]:
-        rows = await self.dispatcher.outbox.pull_shelf()
+    async def shelf(self, about: str | None = None) -> tuple[str, list]:
+        """What is saved for later, for the chat to pick from. Nothing changes until it marks what it told the owner."""
+        rows = await self.dispatcher.outbox.peek_shelf(about=about)
         if not rows:
-            return "Hyllan är tom.", []
-        return "Från hyllan:\n\n" + "\n\n".join(render(r) for r in rows), rows
+            return "[internal] Nothing saved for later.", []
+        return "[internal] Saved for later (id · kind · what):\n\n" + "\n\n".join(f"[{r['id']}] {r['kind']} · {render(r)}" for r in rows), rows
 
     # --- why ------------------------------------------------------------------
 
@@ -141,10 +142,10 @@ class Controls:
             (f"%{source}%", n),
         )
         if not rows:
-            return f"Inget har kommit in från {source} ännu (utöver det som fanns när bevakningen startade)."
-        status = {"sent": "skickat", "shelved": "på hyllan", "pulled": "hämtat från hyllan", "dropped": "bortsorterat",
-                  "pending": "väntar", "expired": "gick ut", None: "inte bedömt än"}
-        return "\n".join(
+            return f"[internal] Nothing has come in from {source} yet (beyond what existed when watching started)."
+        status = {"sent": "sent to the owner", "shelved": "saved for later", "pulled": "told on request", "dropped": "left out",
+                  "pending": "waiting to be sent", "sending": "being sent", "expired": "expired", None: "not judged yet"}
+        return "[internal] Latest items and what happened to each:\n" + "\n".join(
             f"- {r['created_at'][:10]} {r['title'] or '?'} → {status.get(r['status'], r['status'])}"
             + (f": {(r['reason'] or r['triage'] or '')[:140]}" if (r["reason"] or r["triage"]) else "")
             for r in rows
@@ -161,13 +162,15 @@ class Controls:
         async def go() -> None:
             try:
                 n = await self._research(research_id)
-                outcome = f"finished with {n} new finding(s); good ones are delivered on their own, the rest goes on the shelf" if n else "finished without anything new"
+                found = await self.recent_items(f"research:{research_id}", n) if n else ""
+                outcome = f"finished with {n} new finding(s):\n{found}" if n else "finished without anything new"
             except Exception:
                 log.exception("research %s failed", research_id)
                 outcome = "failed"
             await self._tell(
-                f"The search you started for the owner ({research_id}) {outcome}. Tell them the result in a sentence, in your "
-                "own words and only what matters to them. If you already said all of it, reply SKIP.",
+                f"The search you started for the owner ({research_id}) {outcome}\nTell them what it found, concretely and "
+                "briefly, in their terms (what it is, and whether you sent it, saved it for later or left it out). If you "
+                "already said all of it, reply SKIP.",
                 fallback="Sökningen du bad om är klar." if outcome != "failed" else "Sökningen du bad om gick inte att köra just nu.",
             )
 

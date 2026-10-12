@@ -71,7 +71,11 @@ async def test_shelf_and_why(setup):
     await outbox.set_tier(cid, "shelf", "shelved")
     text, rows = await c.shelf()
     assert "Hackathon på Uni" in text and "https://h" in text and len(rows) == 1
-    assert (await c.shelf())[0] == "Hyllan är tom."
+    assert len((await c.shelf())[1]) == 1  # looking changes nothing
+    assert (await c.shelf("praktik"))[1] == rows  # no match: everything, rather than nothing
+    assert await outbox.mark_pulled([cid]) == 1  # told the owner: off the shelf, once
+    assert await outbox.mark_pulled([cid]) == 0
+    assert (await c.shelf())[0] == "[internal] Nothing saved for later."
 
     cid2 = await add_candidate(db, "opportunity", "Jobb", "Sommarjobb", {"relevance": "high", "reason": "passar"})
     await outbox.record(cid2, "dispatcher@1", "next_gap (nu)", "lucka efter labb", {"availability": "ledig nu"})
@@ -107,5 +111,5 @@ async def test_recent_items_explain_what_happened(setup):
     cid = await db.execute("INSERT INTO candidates (event_id, kind, title, body, status, features) VALUES (?, 'news', 't', 'b', 'dropped', '{\"reason\": \"bara en recension\"}')", (eid,))
     await outbox.record(cid, "dispatcher@1", "drop", "inget nytt", {})
     text = await c.recent_items("machinarium")
-    assert "Machinarium 2 trailer → bortsorterat: inget nytt" in text
+    assert "Machinarium 2 trailer → left out: inget nytt" in text
     assert "Inget har kommit in" in await c.recent_items("nope")

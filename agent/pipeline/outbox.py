@@ -154,6 +154,25 @@ class Outbox:
             (candidate_id, module, tier, reason, json.dumps(context, ensure_ascii=False)),
         )
 
+    async def peek_shelf(self, limit: int = 12, about: str | None = None) -> list:
+        """What is saved for later, newest first, without changing anything (optionally only what matches `about`)."""
+        rows = await self.db.fetchall("SELECT * FROM candidates WHERE status = 'shelved' ORDER BY updated_at DESC LIMIT 60")
+        if about:
+            words = [w for w in about.casefold().split() if len(w) > 2]
+            rows = [r for r in rows if any(w in f"{r['title']} {r['body']} {r['kind']}".casefold() for w in words)] or rows
+        return rows[:limit]
+
+    async def mark_pulled(self, ids: list[int]) -> int:
+        """The owner has been told about these: off the shelf, and a positive signal."""
+        n = 0
+        for cid in ids:
+            if await self.db.execute_count(
+                "UPDATE candidates SET status = 'pulled', updated_at = datetime('now') WHERE id = ? AND status = 'shelved'", (cid,)
+            ):
+                await self.db.execute("INSERT INTO feedback (candidate_id, signal, value) VALUES (?, 'shelf_pull', 'pulled')", (cid,))
+                n += 1
+        return n
+
     async def pull_shelf(self, limit: int = 8) -> list:
         """What the shelf returns when the owner asks what's new: newest shelved items first. Pulled items count as a positive signal."""
         rows = await self.db.fetchall(

@@ -320,13 +320,23 @@ def _control_tools(controls: Controls, turn: TurnContext) -> list:
 
     @tool(
         "get_shelf",
-        "What is on the shelf: good things you found but didn't interrupt {owner} with. Use it when {owner} asks "
-        "'något nytt?', 'vad har du hittat?' or similar. Fetched items leave the shelf, so relay all of them.",
-        {"type": "object", "properties": {}},
+        "What you have saved for later: good things you found but didn't interrupt {owner} with. Use it when {owner} "
+        "asks 'något nytt?', 'vad har du hittat?' or about something specific (`about`). Looking changes nothing: tell "
+        "{owner} what answers their question, then call shelf_told with the ids you told them about.",
+        {"type": "object", "properties": {"about": {"type": "string", "description": "Optional: only what matches, e.g. 'stories', 'praktik'"}}},
     )
     async def get_shelf(args: dict[str, Any]) -> dict[str, Any]:
-        text, _ = await controls.shelf()
+        text, _ = await controls.shelf(args.get("about"))
         return _text(text)
+
+    @tool(
+        "shelf_told",
+        "Mark saved items as told to {owner} (ids from get_shelf), so they aren't offered again.",
+        {"type": "object", "properties": {"ids": {"type": "array", "items": {"type": "integer"}}}, "required": ["ids"]},
+    )
+    async def shelf_told(args: dict[str, Any]) -> dict[str, Any]:
+        n = await controls.dispatcher.outbox.mark_pulled([int(i) for i in args["ids"]])
+        return _text(f"[internal] {n} marked as told.")
 
     @tool(
         "explain_message",
@@ -340,8 +350,9 @@ def _control_tools(controls: Controls, turn: TurnContext) -> list:
 
     @tool(
         "source_overview",
-        "What you watch, how often, and what it has yielded. With `source` (e.g. 'machinarium', 'devpost', 'jobtech') it "
-        "lists the latest items from that source, what happened to each one, and why.",
+        "What you watch, how often, and what it has yielded. With `source` (a sense such as 'machinarium', 'devpost', "
+        "'jobtech', or a search mission such as 'world-stories') it lists the latest items from it, what happened to each "
+        "one, and why. Use it to answer what a particular search or source found.",
         {"type": "object", "properties": {"source": {"type": "string"}}},
     )
     async def source_overview(args: dict[str, Any]) -> dict[str, Any]:
@@ -381,7 +392,7 @@ def _control_tools(controls: Controls, turn: TurnContext) -> list:
 
         return _text(prompt("self") + "\n\n## Right now\n" + await controls.sources())
 
-    return [pause_messages, get_shelf, explain_message, source_overview, run_research, activity_report, how_i_work]
+    return [pause_messages, get_shelf, shelf_told, explain_message, source_overview, run_research, activity_report, how_i_work]
 
 
 def _inbox_tools(inbox: Inbox, wake_director=None, turn: TurnContext | None = None) -> list:
