@@ -7,7 +7,7 @@ domain which one works:
 1. Known source -> its API (Devpost, GitHub, Lever, Greenhouse, Ashby): structured and complete
 2. A plain fetch with an honest user agent (bot protection tends to block clients pretending to be browsers)
 3. A reader service (r.jina.ai) that renders the page, as a last resort. It learns which public URL is
-   read, nothing about användaren.
+   read, nothing about the owner.
 """
 
 from __future__ import annotations
@@ -19,6 +19,7 @@ from urllib.parse import urlparse
 import httpx
 
 from agent.db import Database
+from agent.netguard import PrivateAddress, check_public, public_client
 from agent.sources.pages import page_text
 from agent.sources.streams import USER_AGENT
 
@@ -46,12 +47,17 @@ class WebReader:
         self.reader_service = reader_service
 
     def _client(self) -> httpx.AsyncClient:
-        return httpx.AsyncClient(timeout=25, follow_redirects=True, headers={"User-Agent": USER_AGENT}, transport=self._transport)
+        return public_client(self._transport, timeout=25, follow_redirects=True, headers={"User-Agent": USER_AGENT})
 
     async def read(self, url: str) -> tuple[str, str]:
         """Returns (text, method). Text starts with an error line if nothing worked."""
         if not re.match(r"^https?://", url):
             url = "https://" + url
+        try:
+            await check_public(url, resolve=self._transport is None)
+        except PrivateAddress as e:
+            log.warning("web_read refused: %s", e)
+            return f"[internal] Refused: Audax only reads public web pages ({e}).", "none"
         domain = urlparse(url).netloc.lower().removeprefix("www.")
         order = ["api", "direct", "reader"]
         if self.db and (best := await self._best_method(domain)):

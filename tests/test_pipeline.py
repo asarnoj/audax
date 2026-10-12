@@ -193,3 +193,94 @@ async def test_delivery_goes_through_the_voice_and_falls_back(db, tmp_path):
     d2.outbox.speak = broken
     await d2.run()
     assert sent2 == ["Utkast B"]  # the draft goes out as-is
+
+
+# --- robustness: at most once, whatever runs concurrently (duplicates on 12 Oct) -------------------------
+
+
+async def test_concurrent_dispatcher_runs_deliver_a_candidate_once(db, tmp_path):
+    import asyncio
+
+    a = await add_candidate(db, "news", "Machinarium 2", "Trailer ute", {}, url="https://m")
+    d, sent = await make_dispatcher(db, tmp_path, {"decisions": [{"candidate_id": a, "tier": "interrupt", "send_now": True, "reason": "nu"}]})
+    await asyncio.gather(d.run(force=True), d.run(force=True), d.run(force=True))
+    assert len(sent) == 1
+    assert (await db.fetchone("SELECT status FROM candidates WHERE id = ?", (a,)))["status"] == "sent"
+
+
+async def test_delivering_the_same_row_twice_sends_once(db, tmp_path):
+    a = await add_candidate(db, "news", "X", "Y", {})
+    d, sent = await make_dispatcher(db, tmp_path, {"decisions": []})
+    row = await db.fetchone("SELECT * FROM candidates WHERE id = ?", (a,))
+    await d.outbox.deliver([row])
+    await d.outbox.deliver([row])  # a stale copy from a second, overlapping run
+    assert len(sent) == 1
+
+
+async def test_chat_can_decline_a_delivery_it_already_made(db, tmp_path):
+    from agent.pipeline.outbox import AlreadySaid
+
+    a = await add_candidate(db, "news", "X", "Y", {})
+    d, sent = await make_dispatcher(db, tmp_path, {"decisions": []})
+
+    async def speak(instruction):
+        assert "SKIP" in instruction
+        raise AlreadySaid()
+
+    d.outbox.speak = speak
+    await d.outbox.deliver([await db.fetchone("SELECT * FROM candidates WHERE id = ?", (a,))])
+    assert sent == []  # no fallback draft either
+    assert (await db.fetchone("SELECT status FROM candidates WHERE id = ?", (a,)))["status"] == "dropped"
+
+
+async def test_breaker_holds_delivery_when_something_loops(db, tmp_path):
+    from agent.pipeline.outbox import BREAKER_PER_HOUR
+
+    for _ in range(BREAKER_PER_HOUR):
+        await db.execute("INSERT INTO messages (telegram_message_id, direction, text, origin) VALUES (1, 'out', 'x', 'proactive')")
+    a = await add_candidate(db, "news", "X", "Y", {})
+    d, sent = await make_dispatcher(db, tmp_path, {"decisions": []})
+    await d.outbox.deliver([await db.fetchone("SELECT * FROM candidates WHERE id = ?", (a,))])
+    assert sent == [] and (await db.fetchone("SELECT status FROM candidates WHERE id = ?", (a,)))["status"] == "pending"
+    assert await db.kv_get("outbox.breaker")
+
+
+async def test_failed_delivery_releases_and_crash_recovery(db, tmp_path):
+    a = await add_candidate(db, "news", "X", "Y", {})
+    d, _ = await make_dispatcher(db, tmp_path, {"decisions": []})
+
+    async def down(text, candidate_id=None, origin=None):
+        raise RuntimeError("telegram down")
+
+    d.outbox.send_text = down
+    await d.outbox.deliver([await db.fetchone("SELECT * FROM candidates WHERE id = ?", (a,))])
+    assert (await db.fetchone("SELECT status FROM candidates WHERE id = ?", (a,)))["status"] == "pending"
+
+    b = await add_candidate(db, "news", "B", "B", {})
+    await db.execute("UPDATE candidates SET status = 'sending' WHERE id IN (?, ?)", (a, b))
+    mid = await db.execute("INSERT INTO messages (telegram_message_id, direction, text) VALUES (1, 'out', 'b')")
+    await db.execute("INSERT INTO message_candidates (message_id, candidate_id) VALUES (?, ?)", (mid, b))
+    await d.outbox.recover()
+    status = {r["id"]: r["status"] for r in await db.fetchall("SELECT id, status FROM candidates")}
+    assert status == {a: "pending", b: "sent"}
+
+
+async def test_concurrent_triage_makes_one_candidate_per_event(db, tmp_path):
+    import asyncio
+
+    e = await db.execute("INSERT INTO events (source, kind, dedupe_key, payload) VALUES ('stream:x', 'news', 'k', ?)",
+                         (json.dumps({"title": "Ideate", "url": "https://i"}),))
+    lv = dict(relevance="high", actionability="high", time_sensitivity="medium", novelty="high", confidence="high", complement="high")
+    t = Triage(load_settings(), db, gate_returning(db, tmp_path, {"items": [{"event_id": e, "keep": True, "brief": "b", "reason": "r", **lv}]}), FakeMemory())
+    await asyncio.gather(t.run(), t.run())
+    assert (await db.fetchone("SELECT count(*) AS n FROM candidates WHERE event_id = ?", (e,)))["n"] == 1
+
+
+async def test_triage_sees_what_was_already_sent(db, tmp_path):
+    calls = []
+    sent = await add_candidate(db, "news", "Machinarium 2 trailer", "b", {}, url="https://yt/x")
+    await db.execute("UPDATE candidates SET status = 'sent' WHERE id = ?", (sent,))
+    await db.execute("INSERT INTO events (source, kind, dedupe_key, payload) VALUES ('stream:y', 'news', 'k2', ?)", (json.dumps({"title": "Trailer"}),))
+    t = Triage(load_settings(), db, gate_returning(db, tmp_path, {"items": []}, calls), FakeMemory())
+    await t.run()
+    assert "Machinarium 2 trailer" in calls[0].prompt and "https://yt/x" in calls[0].prompt

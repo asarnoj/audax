@@ -111,7 +111,7 @@ async def test_record_feedback_links_to_replied_message(db, monkeypatch):
 
     monkeypatch.setattr(tools_mod, "create_sdk_mcp_server", capture)
     _, names = build_chat_tools(db, TurnContext(replied_to_message_id=msg_id))
-    assert names == ["mcp__agent__record_feedback", "mcp__agent__interview_guide"]
+    assert names == ["mcp__agent__record_feedback", "mcp__agent__interview_guide", "mcp__agent__report_problem"]
 
     await captured["tools"][0].handler({"target": "replied", "sentiment": "negative", "aspect": "amount", "note": "för långt"})
     row = await db.fetchone("SELECT message_id, signal, value, note FROM feedback")

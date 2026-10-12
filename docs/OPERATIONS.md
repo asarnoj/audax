@@ -32,12 +32,25 @@ Prenumerationen har ett tak. Det som förbrukar den är främst **hur mycket sam
 | Kvoten tar slut | bakgrundsjobb pausas tills den återställs, och hälsovakten berättar det | `test_rate_limit_warning_pauses_background_but_not_chat` |
 | Nätet går ner | sinnena loggar felet och försöker igen vid nästa intervall. Telegram-boten återansluter av sig själv | stream_stats.errors, sett i drift 9 okt |
 | En webbsida blockerar | `web_read` prövar API, direkt hämtning och läsartjänst, och minns vad som fungerar per domän | `tests/test_web.py` |
-| Ett utskick misslyckas | kandidaten är kvar i utkorgen och skickas vid nästa körning; om chattsessionen inte kan skriva skickas utkastet som det är | `test_delivery_goes_through_the_voice_and_falls_back` |
+| Ett utskick misslyckas | kandidaten släpps tillbaka till utkorgen och skickas vid nästa körning; om chattsessionen inte kan skriva skickas utkastet som det är | `test_failed_delivery_releases_and_crash_recovery` |
+| Samma sak når kedjan två gånger samtidigt (12 okt: tre dubbla meddelanden) | triage och dispatchern kör en i taget (lås); varje händelse kan bli högst en kandidat (unikt index); varje kandidat låses innan den skickas och kan bara skickas en gång | `test_concurrent_dispatcher_runs_deliver_a_candidate_once`, `test_concurrent_triage_makes_one_candidate_per_event` |
+| Samma nyhet från två källor | triage ser vad som redan är skickat, väntar eller ligger på hyllan och sorterar bort det som inte säger något nytt; chatten kan också avstå ett utskick som redan är sagt i samtalet | `test_triage_sees_what_was_already_sent`, `test_chat_can_decline_a_delivery_it_already_made` |
+| Något loopar och skickar för mycket | en mekanisk säkring håller inne utskicken vid fler än 6 egna meddelanden på en timme (inte en UX-regel); hälsokollen säger till | `test_breaker_holds_delivery_when_something_loops` |
+| Motorn startar om mitt i ett utskick | vid start: kandidater som hann skickas markeras skickade, övriga går tillbaka till utkorgen | `test_failed_delivery_releases_and_crash_recovery` |
+| Telegram ber om paus eller nätet hackar | nytt försök när meddelandet säkert inte gick iväg; vid timeout görs inget nytt försök (då kan det redan ha gått fram) | `telegram_bot._send_retrying` |
+| Chatten märker ett fel hos sig själv | den rapporterar det med `report_problem`, och det syns i hälsokollen (`audax health`) | — |
 | Trasig inställningsfil under drift | den gamla inställningen behålls | `test_watcher_calls_back_on_change_and_survives_errors` |
 | Trasig inställningsfil vid start | motorn startar ändå (utan de källor som inte går att läsa) och hälsovakten larmar via Telegram | `test_broken_sources_yaml_is_not_fatal_and_is_reported` |
 | En ändring från byggläget som kraschar efter omstart | testerna och en importkontroll körs före driftsättning; om det ändå går fel: `./deploy/audax rollback` backar senaste commit och startar om | `deploy/audax` |
 | SD-kortet går sönder | minnet, instansen och databasen säkerhetskopieras dagligen till Macen; instansen pushas till ett privat repo | [BACKUP.md](BACKUP.md) |
 | Två motorer lyssnar på samma bot (t.ex. Macen och Pi:n) | Telegram ger konfliktfel. Kör bara en motor åt gången | — |
+
+## Säkerhet
+
+- **Bara den publika webben.** Allt som kan följa en adress från en sida, ett mejl eller en modell (web_read, sinnena, kontroll av nya källor) går genom `agent/netguard.py`. Den vägrar Pi:n själv, hemnätverket och tailnet, även efter omdirigeringar.
+- **Innehåll från andra är data.** Webbsidor och mejl lämnas till Claude som information, aldrig som instruktioner (lager 0, och märkt i verktygens svar).
+- **Bara läsrätt utåt.** GitHub- och Gmail-nycklarna kan bara läsa; Gmail-nyckeln vägras om den kan mer. Inget verktyg skickar något åt ägaren.
+- **Ändringar av motorn** kräver ägarens knapptryck, och byggläget har ingen åtkomst till hemkatalogen.
 
 ## Kända luckor
 

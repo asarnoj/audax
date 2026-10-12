@@ -48,6 +48,13 @@ class Inspector:
         rl = await self.db.fetchone("SELECT rate_limit FROM claude_runs WHERE rate_limit IS NOT NULL ORDER BY id DESC LIMIT 1")
         if rl and json.loads(rl["rate_limit"]).get("status") == "rejected":
             problems.append("Claude-kvoten är slut, bakgrundsjobben väntar tills den återställs")
+        breaker = await self.db.kv_get("outbox.breaker")
+        if breaker and datetime.fromisoformat(breaker) > datetime.now(ZoneInfo("UTC")) - timedelta(hours=2):
+            problems.append("Utskicken höll inne: ovanligt många meddelanden på en timme, något kan loopa (se audax decisions)")
+        reported = await self.db.fetchall(
+            "SELECT created_at, description FROM problems WHERE resolved_at IS NULL AND created_at >= datetime('now', '-7 days') ORDER BY id DESC LIMIT 3"
+        )
+        problems += [f"Chatten rapporterade {self._t(r['created_at'])}: {r['description'][:160]}" for r in reported]
         last_any = await self.db.fetchone("SELECT max(created_at) AS t FROM claude_runs WHERE is_error = 0")
         if last_any and last_any["t"] and datetime.fromisoformat(last_any["t"] + "+00:00") < datetime.now(ZoneInfo("UTC")) - timedelta(hours=8):
             problems.append(f"Ingen lyckad Claude-körning sedan {self._t(last_any['t'])} (över 8 timmar)")

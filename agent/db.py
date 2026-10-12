@@ -290,6 +290,19 @@ MIGRATIONS: list[str] = [
     ALTER TABLE claude_runs ADD COLUMN cache_write_tokens INTEGER;
     ALTER TABLE claude_runs ADD COLUMN turns INTEGER;
     """,
+    # 14: one candidate per event (two concurrent triage runs made duplicates, 12 Oct; the later ones lose
+    # their event link, they were all dropped), and problems the chat noticed, for the maintainer.
+    """
+    UPDATE candidates SET event_id = NULL
+    WHERE event_id IS NOT NULL AND id NOT IN (SELECT min(id) FROM candidates WHERE event_id IS NOT NULL GROUP BY event_id);
+    CREATE UNIQUE INDEX candidates_one_per_event ON candidates(event_id) WHERE event_id IS NOT NULL;
+    CREATE TABLE problems (
+        id INTEGER PRIMARY KEY,
+        created_at TEXT NOT NULL DEFAULT (datetime('now')),
+        description TEXT NOT NULL,
+        resolved_at TEXT
+    );
+    """,
 ]
 
 
@@ -328,6 +341,12 @@ class Database:
         cur = await self.conn.execute(sql, params)
         await self.conn.commit()
         return cur.lastrowid
+
+    async def execute_count(self, sql: str, params: tuple = ()) -> int:
+        """Like execute, but returns the number of rows changed (for atomic claims)."""
+        cur = await self.conn.execute(sql, params)
+        await self.conn.commit()
+        return cur.rowcount
 
     async def fetchall(self, sql: str, params: tuple = ()) -> list[aiosqlite.Row]:
         return list(await (await self.conn.execute(sql, params)).fetchall())

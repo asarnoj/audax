@@ -14,6 +14,15 @@ log = logging.getLogger(__name__)
 SendText = Callable[..., Awaitable[list[int]]]  # (text) -> messages.id rows
 Speak = Callable[[str], Awaitable[list[int]]]  # the chat session writes and sends (docs/ARCHITECTURE.md)
 SendPoll = Callable[[str, list[str]], Awaitable[tuple[str, int | None]]]  # -> (poll_id, messages.id)
+# Mechanical sanity bound, not UX policy (Manager owns pacing): more proactive messages than this in an hour
+# means something is looping, so delivery holds (candidates stay pending) and the health check says so.
+BREAKER_PER_HOUR = 6
+BREAKER_KEY = "outbox.breaker"
+SKIP = "SKIP"  # the chat's answer to a delivery it has already made in the conversation
+
+
+class AlreadySaid(Exception):
+    """Raised by the chat session when a delivery would only repeat what it already said."""
 
 
 async def add_candidate(
@@ -58,23 +67,44 @@ class Outbox:
         return await self.db.fetchall("SELECT * FROM candidates WHERE status = 'pending' ORDER BY created_at")
 
     async def deliver(self, rows: list) -> None:
-        """Sends one message carrying the given candidates and links them for replies, reactions and "why did I get this?"."""
+        """Sends one message carrying the given candidates and links them for replies, reactions and "why did I get this?".
+
+        At most once per candidate: each one is claimed (pending -> sending) before anything is written, so a second
+        concurrent delivery of the same candidate finds nothing to claim. If nothing at all could be sent, the claim
+        is released and the candidate waits for the next round."""
+        sent = await self.db.fetchone(
+            "SELECT count(*) AS n FROM messages WHERE direction = 'out' AND origin = 'proactive' AND created_at >= datetime('now', '-1 hour')"
+        )
+        if sent["n"] >= BREAKER_PER_HOUR:
+            log.warning("delivery held: %d proactive messages in the last hour (breaker)", sent["n"])
+            await self.db.kv_set(BREAKER_KEY, utc_iso(self.schedule.now()))
+            return
+        claimed = []
+        for r in rows:
+            if await self.db.execute_count(
+                "UPDATE candidates SET status = 'sending', updated_at = datetime('now') WHERE id = ? AND status = 'pending'", (r["id"],)
+            ):
+                claimed.append(r)
+        if len(claimed) < len(rows):
+            log.warning("delivery: %d of %d candidate(s) were no longer pending, skipped", len(rows) - len(claimed), len(rows))
+        rows = claimed
         if not rows:
             return
-        draft = (render(rows[0]) if len(rows) == 1 else "\n\n".join(render(r) for r in rows))
         message_ids: list[int] = []
-        if self.speak is not None:
-            items = "\n".join(f"- {r['title']}: {r['body'].strip()} {r['url'] or ''}".strip() for r in rows)
-            try:
-                message_ids = await self.speak(
-                    "Deliver this to the owner now: one short message in your usual style, one line per item, links kept. "
-                    "If you were just talking about something related, connect to it briefly.\n"
-                    f"Items:\n{items}"
-                )
-            except Exception as e:
-                log.warning("chat session couldn't deliver (%s); sending the draft as-is", e)
+        try:
+            message_ids = await self._send(rows)
+        except AlreadySaid:
+            for r in rows:
+                await self.db.execute("UPDATE candidates SET status = 'dropped', tier = 'drop', updated_at = datetime('now') WHERE id = ?", (r["id"],))
+                await self.record(r["id"], "chat", "drop", "Redan sagt i samtalet, så inget nytt meddelande skickades.", {})
+            log.info("delivery: the chat had already said this; %d candidate(s) dropped", len(rows))
+            return
+        except Exception:
+            log.exception("delivery failed; the candidates wait for the next round")
         if not message_ids:
-            message_ids = await self.send_text(draft, candidate_id=rows[0]["id"] if len(rows) == 1 else None)
+            for r in rows:
+                await self.db.execute("UPDATE candidates SET status = 'pending' WHERE id = ? AND status = 'sending'", (r["id"],))
+            return
         for r in rows:
             await self.db.execute("UPDATE candidates SET status = 'sent', updated_at = datetime('now') WHERE id = ?", (r["id"],))
             for mid in message_ids:
@@ -82,6 +112,35 @@ class Outbox:
                     "INSERT OR IGNORE INTO message_candidates (message_id, candidate_id) VALUES (?, ?)", (mid, r["id"])
                 )
         log.info("delivered %d candidate(s)", len(rows))
+
+    async def _send(self, rows: list) -> list[int]:
+        """The chat writes the message (one voice); if it can't, the plain draft goes out instead."""
+        if self.speak is not None:
+            items = "\n".join(f"- {r['title']}: {r['body'].strip()} {r['url'] or ''}".strip() for r in rows)
+            try:
+                ids = await self.speak(
+                    "Deliver this to the owner now: one short message in your usual style, one line per item, links kept. "
+                    "If you were just talking about something related, connect to it briefly. If you have already told "
+                    f"the owner all of this in this conversation, reply with exactly {SKIP} and nothing is sent.\n"
+                    f"Items:\n{items}"
+                )
+                if ids:
+                    return ids
+            except AlreadySaid:
+                raise
+            except Exception as e:
+                log.warning("chat session couldn't deliver (%s); sending the draft as-is", e)
+        draft = render(rows[0]) if len(rows) == 1 else "\n\n".join(render(r) for r in rows)
+        return await self.send_text(draft, candidate_id=rows[0]["id"] if len(rows) == 1 else None)
+
+    async def recover(self) -> None:
+        """At startup: a candidate left 'sending' by a crash is sent if a message is linked to it, else pending again."""
+        await self.db.execute(
+            "UPDATE candidates SET status = 'sent' WHERE status = 'sending' AND id IN (SELECT candidate_id FROM message_candidates)"
+        )
+        n = await self.db.execute_count("UPDATE candidates SET status = 'pending' WHERE status = 'sending'")
+        if n:
+            log.info("outbox: %d interrupted delivery(ies) back to pending", n)
 
     async def set_tier(self, candidate_id: int, tier: str, status: str | None = None) -> None:
         await self.db.execute(

@@ -5,6 +5,7 @@ Hard rules in code: quiet hours, silence and focus modes, no duplicates. Everyth
 
 from __future__ import annotations
 
+import asyncio
 import json
 import logging
 from datetime import datetime, timedelta
@@ -65,6 +66,7 @@ class Dispatcher:
     ):
         self.settings = settings
         self.db = db
+        self._lock = asyncio.Lock()  # one run at a time: the 10-min job, new events and search missions all call run()
         self.gate = gate
         self.memory = memory
         self.schedule = schedule
@@ -97,6 +99,10 @@ class Dispatcher:
     # --- main loop ----------------------------------------------------------
 
     async def run(self, force: bool = False) -> None:
+        async with self._lock:
+            await self._run(force)
+
+    async def _run(self, force: bool) -> None:
         await self.outbox.expire()
         now = self.schedule.now()
         avail = await self.schedule.availability(now)

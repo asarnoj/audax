@@ -59,6 +59,7 @@ async def run() -> None:
     schedule = Schedule(settings, db, build_sources(cal_configs, settings.timezone), cal_options.get("window_days", 21))
     bot = TelegramBot(settings, db, gate, memory, schedule)
     outbox = Outbox(db, schedule, bot.send)
+    await outbox.recover()  # deliveries interrupted by a crash or restart
     manager = Manager(settings, db, gate, memory)
     outbox.speak = bot.chat.speak  # one voice: the chat session writes proactive messages too
     dispatcher = Dispatcher(settings, db, gate, memory, schedule, outbox, bot.send_poll, manager, bot.send_proposal, bot.chat.inbox)

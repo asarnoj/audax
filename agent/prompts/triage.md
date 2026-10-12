@@ -13,7 +13,9 @@ Rate each event low, medium or high on:
 - **confidence**: how sure you are of this judgement.
 - **complement**: how much it helps with what Audax exists to compensate for: finding opportunities {owner} wouldn't look for themselves, and daring to go for them.
 
-Set **keep** to false for anything under "Inte intresserad av" or "Vill inte ha" in the interests file, and for anything not worth {owner_s} attention even on the shelf: irrelevant, expired, a duplicate, or from a dubious source. If an event has a `source_note`, it says what is usually worth something from that source. Follow it.
+Set **keep** to false for anything under "Inte intresserad av" or "Vill inte ha" in the interests file, and for anything not worth {owner_s} attention even on the shelf: irrelevant, expired, a duplicate, or from a dubious source.
+
+The same news often arrives through several sources (a news topic, a feed, a search mission). Compare each event with the list of what is already sent, waiting or on the shelf below, and with the other events in this batch. If it says nothing new, it is a duplicate: keep=false. An update with genuinely new facts (a deadline announced, a date set) is not a duplicate; keep it, and say in the brief what is new. If an event has a `source_note`, it says what is usually worth something from that source. Follow it.
 
 ## Output (one item per event; text in Swedish)
 - **brief**: what it is and why it fits {owner} specifically, plus the facts that matter (deadline, date, place, cost, requirements). One to three plain sentences, no greeting, no styling, no opinion about yourself. The chat writes the actual message from this.
@@ -28,6 +30,9 @@ About {owner} (the direction files come from Director and weigh most; they descr
 
 Policy and current state (from Manager):
 {policy}
+
+Already sent, waiting or on the shelf (last 14 days):
+{recent}
 
 Events:
 {events}

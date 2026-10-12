@@ -118,7 +118,22 @@ def build_chat_tools(
 
         return _text("[internal] Follow this guide from now on:\n\n" + prompt("interview"))
 
-    tools = [record_feedback, interview_guide]
+    @tool(
+        "report_problem",
+        "Report a fault in Audax itself to its maintainer: something that went wrong in how you work (a message sent "
+        "twice, a source that keeps failing, a tool that errors). It shows up in the health check. Use it instead of "
+        "request_change for faults.",
+        {
+            "type": "object",
+            "properties": {"description": {"type": "string", "description": "What happened, when, and what you saw in the logs"}},
+            "required": ["description"],
+        },
+    )
+    async def report_problem(args: dict[str, Any]) -> dict[str, Any]:
+        await db.execute("INSERT INTO problems (description) VALUES (?)", (args["description"],))
+        return _text("[internal] Reported to the maintainer.")
+
+    tools = [record_feedback, interview_guide, report_problem]
 
     if schedule is not None:
 

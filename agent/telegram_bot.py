@@ -11,6 +11,7 @@ from datetime import timedelta
 
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup, Update
 from telegram.constants import ChatAction, ParseMode
+from telegram.error import NetworkError, RetryAfter, TimedOut
 from telegram.ext import (
     Application,
     CallbackQueryHandler,
@@ -100,7 +101,7 @@ class TelegramBot:
             return []
         ids = []
         for chunk in _chunks(text):
-            msg = await self.app.bot.send_message(self.settings.telegram_chat_id, chunk, disable_web_page_preview=True)
+            msg = await self._send_retrying(chunk)
             ids.append(
                 await self.db.execute(
                     "INSERT INTO messages (telegram_message_id, direction, candidate_id, text, origin, in_session) VALUES (?, 'out', ?, ?, ?, ?)",
@@ -108,6 +109,23 @@ class TelegramBot:
                 )
             )
         return ids
+
+    async def _send_retrying(self, chunk: str, attempts: int = 3):
+        """Retries only when the message certainly didn't go out: Telegram asked us to wait, or the connection
+        failed before sending. A timeout may have delivered it, so that is never retried (no duplicates)."""
+        for attempt in range(1, attempts + 1):
+            try:
+                return await self.app.bot.send_message(self.settings.telegram_chat_id, chunk, disable_web_page_preview=True)
+            except RetryAfter as e:
+                if attempt == attempts:
+                    raise
+                await asyncio.sleep(float(getattr(e.retry_after, "total_seconds", lambda: e.retry_after)()) + 1)
+            except TimedOut:
+                raise
+            except NetworkError:
+                if attempt == attempts:
+                    raise
+                await asyncio.sleep(2 * attempt)
 
     async def send_poll(self, question: str, options: list[str], multiple: bool = True) -> tuple[str, int | None]:
         """Non-anonymous so poll answers reach the bot. Returns (poll_id, messages.id)."""

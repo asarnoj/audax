@@ -9,6 +9,7 @@ import sys
 import httpx
 import yaml
 
+from agent.netguard import public_client
 from agent.sources.connectors import WATCHLIST, Company, detect_ats, fetch_company_jobs
 from agent.sources.streams import USER_AGENT
 
@@ -17,7 +18,7 @@ async def detect() -> None:
     text = WATCHLIST.read_text()
     header = "".join(line + "\n" for line in text.splitlines() if line.startswith("#"))
     data = yaml.safe_load(text) or {}
-    async with httpx.AsyncClient(timeout=20, follow_redirects=True, headers={"User-Agent": USER_AGENT}) as client:
+    async with public_client(timeout=20, follow_redirects=True, headers={"User-Agent": USER_AGENT}) as client:
         for c in data.get("companies", []):
             if c.get("ats") or not c.get("careers_url"):
                 continue

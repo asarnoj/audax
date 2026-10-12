@@ -1,9 +1,15 @@
-"""Triage: untriaged events -> value features + draft message -> outbox candidates (docs/ATTENTION.md §4.1)."""
+"""Triage: untriaged events -> value features + a brief for the chat -> outbox candidates (docs/ATTENTION.md §4.1).
+
+One run at a time: several paths start triage (the senses, search missions), and two concurrent runs once
+judged the same events twice (12 Oct). The lock serialises them; the unique index on candidates.event_id
+is the backstop."""
 
 from __future__ import annotations
 
+import asyncio
 import json
 import logging
+import sqlite3
 from datetime import datetime
 from zoneinfo import ZoneInfo
 
@@ -55,9 +61,14 @@ class Triage:
         self.db = db
         self.gate = gate
         self.memory = memory
+        self._lock = asyncio.Lock()
 
     async def run(self) -> int:
         """Triages pending events in batches; returns the number of candidates created."""
+        async with self._lock:
+            return await self._run()
+
+    async def _run(self) -> int:
         created = 0
         while rows := await self.db.fetchall(
             "SELECT * FROM events WHERE triaged_at IS NULL ORDER BY id LIMIT ?", (BATCH,)
@@ -75,6 +86,7 @@ class Triage:
             now=f"{now:%Y-%m-%d %H:%M}",
             memory=self.memory.read("direction/goals.md", "direction/now.md", "profile.md", "interests.md", "projects.md", "school.md"),
             policy=self.memory.read("policy.md", "state.md"),
+            recent=await self._recent(),
             events=events,
         )
         try:
@@ -104,16 +116,20 @@ class Triage:
             payload = json.loads(row["payload"])
             features = {k: item[k] for k in FEATURES if k in item}
             features["reason"] = item.get("reason", "")
-            cid = await add_candidate(
-                self.db,
-                kind=row["kind"],
-                title=payload.get("title", row["kind"]),
-                body=item.get("brief") or payload.get("summary", ""),
-                features=features,
-                url=payload.get("url"),
-                expires_at=_expiry(payload, self.settings.timezone),
-                event_id=row["id"],
-            )
+            try:
+                cid = await add_candidate(
+                    self.db,
+                    kind=row["kind"],
+                    title=payload.get("title", row["kind"]),
+                    body=item.get("brief") or payload.get("summary", ""),
+                    features=features,
+                    url=payload.get("url"),
+                    expires_at=_expiry(payload, self.settings.timezone),
+                    event_id=row["id"],
+                )
+            except sqlite3.IntegrityError:  # this event already has a candidate
+                log.warning("triage: event %s already has a candidate, skipped", row["id"])
+                continue
             if not item.get("keep", True):
                 await self.db.execute("UPDATE candidates SET status = 'dropped', tier = 'drop' WHERE id = ?", (cid,))
                 await self.db.execute(
@@ -128,6 +144,14 @@ class Triage:
         await self.db.execute(f"UPDATE events SET triaged_at = datetime('now') WHERE id IN ({marks})", tuple(by_id))
         log.info("triage: %d events -> %d candidates", len(rows), created)
         return created
+
+    async def _recent(self) -> str:
+        """What is already sent, waiting or shelved, so the same news from another source is seen as a duplicate."""
+        rows = await self.db.fetchall(
+            "SELECT title, url, status, updated_at FROM candidates WHERE status IN ('pending', 'sending', 'sent', 'shelved', 'pulled') "
+            "AND updated_at >= datetime('now', '-14 days') ORDER BY updated_at DESC LIMIT 40"
+        )
+        return "\n".join(f"- [{r['status']} {r['updated_at'][:10]}] {r['title'][:100]} {r['url'] or ''}".rstrip() for r in rows) or "(nothing)"
 
 
 def _expiry(payload: dict, tz: str) -> str | None:

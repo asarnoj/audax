@@ -29,6 +29,7 @@ import feedparser
 import httpx
 import yaml
 
+from agent.netguard import public_client
 from agent.config import instance_config
 
 log = logging.getLogger(__name__)
@@ -149,7 +150,7 @@ async def run_poller(config: StreamConfig, emit: Emit, poller, first_poll_is_bas
     baseline = first_poll_is_baseline
     while True:
         try:
-            async with httpx.AsyncClient(timeout=30, follow_redirects=True, headers={"User-Agent": USER_AGENT}) as client:
+            async with public_client(timeout=30, follow_redirects=True, headers={"User-Agent": USER_AGENT}) as client:
                 items = await poller(config, client)
             n = await emit(config, items, baseline=baseline)
             if n or baseline:

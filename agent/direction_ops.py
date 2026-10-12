@@ -13,6 +13,7 @@ import subprocess
 import httpx
 import yaml
 
+from agent.netguard import public_client
 from agent.config import INSTANCE, instance_config
 from agent.sources.streams import USER_AGENT
 
@@ -88,7 +89,7 @@ async def add_company(name: str, careers_url: str) -> str:
     try:
         from agent.sources import connectors
 
-        async with httpx.AsyncClient(timeout=20, follow_redirects=True, headers={"User-Agent": USER_AGENT}) as client:
+        async with public_client(timeout=20, follow_redirects=True, headers={"User-Agent": USER_AGENT}) as client:
             if found := await connectors.detect_ats(careers_url, client):
                 entry["ats"], entry["slug"] = found
     except Exception as e:
@@ -186,7 +187,7 @@ async def verify_source(type_: str, url_or_query: str, lang: str = "en") -> str:
     from agent.sources.streams import StreamConfig, parse_feed
 
     try:
-        async with httpx.AsyncClient(timeout=20, follow_redirects=True, headers={"User-Agent": USER_AGENT}) as client:
+        async with public_client(timeout=20, follow_redirects=True, headers={"User-Agent": USER_AGENT}) as client:
             if type_ == "topic":
                 items = await poll_topic(StreamConfig(id="t", type="topic", url="", params={"query": url_or_query, "lang": lang}), client)
                 return f"Kontrollerat: just nu {len(items)} artiklar om ämnet" + (f", senast \"{items[0].title[:70]}\"." if items else ".")

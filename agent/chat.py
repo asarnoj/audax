@@ -19,6 +19,7 @@ from agent.config import Settings
 from agent.db import Database
 from agent.inbox import Inbox
 from agent.memory import MemoryRepo
+from agent.pipeline.outbox import SKIP, AlreadySaid
 from agent.prompts import prompt as prompt_template
 from agent.schedule import Schedule
 from agent.tools import TurnContext, build_chat_tools, build_github_tools, build_mail_tools, build_web_tools
@@ -241,6 +242,10 @@ class ChatSession:
             await self.db.kv_set(SESSION_KEY, result.session_id)
             await self.db.kv_set("chat.seed_summary", None)
         ids: list[int] = []
+        if internal and result.text.strip() == SKIP:  # a delivery that would only repeat what was already said
+            if batch[0].done and not batch[0].done.done():
+                batch[0].done.set_exception(AlreadySaid())
+            return
         if result.text.strip():
             ids = await self._send(result.text.strip(), origin="proactive" if internal else "chat", in_session=True)
         if internal and batch[0].done and not batch[0].done.done():
