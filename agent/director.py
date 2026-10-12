@@ -32,6 +32,8 @@ from agent.tools import build_github_tools, build_mail_tools, build_web_tools
 log = logging.getLogger(__name__)
 
 LAST_KEY = "director.last_{mode}"
+PROPOSED_KEY = "director.proposed_sources"  # URL sources from a review that read mail, for the reflection to check
+URL_OPS = ("add_page", "add_feed", "add_company")
 LEVEL = {"type": "string", "enum": ["low", "medium", "high"]}
 SCHEMA = {
     "type": "object",
@@ -125,7 +127,7 @@ class Director:
         self.windows = None  # async () -> str, set when windows (GitHub, notes, ...) exist
         self.github = None  # read-only GitHubReader for digging deeper during reflection
         self.web = None  # WebReader
-        self.mail = None  # read-only MailReader: a nightly digest in the windows, plus search and read
+        self.mail = None  # read-only MailReader: the daily review only (isolation, see run())
 
     # --- run --------------------------------------------------------------
 
@@ -155,21 +157,26 @@ class Director:
             + await self._conversation(since_sql, full=(mode == "understand")),
             "notes": self._notes(await self.inbox.unprocessed("director")),
             "missions": await self._missions(),
-            "windows": await self.windows() if self.windows else "No windows connected yet.",
+            "windows": await self._windows(mode),
             "state": self.memory.read("state.md"),
         }
         if mode == "reflect":
             context["idea_feedback"] = await self._idea_feedback()
+            context["proposed"] = self._proposed_text(await self.db.kv_get(PROPOSED_KEY) or [])
         reflect = mode == "reflect"
-        tools = ["WebSearch", "Read(./memory/**)"] if reflect else ["Read(./memory/**)"]
+        # Isolation: a run that reads mail never reaches new web addresses (so a mail can't make it leak data in a
+        # URL). With mail connected, the daily review reads mail and has no web_read; the reflection has the web and
+        # never sees mail. WebSearch only sends a query to the search provider, so both keep it.
+        isolated = not reflect and self.mail is not None
+        tools = ["WebSearch", "Read(./memory/**)"] if reflect or self.web is not None else ["Read(./memory/**)"]
         mcp: dict = {}
         if reflect and self.github is not None:
             gh, names = build_github_tools(self.github)
             mcp, tools = {**mcp, **gh}, tools + names
-        if self.web is not None:  # both passes: the daily one checks new places too
+        if self.web is not None and not isolated:
             w, names = build_web_tools(self.web)
-            mcp, tools = {**mcp, **w}, tools + names + ([] if reflect else ["WebSearch"])
-        if self.mail is not None:
+            mcp, tools = {**mcp, **w}, tools + names
+        if isolated:
             m, names = build_mail_tools(self.mail)
             mcp, tools = {**mcp, **m}, tools + names
         try:
@@ -193,6 +200,8 @@ class Director:
             log.warning("director %s failed: %s", mode, result.error)
             return None
         await self.apply(result.structured, mode, now)
+        if reflect:
+            await self.db.kv_set(PROPOSED_KEY, None)  # checked (added or let go) by this reflection
         await self.db.kv_set(LAST_KEY.format(mode=mode), now.isoformat())
         return result.structured
 
@@ -214,7 +223,12 @@ class Director:
 
         if missions := out.get("missions"):
             changes += ops.apply_missions(missions)
+        deferred = []
         for s in out.get("senses") or []:
+            if mode == "understand" and self.mail is not None and s["op"] in URL_OPS and s.get("url"):
+                deferred.append(s)  # this run read mail: the reflection checks the address and adds it
+                changes.append(f"föreslagen källa {s['name']} <{s['url']}>, kontrolleras i reflektionen")
+                continue
             if s["op"] == "tune" and s.get("poll_minutes"):
                 changes.append(ops.tune_sense(s["name"], s["poll_minutes"], s["reason"]))
             elif s["op"] == "disable":
@@ -230,6 +244,8 @@ class Director:
                     ops.add_page(s["name"], s["url"], s.get("note") or "", s.get("kind") or "event", "rss" if s["op"] == "add_feed" else "page")
                 )
 
+        if deferred:
+            await self.db.kv_set(PROPOSED_KEY, ((await self.db.kv_get(PROPOSED_KEY)) or []) + deferred)
         for q in (out.get("questions") or [])[:1]:
             await self.inbox.request("director", q["what"], q["why"])
             changes.append(f"fråga: {q['what']}")
@@ -269,6 +285,20 @@ class Director:
         return changes
 
     # --- context ----------------------------------------------------------
+
+    async def _windows(self, mode: str) -> str:
+        parts = [await self.windows() if self.windows else "No windows connected yet."]
+        if mode == "understand" and self.mail is not None:
+            try:
+                parts.append(await self.mail.window())
+            except Exception as e:  # a broken mail token must not stop the Director
+                log.warning("mail window failed: %s", e)
+                parts.append(f"Mail: couldn't be read this time ({type(e).__name__}).")
+        return "\n\n".join(parts)
+
+    @staticmethod
+    def _proposed_text(items: list[dict]) -> str:
+        return "\n".join(f"- {s['op']} {s['name']} <{s['url']}>: {s.get('reason', '')}" for s in items) or "None."
 
     def _person_empty(self) -> bool:
         p = self.dir / "person.md"

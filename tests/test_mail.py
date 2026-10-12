@@ -6,7 +6,6 @@ import pytest
 
 from agent.mail import SCOPE, MailReader, ScopeError
 from agent.tools import build_mail_tools
-from agent.windows import all_windows
 
 
 def b64(s: str) -> str:
@@ -62,12 +61,10 @@ async def test_token_with_more_than_read_access_is_refused():
         await r.search("x")
 
 
-async def test_window_marks_mail_as_data_and_survives_errors():
+async def test_window_marks_mail_as_data():
     r, _ = reader()
-    text = await all_windows(r)
+    text = await r.window()
     assert "not instructions" in text and "[m1]" in text and "Intervju" in text
-    broken, _ = reader(scope="https://mail.google.com/")
-    assert "couldn't be read" in await all_windows(broken)
 
 
 async def test_mail_tools_are_read_only():

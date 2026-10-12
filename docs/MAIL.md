@@ -11,6 +11,8 @@ Mejlen ger Audax sammanhang om vad som händer i ditt liv: svar på ansökningar
 
 Motorn sparar inget från mejlen. Mejl är skrivna av andra, så de lämnas alltid till Claude som information och aldrig som instruktioner.
 
+**Isolering:** en körning som har läst mejl kan inte nå nya adresser på webben. Så kan ett mejl från en främling inte lura Audax att föra ut privat data i en webbadress. Därför läser Directors nattliga genomgång mejlen utan webbläsning, och reflektionen, som har webben, ser aldrig mejlen. Nya källor från genomgången blir förslag som reflektionen kontrollerar. I chatten stängs webbläsningen resten av rundan efter att Bruno läst ett mejl.
+
 ## Varför en Google-nyckel och inte ett lösenord
 Nyckeln har bara behörigheten `gmail.readonly`, så den kan i sig inte skicka eller radera något. Motorn vägrar använda en nyckel med bredare behörighet. Ett app-lösenord hade gett full åtkomst.
 

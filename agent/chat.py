@@ -188,13 +188,13 @@ class ChatSession:
         turn = TurnContext(replied_to_message_id=next((m.replied_to_message_id for m in reversed(batch) if m.replied_to_message_id), None))
         mcp_servers, tool_names = build_chat_tools(self.db, turn, self.schedule, self.controls, self.builder, self.inbox, self.wake_director)
         if self.web is not None:
-            w_servers, w_names = build_web_tools(self.web)
+            w_servers, w_names = build_web_tools(self.web, turn)
             mcp_servers, tool_names = {**mcp_servers, **w_servers}, tool_names + w_names
         if self.github is not None:
             gh_servers, gh_names = build_github_tools(self.github)
             mcp_servers, tool_names = {**mcp_servers, **gh_servers}, tool_names + gh_names
         if self.mail is not None:
-            m_servers, m_names = build_mail_tools(self.mail)
+            m_servers, m_names = build_mail_tools(self.mail, turn)
             mcp_servers, tool_names = {**mcp_servers, **m_servers}, tool_names + m_names
         internal = batch[0].internal
         session_id = await self.db.kv_get(SESSION_KEY)

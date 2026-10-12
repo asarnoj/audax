@@ -47,6 +47,9 @@ Now: {now}
 ## How earlier shared ideas were received
 {idea_feedback}
 
+## Sources proposed in the daily reviews (check each with `web_read`; add with `senses` if it holds up, otherwise let it go)
+{proposed}
+
 ## Windows into {owner_s} work
 {windows}
 

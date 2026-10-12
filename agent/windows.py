@@ -75,14 +75,8 @@ async def github_window(user: str | None = None, token: str | None = None, days:
             await client.aclose()
 
 
-async def all_windows(mail=None) -> str:
+async def all_windows() -> str:
     parts = [await github_window()]
-    if mail is not None:
-        try:
-            parts.append(await mail.window())
-        except Exception as e:  # a broken mail token must not stop the Director
-            log.warning("mail window failed: %s", e)
-            parts.append(f"Mail: couldn't be read this time ({type(e).__name__}: {e}).")
     return "\n\n".join(p for p in parts if p) or "No windows connected yet."
 
 

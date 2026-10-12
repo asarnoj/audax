@@ -47,6 +47,15 @@ class TurnContext:
     """What the current chat turn is about, so tools can link feedback to the right message."""
 
     replied_to_message_id: int | None = None  # messages.id the user replied to, if any
+    # Isolation (docs/OPERATIONS.md, Säkerhet): once a run has read mail, it may not reach new addresses on the web,
+    # so nothing written by a stranger in a mail can make Audax carry private data out in a URL.
+    mail_read: bool = False
+
+
+ISOLATED = (
+    "[internal] Not available after reading mail in this turn: a run that has read mail can't reach new web "
+    "addresses, so the mail can't leak. Answer from what you have; {owner} can ask again in a new message."
+)
 
 
 def tool_name(name: str) -> str:
@@ -203,7 +212,7 @@ def build_chat_tools(
         tools.append(request_change)
 
     if inbox is not None:
-        tools += _inbox_tools(inbox, wake_director)
+        tools += _inbox_tools(inbox, wake_director, turn)
 
     server = create_sdk_mcp_server(SERVER_NAME, tools=tools)
     return {SERVER_NAME: server}, [tool_name(t.name) for t in tools]
@@ -295,7 +304,7 @@ def _control_tools(controls: Controls, turn: TurnContext) -> list:
     return [pause_messages, get_shelf, explain_message, source_overview, run_research, activity_report, how_i_work]
 
 
-def _inbox_tools(inbox: Inbox, wake_director=None) -> list:
+def _inbox_tools(inbox: Inbox, wake_director=None, turn: TurnContext | None = None) -> list:
     """Routing between the one voice and the two minds behind it (docs/ARCHITECTURE.md)."""
 
     @tool(
@@ -350,6 +359,9 @@ def _inbox_tools(inbox: Inbox, wake_director=None) -> list:
     )
     async def watch_source(args: dict[str, Any]) -> dict[str, Any]:
         from agent import direction_ops as ops
+
+        if turn is not None and turn.mail_read and args["type"] != "topic":
+            return _text(personalize(ISOLATED))
 
         if args["type"] == "company":
             result = await ops.add_company(args["name"], args["url"])
@@ -441,7 +453,7 @@ def build_github_tools(reader) -> tuple[dict[str, Any], list[str]]:
     return {"github": server}, ["mcp__github__github"]
 
 
-def build_web_tools(web) -> tuple[dict[str, Any], list[str]]:
+def build_web_tools(web, turn: TurnContext | None = None) -> tuple[dict[str, Any], list[str]]:
     """web_read: reliable page reading with fallbacks (agent/web.py). Replaces the built-in WebFetch."""
 
     @tool(
@@ -452,13 +464,15 @@ def build_web_tools(web) -> tuple[dict[str, Any], list[str]]:
         {"type": "object", "properties": {"url": {"type": "string"}}, "required": ["url"]},
     )
     async def web_read(args: dict[str, Any]) -> dict[str, Any]:
+        if turn is not None and turn.mail_read:
+            return _text(personalize(ISOLATED))
         text, method = await web.read(args["url"])
         return _text(f"[{method}]\n{text}")
 
     return {"web": create_sdk_mcp_server("web", tools=[web_read])}, ["mcp__web__web_read"]
 
 
-def build_mail_tools(reader) -> tuple[dict[str, Any], list[str]]:
+def build_mail_tools(reader, turn: TurnContext | None = None) -> tuple[dict[str, Any], list[str]]:
     """Read-only mail (agent/mail.py) for the chat and Director. There is deliberately nothing that sends or changes."""
     from agent.mail import DATA_NOTE, format_line
 
@@ -477,6 +491,8 @@ def build_mail_tools(reader) -> tuple[dict[str, Any], list[str]]:
         },
     )
     async def mail_search(args: dict[str, Any]) -> dict[str, Any]:
+        if turn is not None:
+            turn.mail_read = True  # before reading: from here on this turn can't reach new web addresses
         try:
             found = await reader.search(args["query"], int(args.get("limit") or 10))
         except Exception as e:
@@ -490,6 +506,8 @@ def build_mail_tools(reader) -> tuple[dict[str, Any], list[str]]:
         {"type": "object", "properties": {"id": {"type": "string"}}, "required": ["id"]},
     )
     async def mail_read(args: dict[str, Any]) -> dict[str, Any]:
+        if turn is not None:
+            turn.mail_read = True
         try:
             return _text(DATA_NOTE + "\n" + await reader.read(args["id"]))
         except Exception as e:

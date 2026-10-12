@@ -110,7 +110,7 @@ async def run() -> None:
 
     director = Director(settings, db, gate, memory, schedule)
     mail = MailReader(tz=settings.timezone) if MailReader.configured() else None  # read-only; Manager never gets it
-    director.windows = lambda: all_windows(mail)
+    director.windows = all_windows  # GitHub; the Director adds mail itself, in the daily review only
     director.mail = bot.chat.mail = mail
     if os.getenv("GITHUB_USER") or os.getenv("GITHUB_TOKEN"):
         director.github = bot.chat.github = GitHubReader()
