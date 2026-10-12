@@ -12,6 +12,8 @@ TASK = ResearchTask("jobs", "Hitta praktik", "Stockholm", 3, True)
 
 
 class FakeMemory:
+    path = __import__("pathlib").Path("/nonexistent-memory")
+
     def read(self, *names):
         return ""
 

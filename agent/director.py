@@ -18,6 +18,7 @@ from datetime import datetime, timedelta
 from zoneinfo import ZoneInfo
 
 from agent import direction_ops as ops
+from agent import search_map
 from agent.claude_gate import ClaudeGate, ClaudeTask, Priority, QuotaPaused
 from agent.config import Settings
 from agent.db import Database
@@ -105,6 +106,51 @@ SCHEMA = {
                     "expires": {"type": ["string", "null"], "description": "YYYY-MM-DD if the idea has a best-before date"},
                 },
                 "required": ["title", "brief", "why", "time_sensitivity"],
+            },
+        },
+        "search_maps": {
+            "type": "array",
+            "description": "Only maps that changed: the whole new map of a mission's search space",
+            "items": {
+                "type": "object",
+                "properties": {"mission": {"type": "string"}, "content_md": {"type": "string", "description": "Swedish"}},
+                "required": ["mission", "content_md"],
+            },
+        },
+        "lead_decisions": {
+            "type": "array",
+            "description": "Leads you have judged: add (and add the source with `senses`) or reject",
+            "items": {
+                "type": "object",
+                "properties": {"id": {"type": "integer"}, "decision": {"type": "string", "enum": ["add", "reject"]}, "reason": {"type": "string"}},
+                "required": ["id", "decision", "reason"],
+            },
+        },
+        "coverage_audit": {
+            "type": "array",
+            "description": "Reflection: for a mission, an independent benchmark of who typically offers what it looks for",
+            "items": {
+                "type": "object",
+                "properties": {
+                    "mission": {"type": "string"},
+                    "benchmark": {"type": "array", "items": {"type": "string"}, "description": "Organisation or source names, 20-50"},
+                    "note": {"type": "string", "description": "Swedish: how the benchmark was built"},
+                },
+                "required": ["mission", "benchmark", "note"],
+            },
+        },
+        "owner_updates": {
+            "type": "array",
+            "description": "Rarely: something about the search {owner} should know. The chat tells them, at a good moment.",
+            "items": {
+                "type": "object",
+                "properties": {
+                    "kind": {"type": "string", "enum": ["difficulty", "success", "discovery"]},
+                    "mission": {"type": ["string", "null"]},
+                    "title": {"type": "string"},
+                    "brief": {"type": "string", "description": "Swedish: what {owner} should know, and what it means for them"},
+                },
+                "required": ["kind", "title", "brief"],
             },
         },
         "log": {"type": "string", "description": "Swedish. What you changed and why, briefly. Empty if nothing."},
@@ -246,6 +292,35 @@ class Director:
 
         if deferred:
             await self.db.kv_set(PROPOSED_KEY, ((await self.db.kv_get(PROPOSED_KEY)) or []) + deferred)
+
+        missions = {t.id for t in load_research()}
+        for m in out.get("search_maps") or []:
+            if m["mission"] not in missions:
+                continue  # maps belong to missions (create the mission first)
+            p = search_map.map_path(self.memory.path, m["mission"])
+            p.parent.mkdir(parents=True, exist_ok=True)
+            p.write_text(m["content_md"].strip() + "\n")
+            changes.append(f"sökkarta {m['mission']}")
+        changes += await search_map.decide_leads(self.db, out.get("lead_decisions") or [])
+        for a in out.get("coverage_audit") or []:
+            if a["mission"] not in missions:
+                continue
+            changes.append(await search_map.audit(
+                self.db, a["mission"], a["benchmark"], a.get("note", ""), (ops.SOURCES_FILE, ops.WATCHLIST_FILE, ops.RESEARCH_FILE)
+            ))
+        for u in (out.get("owner_updates") or [])[:1]:
+            await add_candidate(
+                self.db,
+                kind="search_update",
+                title=u["title"],
+                body=u["brief"],
+                features={
+                    "relevance": "high", "actionability": "medium" if u["kind"] == "difficulty" else "low",
+                    "time_sensitivity": "low", "novelty": "high", "confidence": "high", "complement": "high",
+                    "reason": f"Director ({mode}), sökningen: {u['kind']}",
+                },
+            )
+            changes.append(f"läge om sökningen till ägaren: {u['title']}")
         for q in (out.get("questions") or [])[:1]:
             await self.inbox.request("director", q["what"], q["why"])
             changes.append(f"fråga: {q['what']}")
@@ -370,6 +445,10 @@ class Director:
         lines += [f"- {r['source']}: {r['n']} → {r['sent'] or 0} / {r['shelf'] or 0} / {r['dropped'] or 0}" for r in rows] or ["- none"]
         lines.append(await self._sense_pace())
         lines.append(self._catalog())
+        lines.append("\n# Search strategy per mission (maps in direction/search/)")
+        for t in load_research():
+            if t.enabled:
+                lines.append(await search_map.overview(self.db, self.memory.path, t.id))
         if self.web is not None:
             lines.append("Reading per domain (method successes/attempts), hardest first:\n" + await self.web.stats())
         return "\n".join(lines)

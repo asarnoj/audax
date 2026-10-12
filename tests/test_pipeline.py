@@ -19,6 +19,8 @@ NOW = datetime(2026, 10, 12, 14, 0, tzinfo=TZ)
 
 
 class FakeMemory:
+    path = __import__("pathlib").Path("/nonexistent-memory")
+
     def read(self, *names):
         return "(minne)"
 

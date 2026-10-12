@@ -186,7 +186,9 @@ class ChatSession:
 
     async def _turn(self, batch: list[Incoming]) -> None:
         turn = TurnContext(replied_to_message_id=next((m.replied_to_message_id for m in reversed(batch) if m.replied_to_message_id), None))
-        mcp_servers, tool_names = build_chat_tools(self.db, turn, self.schedule, self.controls, self.builder, self.inbox, self.wake_director)
+        mcp_servers, tool_names = build_chat_tools(
+            self.db, turn, self.schedule, self.controls, self.builder, self.inbox, self.wake_director, getattr(self.memory, "path", None)
+        )
         if self.web is not None:
             w_servers, w_names = build_web_tools(self.web, turn)
             mcp_servers, tool_names = {**mcp_servers, **w_servers}, tool_names + w_names

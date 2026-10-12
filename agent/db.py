@@ -303,6 +303,35 @@ MIGRATIONS: list[str] = [
         resolved_at TEXT
     );
     """,
+    # 15: the search map (docs/SENSES.md, "Täckning"): leads that searches come across, so the net grows over
+    # time, and coverage audits against an independent benchmark, so Audax can see what it misses.
+    """
+    CREATE TABLE leads (
+        id INTEGER PRIMARY KEY,
+        mission TEXT NOT NULL,
+        key TEXT NOT NULL,
+        name TEXT NOT NULL,
+        url TEXT,
+        kind TEXT,
+        why TEXT,
+        times INTEGER NOT NULL DEFAULT 1,
+        first_seen TEXT NOT NULL DEFAULT (datetime('now')),
+        last_seen TEXT NOT NULL DEFAULT (datetime('now')),
+        status TEXT NOT NULL DEFAULT 'new',
+        reason TEXT,
+        UNIQUE (mission, key)
+    );
+    CREATE TABLE coverage (
+        id INTEGER PRIMARY KEY,
+        mission TEXT NOT NULL,
+        created_at TEXT NOT NULL DEFAULT (datetime('now')),
+        benchmark TEXT NOT NULL,
+        covered TEXT NOT NULL,
+        missing TEXT NOT NULL,
+        recall REAL,
+        note TEXT
+    );
+    """,
 ]
 
 

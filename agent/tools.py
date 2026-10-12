@@ -74,6 +74,7 @@ def build_chat_tools(
     builder: Builder | None = None,
     inbox: Inbox | None = None,
     wake_director=None,
+    memory_path=None,
 ) -> tuple[dict[str, Any], list[str]]:
     """Returns (mcp_servers entry, allowed tool names)."""
 
@@ -143,6 +144,34 @@ def build_chat_tools(
         return _text("[internal] Reported to the maintainer.")
 
     tools = [record_feedback, interview_guide, report_problem]
+
+    if memory_path is not None:
+
+        @tool(
+            "search_overview",
+            "How you search for something: per search mission the map of the space (segments, where they publish, which "
+            "methods cover them), what it has yielded, the latest coverage audit and what is missing, new leads, and what "
+            "is tried next. Without `mission`: a short list of all missions. Use it for 'hur letar du efter X?' or when "
+            "{owner} wonders whether you might be missing things.",
+            {"type": "object", "properties": {"mission": {"type": "string"}}},
+        )
+        async def search_overview(args: dict[str, Any]) -> dict[str, Any]:
+            from agent import search_map
+            from agent.research import load_research
+
+            missions = [t for t in load_research() if t.enabled]
+            if args.get("mission"):
+                match = next((t for t in missions if args["mission"].lower() in t.id.lower()), None)
+                if match is None:
+                    return _text("[internal] No such mission. Missions: " + ", ".join(t.id for t in missions))
+                return _text(f"[internal] Goal: {match.goal}\n" + await search_map.overview(db, memory_path, match.id))
+            parts = []
+            for t in missions:
+                st = await search_map.mission_stats(db, t.id)
+                parts.append(f"- {t.id}: {t.goal[:140]} · {st['runs_30d']} runs/30 d, kept in total {st['kept_total']}")
+            return _text("[internal] Search missions:\n" + "\n".join(parts))
+
+        tools.append(search_overview)
 
     if schedule is not None:
 

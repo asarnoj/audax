@@ -14,6 +14,8 @@ Propose {n} new queries that together cover different angles, using proven searc
 - concrete time references (2027, hösten 2026, november)
 - adjacent angles {owner} might not think of but that fit their goals
 
+Aim most of the new queries at the gaps in the mission's map below: segments that are thin or not covered at all. A query that opens a new kind of source is worth more than one more variant of a query that already runs.
+
 Stay within this mission. {owner_s} other goals are context for what fits, not topics to search for here; other missions cover them.
 Avoid anything under "Inte intresserad av" or "Vill inte ha", and don't repeat or nearly repeat an existing query. Give each query a one-line rationale.
 
@@ -27,3 +29,6 @@ Worked well so far (query → findings kept):
 
 Already active or retired:
 {existing}
+
+Gaps in this mission's map:
+{gaps}

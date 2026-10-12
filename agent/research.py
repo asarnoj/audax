@@ -14,6 +14,7 @@ from agent.claude_gate import ClaudeGate, ClaudeTask, Priority, QuotaPaused
 from agent.config import Settings, instance_config
 from agent.db import Database
 from agent.memory import MemoryRepo
+from agent import search_map
 from agent.prompts import prompt as prompt_template
 from agent.tools import build_web_tools
 
@@ -37,9 +38,25 @@ FINDINGS_SCHEMA = {
                     "deadline": {"type": ["string", "null"], "description": "YYYY-MM-DD"},
                     "date": {"type": ["string", "null"], "description": "YYYY-MM-DD for events"},
                     "location": {"type": ["string", "null"]},
+                    "organization": {"type": ["string", "null"], "description": "Who offers it (company, university, organisation)"},
                     "query": {"type": "string", "description": "The query (exactly as given) that led to the finding"},
                 },
                 "required": ["title", "url", "summary", "why_you", "kind", "query"],
+            },
+        },
+        "leads": {
+            "type": "array",
+            "description": "Places and organisations you came across that Audax may not watch yet: companies with relevant "
+            "openings or programmes, aggregators, lists, communities, event calendars. Not findings in themselves.",
+            "items": {
+                "type": "object",
+                "properties": {
+                    "name": {"type": "string"},
+                    "url": {"type": ["string", "null"]},
+                    "kind": {"type": "string", "enum": ["company", "aggregator", "list", "programme", "community", "event_calendar", "other"]},
+                    "why": {"type": "string", "description": "Swedish, one line"},
+                },
+                "required": ["name", "kind", "why"],
             },
         },
         "skipped": {
@@ -48,7 +65,7 @@ FINDINGS_SCHEMA = {
             "items": {"type": "object", "properties": {"title": {"type": "string"}, "reason": {"type": "string"}}, "required": ["title", "reason"]},
         },
     },
-    "required": ["findings", "skipped"],
+    "required": ["findings", "leads", "skipped"],
 }
 
 
@@ -182,6 +199,7 @@ class Portfolio:
             memory=self.memory.read("direction/goals.md", "profile.md", "interests.md", "projects.md"),
             good="\n".join(f"- {q['query']} → {q['kept']}" for q in good) or "(no history yet)",
             existing="\n".join(f"- {q['query']}" for q in stats) or "(none)",
+            gaps=await search_map.gaps(self.memory.path, task.id) or "(no map yet)",
             n=n,
         )
         r = await self.gate.run(
@@ -266,6 +284,7 @@ class Researcher:
             today=datetime.now(self.tz).date().isoformat(),
             memory=self.memory.read(*MEMORY_FILES),
             seen="\n".join(seen_lines) or "(nothing yet)",
+            gaps=await search_map.gaps(self.memory.path, task.id) or "(no map yet: explore freely)",
         )
         try:
             result = await self.gate.run(
@@ -306,6 +325,7 @@ class Researcher:
             )
             new += cur.rowcount
         await self.db.conn.commit()
+        new_leads = await search_map.record_leads(self.db, task.id, result.structured.get("leads") or [])
         skipped = result.structured.get("skipped") or []
         await self.db.execute(
             "INSERT INTO research_runs (research_id, findings, returned, skipped) VALUES (?, ?, ?, ?)",
@@ -313,7 +333,7 @@ class Researcher:
         )
         searches = sum(1 for t in result.trace if t["tool"] == "WebSearch")
         log.info(
-            "research %s: %d searches, %d findings returned, %d new, %d skipped (%.0fs)",
-            task.id, searches, len(findings), new, len(skipped), (result.duration_ms or 0) / 1000,
+            "research %s: %d searches, %d findings returned, %d new, %d skipped, %d new leads (%.0fs)",
+            task.id, searches, len(findings), new, len(skipped), new_leads, (result.duration_ms or 0) / 1000,
         )
         return new
