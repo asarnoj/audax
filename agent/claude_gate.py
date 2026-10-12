@@ -274,15 +274,25 @@ class ClaudeGate:
 
     async def _log(self, task: ClaudeTask, r: RunResult) -> None:
         rl = self.quota.last_rate_limit
+        # A resumed session reports its running total; this run's own cost is the increase since the last run.
+        own = r.cost_usd
+        if r.session_id and r.cost_usd is not None:
+            prev = await self.db.fetchone(
+                "SELECT session_cost_usd FROM claude_runs WHERE session_id = ? AND session_cost_usd IS NOT NULL ORDER BY id DESC LIMIT 1",
+                (r.session_id,),
+            )
+            if prev and prev["session_cost_usd"] is not None and r.cost_usd >= prev["session_cost_usd"]:
+                own = r.cost_usd - prev["session_cost_usd"]
         await self.db.execute(
-            "INSERT INTO claude_runs (kind, model, session_id, duration_ms, cost_usd, is_error, error, rate_limit, trace, output, context_tokens, "
-            "input_tokens, output_tokens, cache_read_tokens, cache_write_tokens, turns) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            "INSERT INTO claude_runs (kind, model, session_id, duration_ms, cost_usd, session_cost_usd, is_error, error, rate_limit, trace, output, context_tokens, "
+            "input_tokens, output_tokens, cache_read_tokens, cache_write_tokens, turns) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
             (
                 task.kind,
                 task.model,
                 r.session_id,
                 r.duration_ms,
-                r.cost_usd,
+                own,
+                r.cost_usd if r.session_id else None,
                 int(r.is_error),
                 r.error,
                 json.dumps({"status": rl.status, "type": rl.rate_limit_type, "utilization": rl.utilization, "resets_at": rl.resets_at})

@@ -155,3 +155,23 @@ async def test_backup_keeps_newest(db, tmp_path):
     target = await db.backup(backups, keep=2)
     assert target.exists() and target.stat().st_size > 0
     assert len(list(backups.glob("agent-*.db"))) == 2
+
+
+async def test_resumed_session_cost_is_logged_per_run_not_as_running_total(tmp_path):
+    from agent.claude_gate import ClaudeGate, ClaudeTask, Priority, RunResult
+    from agent.db import Database
+
+    db = Database(tmp_path / "t.db")
+    await db.open()
+    totals = iter([2.22, 2.25, 2.30])
+
+    async def runner(task, ws, on_rl):
+        return RunResult(text="ok", session_id="s1", cost_usd=next(totals))
+
+    gate = ClaudeGate(db, tmp_path, runner=runner)
+    for _ in range(3):
+        await gate.run(ClaudeTask(kind="chat", prompt="x", priority=Priority.URGENT, resume="s1"))
+    rows = await db.fetchall("SELECT cost_usd, session_cost_usd FROM claude_runs ORDER BY id")
+    assert [round(r["cost_usd"], 2) for r in rows] == [2.22, 0.03, 0.05]
+    assert [r["session_cost_usd"] for r in rows] == [2.22, 2.25, 2.30]
+    await db.close()

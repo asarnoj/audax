@@ -332,6 +332,19 @@ MIGRATIONS: list[str] = [
         note TEXT
     );
     """,
+    # 16: Claude Code reports a resumed session's cost as a running total for the whole session, so every chat
+    # reply was logged with all earlier replies' cost (e.g. 2.22, 2.25, 2.28 ...). Keep the running total in its
+    # own column and make cost_usd the run's own cost, also for the history.
+    """
+    ALTER TABLE claude_runs ADD COLUMN session_cost_usd REAL;
+    UPDATE claude_runs SET session_cost_usd = cost_usd WHERE session_id IS NOT NULL;
+    WITH d AS (
+        SELECT id, cost_usd - LAG(cost_usd) OVER (PARTITION BY session_id ORDER BY id) AS own
+        FROM claude_runs WHERE session_id IS NOT NULL AND cost_usd IS NOT NULL
+    )
+    UPDATE claude_runs SET cost_usd = (SELECT own FROM d WHERE d.id = claude_runs.id)
+    WHERE id IN (SELECT id FROM d WHERE own IS NOT NULL AND own >= 0);
+    """,
 ]
 
 
