@@ -84,9 +84,20 @@ async def test_research_runs_in_background_and_notifies(setup):
     _, c, _, _, notes = setup
     assert "Finns ingen" in await c.start_research("nope")
     rid = c.research_ids()[0]
-    assert "Startade" in await c.start_research(rid)
+    assert "Started" in await c.start_research(rid)
     await asyncio.sleep(0.05)
-    assert notes == [f"{rid}: klar, 3 nya fynd. Det som inte skickades ligger på hyllan."]
+    assert notes == ["Sökningen du bad om är klar."]  # no chat: a plain line, never internal names
+
+    spoken = []
+
+    async def speak(instruction):
+        spoken.append(instruction)
+        return [1]
+
+    c.speak = speak
+    await c.start_research(rid)
+    await asyncio.sleep(0.05)
+    assert "3 new finding" in spoken[0] and len(notes) == 1  # through the voice, no plain line
 
 
 

@@ -8,6 +8,7 @@ import logging
 from collections.abc import Awaitable, Callable
 from datetime import timedelta
 
+from agent.pipeline.outbox import AlreadySaid
 from agent.db import Database
 from agent.pipeline.dispatcher import FOCUS_KEY, SILENCE_KEY, Dispatcher
 from agent.pipeline.outbox import render
@@ -24,7 +25,20 @@ class Controls:
         self.dispatcher = dispatcher
         self._research = research
         self._notify = notify
+        self.speak = None  # set by main: the chat session writes what the owner reads
         self._background: set[asyncio.Task] = set()
+
+    async def _tell(self, instruction: str, fallback: str) -> None:
+        """Through the one voice when it is there; a plain line only if the chat can't write."""
+        if self.speak is not None:
+            try:
+                await self.speak(instruction)
+                return
+            except AlreadySaid:
+                return
+            except Exception as e:
+                log.warning("chat couldn't tell the owner (%s); sending a plain line", e)
+        await self._notify(fallback)
 
     async def _signal(self, value: str) -> None:
         await self.db.execute("INSERT INTO feedback (signal, value) VALUES ('command', ?)", (value,))
@@ -147,12 +161,17 @@ class Controls:
         async def go() -> None:
             try:
                 n = await self._research(research_id)
-                await self._notify(f"{research_id}: klar, {n} nya fynd." + (" Det som inte skickades ligger på hyllan." if n else ""))
+                outcome = f"finished with {n} new finding(s); good ones are delivered on their own, the rest goes on the shelf" if n else "finished without anything new"
             except Exception:
                 log.exception("research %s failed", research_id)
-                await self._notify(f"{research_id}: något gick fel.")
+                outcome = "failed"
+            await self._tell(
+                f"The search you started for the owner ({research_id}) {outcome}. Tell them the result in a sentence, in your "
+                "own words and only what matters to them. If you already said all of it, reply SKIP.",
+                fallback="Sökningen du bad om är klar." if outcome != "failed" else "Sökningen du bad om gick inte att köra just nu.",
+            )
 
         task = asyncio.create_task(go())
         self._background.add(task)
         task.add_done_callback(self._background.discard)
-        return f"Startade {research_id}. Det tar någon minut, jag säger till när den är klar."
+        return f"[internal] Started {research_id}; it takes a few minutes, and you will be asked to tell the owner the result."

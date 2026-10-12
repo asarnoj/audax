@@ -110,6 +110,7 @@ async def run() -> None:
 
     controls = Controls(db, dispatcher, research_tick, notify=bot.send)
     bot.controls = controls
+    controls.speak = bot.chat.speak  # results the owner asked for come in the one voice
     bot.chat.controls = controls
     builder = Builder(settings, db, ClaudeGate(db, settings.workspace, quota=gate.quota), on_ready=bot.send_change, notify=bot.send)
     bot.builder = builder

@@ -364,8 +364,9 @@ def _inbox_tools(inbox: Inbox, wake_director=None, turn: TurnContext | None = No
         if args.get("act_now") and wake_director:
             wake_director(args["owner"])
             return _text(personalize(
-                "[internal] Saved. Director (your planning part) takes it up within a minute and sets up what it needs: "
-                "a thread, search missions, watched sources. Tell {owner} what will happen for them, as a commitment."
+                "[internal] Saved, and acted on: it is being set up now (a thread, search missions and watched sources as "
+                "needed). How it is routed is internal. Tell {owner} the outcome as your own commitment, e.g. what you will "
+                "look for and that you will report back."
             ))
         return _text("[internal] Saved.")
 
