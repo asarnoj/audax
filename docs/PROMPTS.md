@@ -1,6 +1,6 @@
 # Promptarna: förteckning och granskning
 
-Status: steg B, förteckning · 2026-10-11 · hör till [ARCHITECTURE.md](ARCHITECTURE.md)
+Status: steg B klart (alla promptar på engelska) · 2026-10-12 · hör till [ARCHITECTURE.md](ARCHITECTURE.md)
 
 ## Förteckning
 
@@ -8,8 +8,8 @@ Status: steg B, förteckning · 2026-10-11 · hör till [ARCHITECTURE.md](ARCHIT
 |---|---|---|---|---|---|
 | `claude_md.md` → `workspace/CLAUDE.md` | **alla** Claude-körningar (Claude Code laddar den automatiskt) | alltid | ägarens namn | — | 1,6k tecken |
 | `chat.md` (+ style, state, interests) | chatten (Worker) | varje meddelande, varje utskick | samtalet + markörer | text till ägaren | 8,6k |
-| `interview.md` | chatten | `/intervju` | — | frågor, minnesfiler | 1,8k |
-| `self.md` | chattverktyget `how_i_work` | när ägaren frågar hur den fungerar | — | — | 3,4k |
+| `interview.md` | chatten | av sig själv när minnet är tomt, eller när ägaren ber om det (`interview_guide`) | — | frågor, minnesfiler, agentens namn | 1,9k |
+| `self.md` | chattverktyget `how_i_work` | när ägaren frågar hur den fungerar | — | — | 4,6k |
 | `triage.md` | triage | nya händelser | minne, policy, händelser | egenskaper + fakta-brief till chatten | 2,3k |
 | `dispatcher.md` | dispatchern | var 10:e min vid ändring | läge, luckor, aktivitet, kandidater | beslut med skäl (chatten skriver utskicket) | 2,1k |
 | `research.md` (djupsvepet som en rad i samma prompt) | sökuppdrag | per intervall, veckovis | mål, minne, frågor, tidigare fynd | fynd + bortvalda | 1,7k |
@@ -19,7 +19,7 @@ Status: steg B, förteckning · 2026-10-11 · hör till [ARCHITECTURE.md](ARCHIT
 | `director.md` (gemensam bas) + `director_understand.md` | Director | varje natt + när den väcks | bild, minne, tid, samtal, uppdrag, fönster | bild/mål/trådar, uppdrag, sinnen | 5,5k + 0,8k |
 | `director.md` + `director_reflect.md` | Director | mån, ons och lör | som ovan + idéutfall | idéer, delningar (fakta-brief till chatten), frågor | 5,5k + 2,8k |
 | `builder.md` | byggläget | när ägaren ber om en ändring | önskad ändring | ändrade filer + sammanfattning | 2,0k |
-| 17 verktygsbeskrivningar i `tools.py` | chatten, Director | — | — | — | — |
+| 22 verktygsbeskrivningar i `tools.py` (engelska) | chatten, Director | — | — | — | — |
 | markörer i `chat.py`, `outbox.py`, `dispatcher.py` | chatten | varje runda | `[tid: …]`, `[schema: …]`, `[internt uppdrag]`, `[öppen fråga]` … | — | — |
 | fältbeskrivningar i scheman | alla strukturerade körningar | — | — | — | — |
 

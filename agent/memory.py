@@ -14,6 +14,13 @@ class MemoryRepo:
     def __init__(self, path: Path):
         self.path = path
 
+    def is_new(self) -> bool:
+        """True until the owner has told Audax anything: profile.md is still the template (or missing)."""
+        from agent.config import ROOT
+
+        p, template = self.path / "profile.md", ROOT / "templates" / "memory" / "profile.md"
+        return not p.exists() or (template.exists() and p.read_text().strip() == template.read_text().strip())
+
     def read(self, *names: str) -> str:
         """Concatenates memory files for injection into prompts, without template comments."""
         parts = []

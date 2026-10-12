@@ -111,7 +111,7 @@ async def test_record_feedback_links_to_replied_message(db, monkeypatch):
 
     monkeypatch.setattr(tools_mod, "create_sdk_mcp_server", capture)
     _, names = build_chat_tools(db, TurnContext(replied_to_message_id=msg_id))
-    assert names == ["mcp__agent__record_feedback"]
+    assert names == ["mcp__agent__record_feedback", "mcp__agent__interview_guide"]
 
     await captured["tools"][0].handler({"target": "replied", "sentiment": "negative", "aspect": "amount", "note": "för långt"})
     row = await db.fetchone("SELECT message_id, signal, value, note FROM feedback")
@@ -237,3 +237,15 @@ async def test_change_watch_stops_a_source_and_tells_the_director(db, monkeypatc
 
     out = await tools["change_watch"].handler({"source": "nope", "action": "stop"})
     assert "Ingen bevakning matchar" in out["content"][0]["text"]
+
+
+def test_memory_is_new_until_the_profile_differs_from_the_template(tmp_path):
+    from agent.config import ROOT
+    from agent.memory import MemoryRepo
+
+    mem = MemoryRepo(tmp_path)
+    assert mem.is_new()  # no profile at all
+    (tmp_path / "profile.md").write_text((ROOT / "templates" / "memory" / "profile.md").read_text())
+    assert mem.is_new()  # still the template: the interview starts on /start
+    (tmp_path / "profile.md").write_text("# Profil\n\n## Vem\n- Studerar på KTH\n")
+    assert not mem.is_new()

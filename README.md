@@ -45,7 +45,7 @@ uv run python -m agent.smoketest
 sudo systemctl start agent
 ```
 
-Message `/start` to your bot, put the chat id it replies with into `.env`, and restart. Then start with `/intervju`.
+Message `/start` to your bot, put the chat id it replies with into `.env`, and restart. Then send `/start` again: Audax starts by getting to know you with a short interview.
 
 From a development machine: put `PI_HOST=user@host` in `.deploy.env`, then `./deploy/deploy.sh` (tests → push → restart) and `./deploy/backup.sh` (memory, instance and database to `~/Backups/audax`).
 

@@ -12,7 +12,7 @@ def test_self_description_matches_the_real_schedule():
         m = re.search(rf'hour=(\d+), minute=(\d+).*id="{job}"', main)
         assert m, job
         assert f"{int(m.group(1)):02d}:{int(m.group(2)):02d}" in me, f"{label}: tiden i self.md stämmer inte med main.py"
-    assert 'day_of_week="mon,wed,sat"' in main and "måndag, onsdag och lördag" in me
+    assert 'day_of_week="mon,wed,sat"' in main and "Mondays, Wednesdays and Saturdays" in me
     quiet = (ROOT / "config" / "settings.example.yaml").read_text()
     start, end = re.search(r'start: "(\d\d:\d\d)"\s+end: "(\d\d:\d\d)"', quiet).groups()
     assert f"{start}–{end}" in me

@@ -39,6 +39,7 @@ class TelegramBot:
         self.settings = settings
         self.db = db
         self.gate = gate
+        self.memory = memory
         self.schedule = schedule
         self.started_at = time.time()
         self.app = Application.builder().token(settings.telegram_token).build()
@@ -60,7 +61,6 @@ class TelegramBot:
         self.app.add_handler(CommandHandler("ping", self.cmd_ping, filters=owner))
         self.app.add_handler(CommandHandler("status", self.cmd_status, filters=owner))
         self.app.add_handler(CommandHandler("claude", self.cmd_claude, filters=owner))
-        self.app.add_handler(CommandHandler("intervju", self.cmd_interview, filters=owner))
         self.app.add_handler(CommandHandler("ny", self.cmd_new_session, filters=owner))
         self.app.add_handler(CommandHandler("schema", self.cmd_schedule, filters=owner))
         self.app.add_handler(CommandHandler("tyst", self.cmd_silence, filters=owner))
@@ -220,11 +220,13 @@ class TelegramBot:
                 f"Hej! Ditt chat-id är {chat_id}.\n"
                 "Lägg in det som TELEGRAM_CHAT_ID i .env och starta om agenten."
             )
+        elif chat_id == self.settings.telegram_chat_id and self.memory.is_new():
+            await self.chat.start_interview()  # a new owner: get to know them first
         elif chat_id == self.settings.telegram_chat_id:
             await update.message.reply_text(
                 "Hej! Jag är igång. Skriv till mig som vanligt, du behöver inga kommandon: "
                 "\"var tyst ett tag\", \"något nytt?\", \"varför skickade du det?\" fungerar.\n\nGenvägar om du vill:\n"
-                "/intervju – låt mig lära känna dig\n/ny – börja en ny konversation (minnet finns kvar)\n"
+                "/ny – börja en ny konversation (minnet finns kvar)\n"
                 "/schema – idag och imorgon\n/nytt – hyllan: bra saker jag inte störde dig med\n"
                 "/tyst [2h] – inga utskick ett tag\n/fokus [2h] – bara sånt som får störa\n"
                 "/varfor – svara på ett meddelande från mig för att se varför jag skickade det\n"
@@ -276,9 +278,6 @@ class TelegramBot:
         footer = f"\n\n· {r.duration_ms / 1000:.1f}s" if r.duration_ms else ""
         for chunk in _chunks(r.text + footer):
             await update.message.reply_text(chunk)
-
-    async def cmd_interview(self, update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
-        await self.chat.start_interview()
 
     async def cmd_new_session(self, update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
         await self.chat.reset()

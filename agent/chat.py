@@ -46,7 +46,7 @@ class Incoming:
     text: str
     replied_to_message_id: int | None = None  # messages.id
     replied_to_text: str | None = None
-    internal: bool = False  # an instruction from the system (dispatcher, Director, Manager), not from användaren
+    internal: bool = False  # an instruction from the system (dispatcher, Director, Manager), not from the owner
     done: asyncio.Future | None = None  # internal turns: resolved with the messages.id rows that were sent
 
 
@@ -94,7 +94,8 @@ class ChatSession:
         return await fut
 
     async def start_interview(self) -> None:
-        self.submit(Incoming(text=prompt_template("interview")))
+        """For a new owner (empty memory). Later interviews start from the chat itself (the interview_guide tool)."""
+        self.submit(Incoming(text=prompt_template("interview") + "\n\nBegin now with a short greeting and the first question.", internal=True))
 
     async def reset(self) -> None:
         await self.db.kv_set(SESSION_KEY, None)

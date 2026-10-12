@@ -70,20 +70,20 @@ def build_chat_tools(
 
     @tool(
         "record_feedback",
-        "Spara {owner_s} feedback på något du har skickat eller på hur du beter dig "
-        "(t.ex. 'mer sånt', 'det där var onödigt', 'skriv kortare', 'varför sa du inte det här?'). "
-        "Anropa när {owner} uttrycker en åsikt om innehåll, timing, mängd eller ton.",
+        "Record {owner_s} feedback on something you sent or on how you behave ('mer sånt', 'det där var onödigt', "
+        "'skriv kortare', 'varför sa du inte det här?'). Call it whenever {owner} expresses a view on content, timing, "
+        "amount or tone.",
         {
             "type": "object",
             "properties": {
                 "target": {
                     "type": "string",
                     "enum": ["replied", "last_sent", "general"],
-                    "description": "replied = meddelandet {owner} svarade på, last_sent = ditt senaste meddelande, general = beteendet i stort",
+                    "description": "replied = the message {owner} replied to, last_sent = your latest message, general = your behaviour overall",
                 },
                 "sentiment": {"type": "string", "enum": ["positive", "negative", "neutral", "missed"]},
                 "aspect": {"type": "string", "enum": ["content", "timing", "amount", "tone", "other"]},
-                "note": {"type": "string", "description": "Kort sammanfattning av feedbacken med {owner_s} egna ord om möjligt"},
+                "note": {"type": "string", "description": "Short summary of the feedback, in {owner_s} own words where possible"},
             },
             "required": ["target", "sentiment", "aspect", "note"],
         },
@@ -105,21 +105,32 @@ def build_chat_tools(
             "INSERT INTO feedback (message_id, candidate_id, signal, value, note) VALUES (?, ?, 'text', ?, ?)",
             (message_id, candidate_id, f"{args['sentiment']}:{args['aspect']}", args["note"]),
         )
-        return _text("Feedback sparad.")
+        return _text("[internal] Saved.")
 
-    tools = [record_feedback]
+    @tool(
+        "interview_guide",
+        "The guide for getting to know {owner} through a short interview. Use it when {owner} asks you to get to know "
+        "them (again), e.g. 'intervjua mig', 'ställ frågor så du lär känna mig'.",
+        {"type": "object", "properties": {}},
+    )
+    async def interview_guide(args: dict[str, Any]) -> dict[str, Any]:
+        from agent.prompts import prompt
+
+        return _text("[internal] Follow this guide from now on:\n\n" + prompt("interview"))
+
+    tools = [record_feedback, interview_guide]
 
     if schedule is not None:
 
         @tool(
             "get_schedule",
-            "Hämta {owner_s} schema (TimeEdit + egen kalender) för kommande dagar. "
-            "[?] = okänt om passet gäller {owner}, [ibland] = gäller ibland. Varje pass har ett serie-id.",
+            "{owner_s} schedule (timetable and own calendar) for the coming days. [?] = not yet known whether the "
+            "session applies to {owner}, [ibland] = applies sometimes. Each session has a series id.",
             {
                 "type": "object",
                 "properties": {
-                    "days": {"type": "integer", "minimum": 1, "maximum": 21, "description": "Antal dagar från idag"},
-                    "include_not_mine": {"type": "boolean", "description": "Ta med pass som {owner} sagt inte gäller hen"},
+                    "days": {"type": "integer", "minimum": 1, "maximum": 21, "description": "Number of days from today"},
+                    "include_not_mine": {"type": "boolean", "description": "Include sessions {owner} has said don't apply to them"},
                 },
                 "required": ["days"],
             },
@@ -129,21 +140,21 @@ def build_chat_tools(
 
         @tool(
             "set_series_relevance",
-            "Spara om en serie pass (t.ex. alla övningar i en kurs) gäller {owner}. "
-            "Använd när {owner} säger att hen går/inte går på något. Serie-id får du från get_schedule.",
+            "Record whether a series of sessions (e.g. all exercise sessions in a course) applies to {owner}. Use it when "
+            "{owner} says they do or don't attend something. The series id comes from get_schedule.",
             {
                 "type": "object",
                 "properties": {
                     "series_id": {"type": "integer"},
                     "relevance": {"type": "string", "enum": ["mine", "not_mine", "sometimes", "unknown"]},
-                    "note": {"type": "string", "description": "Valfri kommentar, t.ex. 'bara udda veckor'"},
+                    "note": {"type": "string", "description": "Optional comment, e.g. 'bara udda veckor'"},
                 },
                 "required": ["series_id", "relevance"],
             },
         )
         async def set_series_relevance(args: dict[str, Any]) -> dict[str, Any]:
             ok = await schedule.set_relevance(args["series_id"], args["relevance"], args.get("note"))
-            return _text("Sparat." if ok else f"Hittade ingen serie med id {args['series_id']}.")
+            return _text("[internal] Saved." if ok else f"[internal] No series with id {args['series_id']}.")
 
         tools += [get_schedule, set_series_relevance]
 
@@ -154,14 +165,14 @@ def build_chat_tools(
 
         @tool(
             "request_change",
-            "Bygg om agenten själv när {owner} vill ändra hur den fungerar: nya källor, ändrat beteende, nya funktioner, "
-            "andra inställningar. Ändringen byggs och testas på en separat gren, och {owner} godkänner med en knapp innan "
-            "något driftsätts. Beskriv önskan tydligt och konkret, med {owner_s} egna ord och allt du vet (länkar, exempel). "
-            "Använd inte det här för preferenser som hör hemma i minnet.",
+            "Change Audax itself when {owner} wants a new capability or different behaviour that settings and memory can't "
+            "give. The change is built and tested on a separate branch, and {owner} approves it with a button before "
+            "anything goes live. Describe the wish clearly and concretely, with {owner_s} own words and everything you know "
+            "(links, examples). Not for preferences (memory) or for watching sources (watch_source).",
             {
                 "type": "object",
                 "properties": {
-                    "title": {"type": "string", "description": "Kort, t.ex. 'Lägg till universitetets eventkalender som källa'"},
+                    "title": {"type": "string", "description": "Short, in Swedish, e.g. 'Visa deadlines i schemat'"},
                     "description": {"type": "string"},
                 },
                 "required": ["title", "description"],
@@ -171,8 +182,8 @@ def build_chat_tools(
             try:
                 cid = await builder.request(args["title"], args["description"])
             except RuntimeError as e:
-                return _text(f"Kan inte starta nu: {e}. Säg det till " + personalize("{owner}") + ".")
-            return _text(f"Ändring {cid} byggs nu. Det tar några minuter. " + personalize("{owner} får ett meddelande med en sammanfattning och knappar när den är klar."))
+                return _text(f"[internal] Can't start now: {e}. Tell " + personalize("{owner}") + ".")
+            return _text(f"[internal] Change {cid} is being built; it takes a few minutes. " + personalize("{owner} gets a message with a summary and buttons when it is ready."))
 
         tools.append(request_change)
 
@@ -188,9 +199,9 @@ def _control_tools(controls: Controls, turn: TurnContext) -> list:
 
     @tool(
         "pause_messages",
-        "Pausa agentens egna utskick när {owner} ber om det (t.ex. 'var tyst i två timmar', 'stör mig inte nu', "
-        "'bara viktiga saker ikväll'). quiet = inga utskick alls, focus = bara sådant som får störa. minutes=0 avslutar. "
-        "Chatten påverkas aldrig.",
+        "Pause Audax's proactive messages when {owner} asks ('var tyst i två timmar', 'stör mig inte nu', 'bara viktiga "
+        "saker ikväll'). quiet = nothing proactive; focus = only what may interrupt. minutes=0 ends it. The chat itself "
+        "is never affected.",
         {
             "type": "object",
             "properties": {
@@ -205,8 +216,8 @@ def _control_tools(controls: Controls, turn: TurnContext) -> list:
 
     @tool(
         "get_shelf",
-        "Hämta det som ligger på hyllan: bra saker du har hittat men inte stört {owner} med. Använd när {owner} frågar "
-        "'något nytt?', 'vad har du hittat?' eller liknande. Det som hämtas tas bort från hyllan, så återge allt för {owner}.",
+        "What is on the shelf: good things you found but didn't interrupt {owner} with. Use it when {owner} asks "
+        "'något nytt?', 'vad har du hittat?' or similar. Fetched items leave the shelf, so relay all of them.",
         {"type": "object", "properties": {}},
     )
     async def get_shelf(args: dict[str, Any]) -> dict[str, Any]:
@@ -215,8 +226,8 @@ def _control_tools(controls: Controls, turn: TurnContext) -> list:
 
     @tool(
         "explain_message",
-        "Förklara varför du skickade ett meddelande på eget initiativ: beslut, motivering och bedömning. "
-        "target=replied om {owner} svarar på meddelandet, annars last_sent.",
+        "Why you sent a proactive message: the decision, its reason and the assessment. target=replied if {owner} is "
+        "replying to that message, otherwise last_sent.",
         {"type": "object", "properties": {"target": {"type": "string", "enum": ["replied", "last_sent"]}}, "required": ["target"]},
     )
     async def explain_message(args: dict[str, Any]) -> dict[str, Any]:
@@ -225,8 +236,8 @@ def _control_tools(controls: Controls, turn: TurnContext) -> list:
 
     @tool(
         "source_overview",
-        "Visa vad du bevakar och hur ofta, och vad det har gett. Med `source` (t.ex. 'machinarium', 'devpost', 'jobtech') "
-        "listas de senaste sakerna från den källan och vad som hände med var och en, och varför.",
+        "What you watch, how often, and what it has yielded. With `source` (e.g. 'machinarium', 'devpost', 'jobtech') it "
+        "lists the latest items from that source, what happened to each one, and why.",
         {"type": "object", "properties": {"source": {"type": "string"}}},
     )
     async def source_overview(args: dict[str, Any]) -> dict[str, Any]:
@@ -236,8 +247,8 @@ def _control_tools(controls: Controls, turn: TurnContext) -> list:
 
     @tool(
         "run_research",
-        "Starta en schemalagd undersökning direkt när {owner} ber om det (t.ex. 'kolla efter nya hackathons nu'). "
-        "Den körs i bakgrunden och {owner} får besked när den är klar.",
+        "Run one of your search missions now when {owner} asks ('kolla efter nya hackathons nu'). It runs in the "
+        "background and {owner} hears back when it is done.",
         {"type": "object", "properties": {"research_id": {"type": "string", "enum": controls.research_ids() or ["-"]}}, "required": ["research_id"]},
     )
     async def run_research(args: dict[str, Any]) -> dict[str, Any]:
@@ -245,8 +256,9 @@ def _control_tools(controls: Controls, turn: TurnContext) -> list:
 
     @tool(
         "activity_report",
-        "Vad agenten har gjort idag och om allt fungerar: hälsa, händelser från sinnena, dispatcherns beslut, undersökningar "
-        "och vad som skickats. Använd när {owner} undrar om du fungerar, varför du varit tyst eller vad du gjort.",
+        "What you have done today and whether everything works: health, events from the senses, the dispatcher's "
+        "decisions, search missions and what was sent. Use it when {owner} wonders whether you work, why you have been "
+        "quiet, or what you have done.",
         {"type": "object", "properties": {}},
     )
     async def activity_report(args: dict[str, Any]) -> dict[str, Any]:
@@ -256,14 +268,14 @@ def _control_tools(controls: Controls, turn: TurnContext) -> list:
 
     @tool(
         "how_i_work",
-        "Hur du (Audax) fungerar: delarna, när de kör, flödet från källa till meddelande, gränser, integritet, och vad du "
-        "bevakar just nu. Använd när {owner} vill förstå hur du fungerar eller varför något händer som det gör.",
+        "How you (Audax) work: the parts, when they run, the path from source to message, limits, privacy, and what you "
+        "watch right now. Use it when {owner} wants to understand how you work or why something happens the way it does.",
         {"type": "object", "properties": {}},
     )
     async def how_i_work(args: dict[str, Any]) -> dict[str, Any]:
         from agent.prompts import prompt
 
-        return _text(prompt("self") + "\n\n## Just nu\n" + await controls.sources())
+        return _text(prompt("self") + "\n\n## Right now\n" + await controls.sources())
 
     return [pause_messages, get_shelf, explain_message, source_overview, run_research, activity_report, how_i_work]
 
@@ -273,22 +285,22 @@ def _inbox_tools(inbox: Inbox, wake_director=None) -> list:
 
     @tool(
         "route_note",
-        "Skicka något {owner} sagt vidare till rätt del av agenten, med {owner_s} EXAKTA ord. "
-        "director: mål, projekt, vad {owner} lägger tid på, vad som skaver, idéer, vad som är viktigt i livet. "
-        "manager: hur agenten upplevs (för mycket/lite, timing, längd, ton, vad som var bra). "
-        "Använd också när {owner} svarar på en öppen fråga (ange request_id). Fakta om {owner} sparar du dessutom i minnet som vanligt.",
+        "Pass something {owner} said to the right part of Audax, with their exact words. director: goals, projects, what "
+        "{owner} spends time on, what chafes, ideas, what matters in their life. manager: how Audax feels to them (too "
+        "much or too little, timing, length, tone, what was good). Also use it when {owner} answers an open question "
+        "(give request_id). Facts about {owner} still go into memory as usual.",
         {
             "type": "object",
             "properties": {
                 "owner": {"type": "string", "enum": ["director", "manager"]},
-                "verbatim": {"type": "string", "description": "{owner_s} exakta ord, ordagrant citerade"},
-                "interpretation": {"type": "string", "description": "Din tolkning, kort"},
+                "verbatim": {"type": "string", "description": "{owner_s} exact words, quoted verbatim"},
+                "interpretation": {"type": "string", "description": "Your interpretation, briefly"},
                 "request_id": {"type": ["integer", "null"]},
                 "act_now": {
                     "type": "boolean",
-                    "description": "Väck mottagaren nu i stället för i natt. director: {owner} vill att något ska drivas nu "
-                    "(t.ex. 'hjälp mig hitta en praktikplats'). manager: tydlig och viktig feedback om upplevelsen som "
-                    "inte bör vänta (t.ex. 'det här blir för mycket', 'sluta skriva så långt').",
+                    "description": "Wake the recipient now instead of tonight. director: {owner} wants something driven "
+                    "now ('hjälp mig hitta en praktikplats'). manager: clear, important feedback on the experience that "
+                    "shouldn't wait ('det här blir för mycket', 'sluta skriva så långt').",
                 },
             },
             "required": ["owner", "verbatim", "interpretation"],
@@ -306,17 +318,17 @@ def _inbox_tools(inbox: Inbox, wake_director=None) -> list:
 
     @tool(
         "watch_source",
-        "Börja bevaka en källa permanent när {owner} ber om det: en sida (t.ex. en eventkalender), ett RSS-flöde, "
-        "ett företags alla jobbannonser (ange karriärsidan), eller ett ämne/en händelse att följa i nyheterna "
-        "(type=topic, url=sökfrågan, t.ex. 'KTH Innovation' eller 'Claude Code').",
+        "Start watching a source permanently when {owner} asks: a page (e.g. an event calendar), an RSS feed, all of a "
+        "company's job ads (give its careers page), or a topic or event to follow in the news (type=topic, url=the "
+        "search query, e.g. 'KTH Innovation' or 'Claude Code'). The source is checked at once; tell {owner} the result.",
         {
             "type": "object",
             "properties": {
                 "type": {"type": "string", "enum": ["page", "feed", "company", "topic"]},
-                "name": {"type": "string", "description": "kort namn, eller företagsnamn"},
-                "url": {"type": "string", "description": "URL, eller för topic: sökfrågan"},
-                "lang": {"type": "string", "enum": ["sv", "en"], "description": "topic: nyheter på svenska eller engelska"},
-                "note": {"type": "string", "description": "vad som är värdefullt från källan för {owner}"},
+                "name": {"type": "string", "description": "short name, or the company name"},
+                "url": {"type": "string", "description": "URL, or for topic: the search query"},
+                "lang": {"type": "string", "enum": ["sv", "en"], "description": "topic: news in Swedish or English"},
+                "note": {"type": "string", "description": "in Swedish: what is worth something to {owner} from this source"},
             },
             "required": ["type", "name", "url"],
         },
@@ -338,15 +350,15 @@ def _inbox_tools(inbox: Inbox, wake_director=None) -> list:
 
     @tool(
         "change_watch",
-        "Ändra en befintlig bevakning när {owner} ber om det: stäng av den (stop) eller ändra hur ofta den kollas (pace). "
-        "Ange källans id eller namn (se source_overview). Gäller direkt.",
+        "Change an existing watch when {owner} asks: switch it off (stop) or change how often it is checked (pace). Give "
+        "the source's id or name (see source_overview). Takes effect immediately.",
         {
             "type": "object",
             "properties": {
-                "source": {"type": "string", "description": "id, t.ex. hn-best eller topic-machinarium-2"},
+                "source": {"type": "string", "description": "id, e.g. hn-best or topic-machinarium-2"},
                 "action": {"type": "string", "enum": ["stop", "pace"]},
-                "minutes": {"type": "integer", "description": "pace: hur många minuter mellan kontrollerna"},
-                "why": {"type": "string", "description": "{owner_s} skäl, med hens ord"},
+                "minutes": {"type": "integer", "description": "pace: minutes between checks"},
+                "why": {"type": "string", "description": "{owner_s} reason, in their words"},
             },
             "required": ["source", "action"],
         },
@@ -364,13 +376,13 @@ def _inbox_tools(inbox: Inbox, wake_director=None) -> list:
         elif args.get("minutes"):
             result = ops.tune_sense(sid, args["minutes"], args.get("why", ""))
         else:
-            return _text("Ange hur många minuter mellan kontrollerna.")
+            return _text("[internal] Give the number of minutes between checks.")
         await inbox.note("director", args.get("why") or f"[bad om ändring] {sid}: {args['action']}", f"Ägaren ändrade bevakningen {sid}: {result}")
         return _text(result.replace("avstängt", "avstängd, inget mer därifrån").replace(": var", " kollas nu var"))
 
     @tool(
         "mark_request_asked",
-        "Anropa när du har ställt en öppen fråga (från Director eller Manager) till {owner}.",
+        "Call this once you have asked {owner} an open question from Director or Manager.",
         {"type": "object", "properties": {"request_id": {"type": "integer"}}, "required": ["request_id"]},
     )
     async def mark_request_asked(args: dict[str, Any]) -> dict[str, Any]:
@@ -385,15 +397,15 @@ def build_github_tools(reader) -> tuple[dict[str, Any], list[str]]:
 
     @tool(
         "github",
-        "Läs {owner_s} GitHub (bara läsning, även privata repon). action=repos listar alla repon. action=repo visar ett repo "
-        "(filer i roten, senaste commits, README). action=read läser en fil eller katalog (path). Använd för att förstå vad "
-        "{owner} bygger och hur långt det kommit, t.ex. när hen frågar om ett projekt.",
+        "Read {owner_s} GitHub (read-only, private repos included). action=repos lists all repos; action=repo shows one "
+        "(root files, recent commits, README); action=read reads a file or directory (path). Use it to understand what "
+        "{owner} builds and how far it has come, e.g. when they ask about a project.",
         {
             "type": "object",
             "properties": {
                 "action": {"type": "string", "enum": ["repos", "repo", "read"]},
-                "repo": {"type": "string", "description": "reponamn, t.ex. Spra-kprogrammet"},
-                "path": {"type": "string", "description": "fil eller katalog i repot (action=read)"},
+                "repo": {"type": "string", "description": "repo name"},
+                "path": {"type": "string", "description": "file or directory in the repo (action=read)"},
             },
             "required": ["action"],
         },
@@ -403,12 +415,12 @@ def build_github_tools(reader) -> tuple[dict[str, Any], list[str]]:
             if args["action"] == "repos":
                 return _text(await reader.repos())
             if not args.get("repo"):
-                return _text("Ange repo.")
+                return _text("[internal] Give a repo.")
             if args["action"] == "repo":
                 return _text(await reader.repo(args["repo"]))
             return _text(await reader.read(args["repo"], args.get("path", "")))
         except Exception as e:
-            return _text(f"GitHub gick inte att läsa just nu: {type(e).__name__}")
+            return _text(f"[internal] GitHub couldn't be read right now: {type(e).__name__}")
 
     server = create_sdk_mcp_server("github", tools=[github])
     return {"github": server}, ["mcp__github__github"]
@@ -419,9 +431,9 @@ def build_web_tools(web) -> tuple[dict[str, Any], list[str]]:
 
     @tool(
         "web_read",
-        "Läs en webbsida. Pålitligare än vanlig hämtning: använder källans API när det finns (Devpost, GitHub, Lever m.fl.), "
-        "annars en vanlig hämtning, och om sidan blockerar en läsartjänst. Ge inte upp efter ett fel: läs gärna en annan sida "
-        "från samma källa eller sök vidare.",
+        "Read a web page. More reliable than a plain fetch: it uses the source's API where there is one (Devpost, GitHub, "
+        "Lever and others), otherwise a direct fetch, and a reader service if the page blocks that. Don't give up after "
+        "one failure: try another page from the same source, or search further.",
         {"type": "object", "properties": {"url": {"type": "string"}}, "required": ["url"]},
     )
     async def web_read(args: dict[str, Any]) -> dict[str, Any]:
