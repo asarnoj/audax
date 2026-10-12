@@ -106,10 +106,9 @@ def build_chat_tools(
             row = await db.fetchone("SELECT id FROM messages WHERE direction = 'out' ORDER BY id DESC LIMIT 1")
             message_id = row["id"] if row else None
 
-        candidate_id = None
-        if message_id is not None:
-            row = await db.fetchone("SELECT candidate_id FROM messages WHERE id = ?", (message_id,))
-            candidate_id = row["candidate_id"] if row else None
+        from agent.pursuits import candidates_of_message
+
+        candidate_id = next(iter(await candidates_of_message(db, message_id)), None)
 
         await db.execute(
             "INSERT INTO feedback (message_id, candidate_id, signal, value, note) VALUES (?, ?, 'text', ?, ?)",
@@ -143,7 +142,59 @@ def build_chat_tools(
         await db.execute("INSERT INTO problems (description) VALUES (?)", (args["description"],))
         return _text("[internal] Reported to the maintainer.")
 
-    tools = [record_feedback, interview_guide, report_problem]
+    @tool(
+        "track_pursuit",
+        "Keep track of what {owner} goes for: when they show interest in an opportunity, start preparing, apply, hear "
+        "back, or decide against it. target=replied links it to the message they replied to (a tip you sent), "
+        "last_sent to your latest message; or give title (and organization, url, deadline) yourself. To update one, "
+        "give its id from the list in your context. Set remind_at when {owner} asks to be reminded on a given day; "
+        "otherwise the system queues one nudge shortly before the deadline, and the dispatcher picks the moment.",
+        {
+            "type": "object",
+            "properties": {
+                "target": {"type": "string", "enum": ["replied", "last_sent", "none"]},
+                "id": {"type": "integer"},
+                "title": {"type": "string"},
+                "organization": {"type": "string"},
+                "url": {"type": "string"},
+                "deadline": {"type": "string", "description": "YYYY-MM-DD"},
+                "status": {"type": "string", "enum": ["interested", "preparing", "applied", "interviewing", "offer", "accepted", "rejected", "declined"]},
+                "next_step": {"type": "string", "description": "Swedish, short"},
+                "remind_at": {"type": "string", "description": "YYYY-MM-DD, only when {owner} asked for a reminder that day"},
+                "note": {"type": "string", "description": "Swedish: what happened, in {owner_s} words where possible"},
+            },
+            "required": ["target"],
+        },
+    )
+    async def track_pursuit(args: dict[str, Any]) -> dict[str, Any]:
+        from agent.pursuits import LABEL, Pursuits, candidates_of_message
+
+        pursuits = Pursuits(db, schedule.settings.timezone if schedule is not None else "Europe/Stockholm")
+        fields = {k: args.get(k) for k in ("id", "title", "organization", "url", "deadline", "status", "next_step", "remind_at", "note")}
+        if args["target"] in ("replied", "last_sent") and not args.get("id"):
+            mid = turn.replied_to_message_id
+            if args["target"] == "last_sent":
+                row = await db.fetchone("SELECT id FROM messages WHERE direction = 'out' ORDER BY id DESC LIMIT 1")
+                mid = row["id"] if row else None
+            cids = await candidates_of_message(db, mid)
+            if cids and not args.get("title"):
+                pid = await pursuits.from_candidate(cids[0], "chat", args.get("status") or "interested")
+                if pid is not None:
+                    fields["id"] = pid
+            elif cids:
+                fields["candidate_id"] = cids[0]
+        try:
+            pid, created = await pursuits.upsert(fields, "chat")
+        except ValueError:
+            return _text("[internal] Give a title (or reply to the tip it is about).")
+        row = await db.fetchone("SELECT * FROM pursuits WHERE id = ?", (pid,))
+        return _text(
+            f"[internal] {'Tracked' if created else 'Updated'} #{pid}: {row['title']} · {LABEL.get(row['status'], row['status'])}"
+            + (f" · deadline {row['deadline']}" if row["deadline"] else " · no deadline known")
+            + (f" · reminder {row['remind_at']}" if row["remind_at"] else "")
+        )
+
+    tools = [record_feedback, interview_guide, report_problem, track_pursuit]
 
     if memory_path is not None:
 

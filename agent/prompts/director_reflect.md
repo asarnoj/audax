@@ -53,6 +53,9 @@ Now: {now}
 ## Sources proposed in the daily reviews (check each with `web_read`; add with `senses` if it holds up, otherwise let it go)
 {proposed}
 
+## What {owner} is pursuing (and how nudges have landed)
+{pursuits}
+
 ## Windows into {owner_s} work
 {windows}
 

@@ -345,6 +345,35 @@ MIGRATIONS: list[str] = [
     UPDATE claude_runs SET cost_usd = (SELECT own FROM d WHERE d.id = claude_runs.id)
     WHERE id IN (SELECT id FROM d WHERE own IS NOT NULL AND own >= 0);
     """,
+    # 17: pursuits (docs/ATTENTION.md, "Ansökningsspåret"): everything the owner has shown interest in, applied
+    # to or turned down, with a deadline and a next step, so Audax can nudge at the right time and follow up.
+    """
+    CREATE TABLE pursuits (
+        id INTEGER PRIMARY KEY,
+        title TEXT NOT NULL,
+        organization TEXT,
+        url TEXT,
+        candidate_id INTEGER REFERENCES candidates(id),
+        status TEXT NOT NULL DEFAULT 'interested',
+        deadline TEXT,
+        remind_at TEXT,
+        next_step TEXT,
+        note TEXT,
+        source TEXT,
+        nudged_at TEXT,
+        nudge_candidate_id INTEGER,
+        created_at TEXT NOT NULL DEFAULT (datetime('now')),
+        updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+    );
+    CREATE TABLE pursuit_log (
+        id INTEGER PRIMARY KEY,
+        pursuit_id INTEGER NOT NULL REFERENCES pursuits(id),
+        created_at TEXT NOT NULL DEFAULT (datetime('now')),
+        status TEXT,
+        note TEXT,
+        by TEXT
+    );
+    """,
 ]
 
 

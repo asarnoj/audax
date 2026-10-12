@@ -4,7 +4,7 @@ from pathlib import Path
 from agent.calls import CALLS
 
 ROOT = Path(__file__).resolve().parent.parent
-NOT_CLAUDE = {"insight", "schedule_change", "manager_note", "search_update"}  # outbox candidate kinds, not Claude calls
+NOT_CLAUDE = {"insight", "schedule_change", "manager_note", "search_update", "nudge"}  # outbox candidate kinds, not Claude calls
 
 
 def kinds_in_code() -> set[str]:

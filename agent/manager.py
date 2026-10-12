@@ -17,6 +17,7 @@ from datetime import datetime, timedelta
 from zoneinfo import ZoneInfo
 
 
+from agent.pursuits import Pursuits
 from agent.claude_gate import ClaudeGate, ClaudeTask, Priority, QuotaPaused
 from agent.config import Settings
 from agent.db import Database
@@ -363,6 +364,7 @@ class Manager:
             f"Chat session: {turns} turns since it started",
             f"Last check-in: {checkin[:10] if checkin else 'never'}",
             "Claude runs in the last 24 h: " + (", ".join(f"{r['kind']}×{r['n']} ({r['e']} errors)" for r in runs) or "none"),
+            await Pursuits(self.db, self.settings.timezone).stats(),
             f"Quiet hours: {self.settings.quiet_hours.start:%H:%M}–{self.settings.quiet_hours.end:%H:%M}",
         ])
 

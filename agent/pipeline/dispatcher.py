@@ -103,6 +103,9 @@ class Dispatcher:
             await self._run(force)
 
     async def _run(self, force: bool) -> None:
+        from agent.pursuits import Pursuits
+
+        await Pursuits(self.db, self.settings.timezone).tick()  # missed deadlines; due nudges join the outbox
         await self.outbox.expire()
         now = self.schedule.now()
         avail = await self.schedule.availability(now)

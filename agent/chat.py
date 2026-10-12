@@ -20,6 +20,8 @@ from agent.db import Database
 from agent.inbox import Inbox
 from agent.memory import MemoryRepo
 from agent.pipeline.outbox import SKIP, AlreadySaid
+from agent.prompts import personalize
+from agent.pursuits import Pursuits
 from agent.prompts import prompt as prompt_template
 from agent.schedule import Schedule
 from agent.tools import TurnContext, build_chat_tools, build_github_tools, build_mail_tools, build_web_tools
@@ -201,6 +203,7 @@ class ChatSession:
         internal = batch[0].internal
         session_id = await self.db.kv_get(SESSION_KEY)
         prompt = await self._prompt(batch)
+        pursuing = await Pursuits(self.db, self.settings.timezone).summary()
 
         def task(resume: str | None, prefix: str = "") -> ClaudeTask:
             return ClaudeTask(
@@ -215,7 +218,9 @@ class ChatSession:
                 + "\n\n# Style guide and current state (owned by Manager; follow them)\n"
                 + self.memory.read("style.md", "state.md")
                 + "\n\n# Interests, and what never to suggest (applies even to things discussed earlier)\n"
-                + self.memory.read("interests.md"),
+                + self.memory.read("interests.md")
+                + "\n\n# What " + personalize("{owner}") + " is pursuing (keep it current with track_pursuit)\n"
+                + pursuing,
             )
 
         typing = None if internal else asyncio.create_task(self._keep_typing())

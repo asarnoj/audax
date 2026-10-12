@@ -12,6 +12,8 @@ from datetime import timedelta
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup, Update
 from telegram.constants import ChatAction, ParseMode
 from telegram.error import NetworkError, RetryAfter, TimedOut
+
+from agent.pursuits import POSITIVE_REACTIONS, Pursuits, candidates_of_message
 from telegram.ext import (
     Application,
     CallbackQueryHandler,
@@ -42,6 +44,7 @@ class TelegramBot:
         self.gate = gate
         self.memory = memory
         self.schedule = schedule
+        self.pursuits = Pursuits(db, settings.timezone)
         self.started_at = time.time()
         self.app = Application.builder().token(settings.telegram_token).build()
         self.chat = ChatSession(settings, db, gate, memory, send=self.send, typing=self._typing, schedule=schedule)
@@ -390,11 +393,14 @@ class TelegramBot:
         row_id = await self._message_row_id(r.message_id)
         emojis = [getattr(x, "emoji", None) or x.type for x in r.new_reaction]
         value = " ".join(emojis) if emojis else "removed"
-        await self.db.execute(
-            "INSERT INTO feedback (message_id, candidate_id, signal, value) "
-            "VALUES (?, (SELECT candidate_id FROM messages WHERE id = ?), 'reaction', ?)",
-            (row_id, row_id, value),
-        )
+        candidates = await candidates_of_message(self.db, row_id)
+        for cid in candidates or [None]:
+            await self.db.execute(
+                "INSERT INTO feedback (message_id, candidate_id, signal, value) VALUES (?, ?, 'reaction', ?)", (row_id, cid, value)
+            )
+        if any(e in POSITIVE_REACTIONS for e in emojis):  # a thumbs-up on a tip is interest: track it, so it can be followed up
+            for cid in candidates:
+                await self.pursuits.from_candidate(cid, "reaction")
         log.info("reaction on message %s: %s", r.message_id, value)
 
 

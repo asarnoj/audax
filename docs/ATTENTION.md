@@ -195,3 +195,13 @@ Det här ger stabilitet genom metod och inte genom gränsvärden. Systemet ändr
 | **v3** | Personlig rankingmodell | + fler kontextsignaler (t.ex. telefonens fokusläge via Genvägar) | Kontextuell bandit för leveransform och timing, med LLM:en som kontroll | Manager väljer mellan strategier |
 
 Varje steg byter bara ut en modul bakom samma gränssnitt, så att resten av systemet inte påverkas.
+
+## Ansökningsspåret
+
+Att hitta möjligheter är halva jobbet. Den andra halvan är att hjälpa ägaren förbi tvekan, så att hen faktiskt söker ([agent/pursuits.py](../agent/pursuits.py)).
+
+- **Spåret:** allt ägaren visar intresse för (en 👍 på ett tips räknas), förbereder, söker, får svar på eller väljer bort, med deadline och nästa steg. Chatten för in det ägaren säger, Director håller det sant utifrån samtalet och mejlen (bekräftelser, svar, intervjuer), och systemet markerar missade deadlines.
+- **En knuff, i rätt tid:** för det ägaren inte har sökt än blir en knuff en kandidat i utkorgen på den dag Director bedömt hjälper mest (beroende på hur mycket jobb ansökan är), annars tre dagar före deadline. Dispatchern väljer stunden och chatten skriver den, en mening. En knuff per sak, aldrig mot något ägaren sagt nej till.
+- **Uppföljning:** efter en ansökan noterar Director när svar kan väntas, och ser i mejlen om det kommer.
+- **Lärande:** vad ägaren driver, släpper och gör efter en knuff syns för Director (bilden av vad hen egentligen vill) och Manager (om knuffarna landar bra eller känns påträngande).
+

@@ -19,6 +19,7 @@ from zoneinfo import ZoneInfo
 
 from agent import direction_ops as ops
 from agent import search_map
+from agent.pursuits import Pursuits
 from agent.claude_gate import ClaudeGate, ClaudeTask, Priority, QuotaPaused
 from agent.config import Settings
 from agent.db import Database
@@ -153,6 +154,25 @@ SCHEMA = {
                 "required": ["kind", "title", "brief"],
             },
         },
+        "pursuit_updates": {
+            "type": "array",
+            "description": "Keep what the owner pursues true: add missing ones, update status, deadline, next step, reminder day",
+            "items": {
+                "type": "object",
+                "properties": {
+                    "id": {"type": ["integer", "null"], "description": "Existing pursuit id; null to add"},
+                    "title": {"type": "string"},
+                    "organization": {"type": ["string", "null"]},
+                    "url": {"type": ["string", "null"]},
+                    "deadline": {"type": ["string", "null"], "description": "YYYY-MM-DD"},
+                    "status": {"type": "string", "enum": ["interested", "preparing", "applied", "interviewing", "offer", "accepted", "rejected", "declined"]},
+                    "next_step": {"type": ["string", "null"], "description": "Swedish, short"},
+                    "remind_at": {"type": ["string", "null"], "description": "YYYY-MM-DD: when a nudge would help most"},
+                    "note": {"type": ["string", "null"], "description": "Swedish: what changed and how you know"},
+                },
+                "required": ["title", "status"],
+            },
+        },
         "log": {"type": "string", "description": "Swedish. What you changed and why, briefly. Empty if nothing."},
     },
     "required": ["person_md", "now_md", "goals_md", "log"],
@@ -205,6 +225,7 @@ class Director:
             "missions": await self._missions(),
             "windows": await self._windows(mode),
             "state": self.memory.read("state.md"),
+            "pursuits": await Pursuits(self.db, self.settings.timezone).summary() + "\n" + await Pursuits(self.db).stats(),
         }
         if mode == "reflect":
             context["idea_feedback"] = await self._idea_feedback()
@@ -302,6 +323,13 @@ class Director:
             p.write_text(m["content_md"].strip() + "\n")
             changes.append(f"sökkarta {m['mission']}")
         changes += await search_map.decide_leads(self.db, out.get("lead_decisions") or [])
+        pursuits = Pursuits(self.db, self.settings.timezone)
+        for u in out.get("pursuit_updates") or []:
+            try:
+                pid, created = await pursuits.upsert(u, "director")
+                changes.append(f"{'nytt spår' if created else 'spår'} #{pid}: {u['title']} ({u['status']})")
+            except ValueError:
+                continue
         for a in out.get("coverage_audit") or []:
             if a["mission"] not in missions:
                 continue

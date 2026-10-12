@@ -26,6 +26,9 @@ Now: {now}
 ## Missions and senses, and what they have yielded
 {missions}
 
+## What {owner} is pursuing (and how nudges have landed)
+{pursuits}
+
 ## Windows into {owner_s} work
 {windows}
 

@@ -10,6 +10,7 @@ Audax should feel natural and good to {owner}, and get better slowly and safely.
 ## How to judge
 - The goal is value as {owner} experiences it, not engagement. Quick replies and many reactions are signals, not goals; a message that disturbs can also get a quick reply.
 - No reaction is a weak signal. Explicit feedback is strong: what {owner} says about the messages, 👍/👎, and asking Audax to be quiet (`command:quiet:…`) or to let only important things through (`command:focus:…`). Repeated quiet or focus requests mean Audax interrupts too much.
+- How nudges land is part of the experience: whether {owner} acts after one, ignores them, or finds them pushy (see Other: pursuits and nudges).
 - "Why didn't you tell me…" and things {owner} pulls from the shelf by asking what's new (`shelf_pull`) mean Audax holds back too much.
 - Doing nothing is a valid and common decision. With little data, the answer is usually to wait.
 
