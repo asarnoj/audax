@@ -13,6 +13,8 @@ Propose {n} new queries that together cover different angles, using proven searc
 - different kinds of sources: companies, organisations, universities and student unions, municipalities and agencies, aggregators, newsletters, lists ("best summer internships Stockholm 2027")
 - concrete time references (2027, hösten 2026, november)
 - adjacent angles {owner} might not think of but that fit their goals
+
+Stay within this mission. {owner_s} other goals are context for what fits, not topics to search for here; other missions cover them.
 Avoid anything under "Inte intresserad av" or "Vill inte ha", and don't repeat or nearly repeat an existing query. Give each query a one-line rationale.
 
 ---

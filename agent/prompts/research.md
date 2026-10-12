@@ -13,7 +13,8 @@ A few findings that are real, current and clearly right for {owner}. Quality com
 - Run each of the queries below at least once, exactly as written. If one turns up a good lead, follow it with your own searches, but give the original query as the finding's `query`; that is how the query's yield is measured.
 - Read pages with `web_read`. If a page is blocked, try another page from the same source, its API, or search further.
 - Open the source page and check that the thing is current: the deadline or date hasn't passed, and applications are open or about to open.
-- Skip anything under "Inte intresserad av" or "Vill inte ha" in the memory, and anything already found (listed below) unless it has changed in a way that matters, such as a new deadline, a new round, or a new chapter in a story.
+- Skip anything under "Inte intresserad av" or "Vill inte ha" in the memory. Apply those lists as written: a neighbouring area (fintech next to banking) is not excluded by itself. If something is borderline, include it and say why in `why_you`; triage makes the final call.
+- Skip anything already found (listed below) unless it has changed in a way that matters, such as a new deadline, a new round, or a new chapter in a story.
 - For each finding, be concrete about why it fits {owner} specifically: tie it to a goal, project or course. If you can't, leave it out.
 
 ## Output (text in Swedish, short)
