@@ -21,7 +21,7 @@ from agent.inbox import Inbox
 from agent.memory import MemoryRepo
 from agent.prompts import prompt as prompt_template
 from agent.schedule import Schedule
-from agent.tools import TurnContext, build_chat_tools, build_github_tools, build_web_tools
+from agent.tools import TurnContext, build_chat_tools, build_github_tools, build_mail_tools, build_web_tools
 
 log = logging.getLogger(__name__)
 
@@ -72,6 +72,7 @@ class ChatSession:
         self.wake_director = None  # set by main: () -> None, runs Director's daily pass soon
         self.github = None  # set by main: read-only GitHubReader
         self.web = None  # set by main: WebReader (web_read tool)
+        self.mail = None  # set by main: read-only MailReader
         self.db = db
         self.inbox = Inbox(db)
         self.gate = gate
@@ -190,6 +191,9 @@ class ChatSession:
         if self.github is not None:
             gh_servers, gh_names = build_github_tools(self.github)
             mcp_servers, tool_names = {**mcp_servers, **gh_servers}, tool_names + gh_names
+        if self.mail is not None:
+            m_servers, m_names = build_mail_tools(self.mail)
+            mcp_servers, tool_names = {**mcp_servers, **m_servers}, tool_names + m_names
         internal = batch[0].internal
         session_id = await self.db.kv_get(SESSION_KEY)
         prompt = await self._prompt(batch)

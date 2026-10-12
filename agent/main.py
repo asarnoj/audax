@@ -18,6 +18,7 @@ from agent.director import Director
 from agent.inspect import Inspector
 from agent.prompts import prompt, set_owner
 from agent.web import WebReader
+from agent.mail import MailReader
 from agent.windows import GitHubReader, all_windows
 from agent.db import Database
 from agent.manager import Manager
@@ -107,7 +108,9 @@ async def run() -> None:
     bot.chat.builder = builder
 
     director = Director(settings, db, gate, memory, schedule)
-    director.windows = all_windows
+    mail = MailReader(tz=settings.timezone) if MailReader.configured() else None  # read-only; Manager never gets it
+    director.windows = lambda: all_windows(mail)
+    director.mail = bot.chat.mail = mail
     if os.getenv("GITHUB_USER") or os.getenv("GITHUB_TOKEN"):
         director.github = bot.chat.github = GitHubReader()
     web = WebReader(db, github=director.github)

@@ -27,7 +27,7 @@ from agent.pipeline.outbox import add_candidate
 from agent.prompts import prompt as prompt_template
 from agent.research import load_research
 from agent.schedule import Schedule, utc_iso
-from agent.tools import build_github_tools, build_web_tools
+from agent.tools import build_github_tools, build_mail_tools, build_web_tools
 
 log = logging.getLogger(__name__)
 
@@ -125,6 +125,7 @@ class Director:
         self.windows = None  # async () -> str, set when windows (GitHub, notes, ...) exist
         self.github = None  # read-only GitHubReader for digging deeper during reflection
         self.web = None  # WebReader
+        self.mail = None  # read-only MailReader: a nightly digest in the windows, plus search and read
 
     # --- run --------------------------------------------------------------
 
@@ -168,6 +169,9 @@ class Director:
         if self.web is not None:  # both passes: the daily one checks new places too
             w, names = build_web_tools(self.web)
             mcp, tools = {**mcp, **w}, tools + names + ([] if reflect else ["WebSearch"])
+        if self.mail is not None:
+            m, names = build_mail_tools(self.mail)
+            mcp, tools = {**mcp, **m}, tools + names
         try:
             result = await self.gate.run(
                 ClaudeTask(

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any
 
@@ -10,6 +11,8 @@ from claude_agent_sdk import tool
 
 from agent.db import Database
 from agent.prompts import personalize
+
+log = logging.getLogger(__name__)
 
 if TYPE_CHECKING:
     from agent.builder import Builder
@@ -426,3 +429,45 @@ def build_web_tools(web) -> tuple[dict[str, Any], list[str]]:
         return _text(f"[{method}]\n{text}")
 
     return {"web": create_sdk_mcp_server("web", tools=[web_read])}, ["mcp__web__web_read"]
+
+
+def build_mail_tools(reader) -> tuple[dict[str, Any], list[str]]:
+    """Read-only mail (agent/mail.py) for the chat and Director. There is deliberately nothing that sends or changes."""
+    from agent.mail import DATA_NOTE, format_line
+
+    @tool(
+        "mail_search",
+        "Search {owner_s} mail (read-only; nothing can be sent or changed). Uses Gmail search syntax, e.g. "
+        "'from:spotify.com', 'subject:intervju newer_than:30d', 'in:sent ansökan'. Returns id, date, sender, subject "
+        "and a snippet, newest first. Use it when {owner} asks about something that would be in their mail.",
+        {
+            "type": "object",
+            "properties": {
+                "query": {"type": "string", "description": "Gmail search query"},
+                "limit": {"type": "integer", "description": "max results, default 10"},
+            },
+            "required": ["query"],
+        },
+    )
+    async def mail_search(args: dict[str, Any]) -> dict[str, Any]:
+        try:
+            found = await reader.search(args["query"], int(args.get("limit") or 10))
+        except Exception as e:
+            log.warning("mail_search failed: %s", e)
+            return _text(f"[internal] The mail couldn't be read right now ({type(e).__name__}).")
+        return _text(DATA_NOTE + "\n" + ("\n".join(format_line(m) for m in found) or "No matching mail."))
+
+    @tool(
+        "mail_read",
+        "Read one mail in full (read-only), by the id from mail_search.",
+        {"type": "object", "properties": {"id": {"type": "string"}}, "required": ["id"]},
+    )
+    async def mail_read(args: dict[str, Any]) -> dict[str, Any]:
+        try:
+            return _text(DATA_NOTE + "\n" + await reader.read(args["id"]))
+        except Exception as e:
+            log.warning("mail_read failed: %s", e)
+            return _text(f"[internal] That mail couldn't be read ({type(e).__name__}).")
+
+    server = create_sdk_mcp_server("mail", tools=[mail_search, mail_read])
+    return {"mail": server}, ["mcp__mail__mail_search", "mcp__mail__mail_read"]

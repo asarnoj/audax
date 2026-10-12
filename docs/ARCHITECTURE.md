@@ -128,5 +128,5 @@ Produkten är chatten: "vad tror du jag håller på med?", "vilka trådar driver
 1. **En röst:** proaktiva meddelanden skrivs av chattsessionen, förfrågningskön och sorteringen av svar.
 2. **Manager v2:** `style.md` med nattlig granskning, `state.md` och hyllan som aktivt lager.
 3. **Director:** `direction/`, trådar, sinnen och uppdrag från chatten, och att triage läser `goals.md`.
-4. **Fönster:** GitHub först, sedan anteckningar, todo-sidan och bloggen.
+4. **Fönster:** GitHub först, sedan mejlen (Gmail, skrivskyddat, se [MAIL.md](MAIL.md)), anteckningar, todo-sidan och bloggen.
 5. **Reflektion:** djupa tankekörningar som utforskar idéer innan de föreslås.
