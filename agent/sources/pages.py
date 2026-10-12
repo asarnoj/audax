@@ -33,7 +33,7 @@ SCHEMA = {
                     "title": {"type": "string"},
                     "url": {"type": ["string", "null"]},
                     "summary": {"type": "string"},
-                    "date": {"type": ["string", "null"], "description": "YYYY-MM-DD om det finns"},
+                    "date": {"type": ["string", "null"], "description": "YYYY-MM-DD if there is one"},
                 },
                 "required": ["title", "summary"],
             },
@@ -41,12 +41,13 @@ SCHEMA = {
     },
     "required": ["items"],
 }
-PROMPT = """Här är nya rader från webbsidan {url} ({note}).
-Lista de nya, konkreta sakerna som raderna beskriver: event, jobb, utlysningar, nyheter. Ta inte med navigering,
-sidfötter, cookie-text eller sådant som bara flyttats runt. Använd länkarna i [hakparentes] när de hör till en sak.
-Hitta inte på något som inte står där. Inga nya saker ger en tom lista.
+PROMPT = """These lines are new on the web page {url} ({note}).
+List the new, concrete things they describe: events, jobs, calls for applications, news. Leave out navigation,
+footers, cookie text and anything that has only moved around. Use the links in [brackets] when they belong to a thing.
+Don't invent anything that isn't there; if nothing new is described, return an empty list. Write titles and
+summaries in the page's own language.
 
-Nya rader:
+New lines:
 {lines}
 """
 
@@ -70,7 +71,7 @@ def claude_extractor(gate: ClaudeGate, model: str) -> Extract:
             r = await gate.run(
                 ClaudeTask(
                     kind="page_extract",
-                    prompt=PROMPT.format(url=config.url, note=config.note or "ingen beskrivning", lines=text),
+                    prompt=PROMPT.format(url=config.url, note=config.note or "no description", lines=text),
                     priority=Priority.BACKGROUND,
                     model=model,
                     output_schema=SCHEMA,

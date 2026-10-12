@@ -31,20 +31,20 @@ FINDINGS_SCHEMA = {
                 "properties": {
                     "title": {"type": "string"},
                     "url": {"type": "string"},
-                    "summary": {"type": "string"},
-                    "why_you": {"type": "string"},
+                    "summary": {"type": "string", "description": "Swedish. The facts: what, where, when, requirements"},
+                    "why_you": {"type": "string", "description": "Swedish. Why it fits the owner specifically"},
                     "kind": {"type": "string", "enum": ["opportunity", "event", "news", "tool", "social"]},
                     "deadline": {"type": ["string", "null"], "description": "YYYY-MM-DD"},
-                    "date": {"type": ["string", "null"], "description": "YYYY-MM-DD för event"},
+                    "date": {"type": ["string", "null"], "description": "YYYY-MM-DD for events"},
                     "location": {"type": ["string", "null"]},
-                    "query": {"type": "string", "description": "Frågan (exakt) som ledde till fyndet"},
+                    "query": {"type": "string", "description": "The query (exactly as given) that led to the finding"},
                 },
                 "required": ["title", "url", "summary", "why_you", "kind", "query"],
             },
         },
         "skipped": {
             "type": "array",
-            "description": "Det du hittade men valde bort (redan känt, utgånget, inte intresserad av, passar inte), med kort skäl",
+            "description": "What you found but left out (already known, expired, not interested, doesn't fit), with a short reason in Swedish",
             "items": {"type": "object", "properties": {"title": {"type": "string"}, "reason": {"type": "string"}}, "required": ["title", "reason"]},
         },
     },
@@ -73,6 +73,10 @@ EXPLORE = 2  # of which untested
 DEEP_BATCH = 20  # weekly deep sweep: wide, like a deep-research run
 DEEP_EVERY = timedelta(days=7)
 DEEP_SPACING = timedelta(hours=3)  # never two deep sweeps close together (quota)
+DEEP_NOTE = (
+    "\nThis is the weekly deep sweep: run every query, follow leads, read 20-40 pages if useful, and look into adjacent "
+    "angles and new kinds of sources. Wider coverage, the same bar for quality.\n"
+)
 MIN_ACTIVE = 10  # generate more below this
 GENERATE = 8
 RETIRE_AFTER_RUNS = 3  # without a single kept finding
@@ -175,9 +179,9 @@ class Portfolio:
             goal=task.goal,
             scope=task.scope,
             today=datetime.now(ZoneInfo(self.settings.timezone)).date().isoformat(),
-            memory=self.memory.read("profile.md", "interests.md", "projects.md"),
-            good="\n".join(f"- {q['query']} → {q['kept']}" for q in good) or "(ingen historik än)",
-            existing="\n".join(f"- {q['query']}" for q in stats) or "(inga)",
+            memory=self.memory.read("direction/goals.md", "profile.md", "interests.md", "projects.md"),
+            good="\n".join(f"- {q['query']} → {q['kept']}" for q in good) or "(no history yet)",
+            existing="\n".join(f"- {q['query']}" for q in stats) or "(none)",
             n=n,
         )
         r = await self.gate.run(
@@ -253,15 +257,15 @@ class Researcher:
             now = datetime.now(self.tz).isoformat()
             await self.db.kv_set(f"research.last_deep.{task.id}", now)
             await self.db.kv_set("research.last_deep_any", now)
-        prompt = ("[DJUPSVEP: veckans breda genomgång. Kör alla frågor, följ ledtrådar, läs gärna 20–40 sidor och "
-                  "leta även i angränsande vinklar och nya typer av källor. Bättre täckning, samma krav på kvalitet.]\n\n" if deep else "") + prompt_template("research").format(
-            queries="\n".join(f"- {q}" for q in queries) or "(inga, sök fritt)",
+        prompt = prompt_template("research").format(
+            depth=DEEP_NOTE if deep else "",
+            queries="\n".join(f"- {q}" for q in queries) or "(none; search freely)",
             id=task.id,
             goal=task.goal,
             scope=task.scope,
             today=datetime.now(self.tz).date().isoformat(),
             memory=self.memory.read(*MEMORY_FILES),
-            seen="\n".join(seen_lines) or "(inget än)",
+            seen="\n".join(seen_lines) or "(nothing yet)",
         )
         try:
             result = await self.gate.run(

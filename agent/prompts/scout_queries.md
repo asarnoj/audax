@@ -1,22 +1,27 @@
-Du tar fram sökfrågor till en portfölj för uppdraget "{id}" åt {owner_s} personliga agent. Frågorna körs i en webbsökmotor, några åt gången, och varje frågas utfall mäts. Frågor som ger bra fynd körs igen, och de som inte ger något fasas ut.
+# Role: query portfolio for search mission "{id}"
 
-Uppdrag: {goal}
-Område: {scope}
-Datum: {today}
+Audax's search missions run web-search queries from a portfolio, a few at a time, and measure each query's yield. Queries that lead to good findings run again; ones that yield nothing are retired. Your job is to propose new queries for this mission's portfolio.
 
-Om {owner}:
+Mission: {goal}
+Scope: {scope}
+Today: {today}
+
+## How to write good queries
+Propose {n} new queries that together cover different angles, using proven search techniques:
+- operators: `site:` for applicant-tracking systems and aggregators (site:jobs.lever.co, site:jobs.ashbyhq.com, site:boards.greenhouse.io, site:teamtailor.com, site:linkedin.com/jobs, site:devpost.com, site:lu.ma, site:meetup.com), "exact phrases", OR and -minus
+- both Swedish and English
+- different kinds of sources: companies, organisations, universities and student unions, municipalities and agencies, aggregators, newsletters, lists ("best summer internships Stockholm 2027")
+- concrete time references (2027, hösten 2026, november)
+- adjacent angles {owner} might not think of but that fit their goals
+Avoid anything under "Inte intresserad av" or "Vill inte ha", and don't repeat or nearly repeat an existing query. Give each query a one-line rationale.
+
+---
+
+About {owner} (Director's goals weigh most):
 {memory}
 
-Fungerat bra hittills (fråga → antal behållna fynd):
+Worked well so far (query → findings kept):
 {good}
 
-Fasats ut eller aktiva redan (generera inte samma eller nästan samma):
+Already active or retired:
 {existing}
-
-Ta fram {n} nya frågor som tillsammans täcker in olika vinklar. Använd beprövade söktekniker:
-- operatorer: `site:` för rekryteringssystem och aggregatorer (t.ex. site:jobs.lever.co, site:jobs.ashbyhq.com, site:boards.greenhouse.io, site:teamtailor.com, site:linkedin.com/jobs, site:devpost.com, site:lu.ma, site:meetup.com), "exakta fraser", OR och -minus
-- både svenska och engelska
-- olika typer av källor: företag, organisationer, universitet och studentkårer, kommuner/myndigheter, aggregatorer, nyhetsbrev, listor ("best summer internships Stockholm 2027")
-- konkreta tidsangivelser (2027, hösten 2026, november)
-- angränsande vinklar som {owner} kanske inte själv tänker på, men som passar profilen
-Undvik det som står under "Inte intresserad av".
