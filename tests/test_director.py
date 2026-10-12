@@ -63,7 +63,7 @@ async def test_apply_writes_direction_threads_missions_senses_questions_ideas(en
         "missions": [{"op": "add", "id": "partner", "goal": "Hitta affärspartner för studentstartup", "scope": "Uni/Sthlm", "reason": "tråd"}],
         "senses": [{"op": "add_page", "name": "Startup events", "url": "https://sses/events", "note": "matchning", "reason": "partner"}],
         "questions": [{"what": "Vilken sorts partner?", "why": "styr sökandet"}, {"what": "extra", "why": "x"}],
-        "share": [{"title": "Pitcha appen på Startup", "message": "Startup har en matchningskväll 20/10.", "url": "https://sses/x",
+        "share": [{"title": "Pitcha appen på Startup", "brief": "Startup har en matchningskväll 20/10.", "url": "https://sses/x",
                    "why": "partner", "time_sensitivity": "medium", "expires": "2026-10-20"}],
         "log": "Startade partnertråden.",
     }, "understand", NOW)
@@ -92,7 +92,7 @@ async def test_reflect_uses_opus_high_effort_with_web_and_understand_does_not(en
     u, r = calls
     assert (u.model, u.effort) == ("sonnet", None) and "WebSearch" not in u.allowed_tools
     assert (r.model, r.effort) == ("opus", "high") and "WebSearch" in r.allowed_tools
-    assert "dolda tillgångar" in r.prompt.lower() and "Profil" in r.prompt
+    assert "hidden assets" in r.prompt.lower() and "Profil" in r.prompt
     assert await db.kv_get("director.last_reflect") is not None
 
 
@@ -105,7 +105,7 @@ async def test_empty_person_md_triggers_first_picture_from_whole_history(env, tm
     d = director(db, memory, tmp_path, structured=BASE, calls=calls)
     await d.db.kv_set("director.last_understand", datetime.now().isoformat())  # last pass just now
     await d.run("understand")
-    assert "person.md är tom" in calls[0].prompt and "folk använder" in calls[0].prompt
+    assert "person.md is empty" in calls[0].prompt and "folk använder" in calls[0].prompt
 
     (memory.path / "direction" / "person.md").write_text("# Personen\n\n## Vad hen vill\n- Bygga saker som används\n")
     await d.run("understand")
