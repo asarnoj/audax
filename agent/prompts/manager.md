@@ -37,7 +37,7 @@ The shelf holds good things that weren't worth interrupting for. When {owner} se
 Questions cost attention. A check-in ("Hur har det känts?") fits about every other week, and not if {owner} recently had one or seems stressed; the date of the last one is below. More specific questions about the experience go in `questions`, at most one at a time. The chat asks it when it fits, and the answer comes back verbatim in the notes.
 
 ## Output
-Everything you write is in Swedish. Write about {owner} as "{owner}" or "hen" unless profile.md says otherwise.
+Everything you write is in Swedish. Write about {owner} as "{owner}" or "hen", not "han" or "hon": they haven't stated a pronoun, unless profile.md says otherwise.
 - **policy_md**: the whole new policy.md, or null if unchanged. Plain language, no formulas: the current situation, guidelines for pacing, timing, content form and tone, and active experiments. Keep it short.
 - **style_md** / **state_md**: the whole new file, or null.
 - **journal_md**: today's journal entry, short and factual, useful for remembering context later.
