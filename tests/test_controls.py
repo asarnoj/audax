@@ -112,4 +112,4 @@ async def test_recent_items_explain_what_happened(setup):
     await outbox.record(cid, "dispatcher@1", "drop", "inget nytt", {})
     text = await c.recent_items("machinarium")
     assert "Machinarium 2 trailer → left out: inget nytt" in text
-    assert "Inget har kommit in" in await c.recent_items("nope")
+    assert "Nothing has come in" in await c.recent_items("nope")
