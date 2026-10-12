@@ -367,6 +367,9 @@ class TelegramBot:
 
     async def on_text(self, update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
         msg = update.message
+        if await self.db.fetchone("SELECT 1 FROM messages WHERE direction = 'in' AND telegram_message_id = ?", (msg.message_id,)):
+            log.info("ignored a re-delivered message (%s) after restart", msg.message_id)
+            return  # Telegram may hand over the same update again after a restart: answer it once
         replied_row = replied_text = None
         if msg.reply_to_message:
             replied_text = msg.reply_to_message.text
