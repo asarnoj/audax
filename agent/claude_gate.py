@@ -285,7 +285,7 @@ class ClaudeGate:
                 r.cost_usd,
                 int(r.is_error),
                 r.error,
-                json.dumps({"status": rl.status, "type": rl.rate_limit_type, "utilization": rl.utilization})
+                json.dumps({"status": rl.status, "type": rl.rate_limit_type, "utilization": rl.utilization, "resets_at": rl.resets_at})
                 if rl
                 else None,
                 json.dumps(r.trace, ensure_ascii=False) if r.trace else None,

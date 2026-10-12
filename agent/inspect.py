@@ -232,11 +232,45 @@ class Inspector:
             out += [f"{kind} [{c.role}, {model}] {stat}", f"    {c.purpose}", f"    prompt: {c.prompt} · verktyg: {c.tools} · när: {c.trigger}"]
         return "\n".join(out)
 
+    async def _quota(self) -> list[str]:
+        """The subscription's windows. Claude Code reports how full a window is only when it is nearly full, and the
+        windows are shared with everything else on the account (Claude Code on the Mac, claude.ai), so Audax's
+        own share is shown in API-equivalent dollars next to the latest readings."""
+        out = ["", "Kvoten (delas med all annan Claude-användning på kontot):"]
+        for window, span in (("five_hour", "-5 hours"), ("seven_day", "-7 days")):
+            mine = await self.db.fetchone("SELECT sum(cost_usd) AS usd, count(*) AS n FROM claude_runs WHERE created_at >= datetime('now', ?)", (span,))
+            last = await self.db.fetchone(
+                "SELECT created_at, rate_limit FROM claude_runs WHERE json_extract(rate_limit, '$.type') = ? "
+                "AND json_extract(rate_limit, '$.utilization') IS NOT NULL ORDER BY id DESC LIMIT 1", (window,),
+            )
+            label = "5-timmarsfönstret" if window == "five_hour" else "veckan"
+            line = f"  {label}: Audax ${mine['usd'] or 0:.2f} ({mine['n']} körningar)"
+            if last:
+                rl = json.loads(last["rate_limit"])
+                line += f"; senast kända nivå {rl['utilization']:.0%} ({self._t(last['created_at'])})"
+            else:
+                line += "; nivån är okänd (Claude Code säger den först nära taket)"
+            out.append(line)
+        warn = await self.db.fetchone(
+            "SELECT created_at, rate_limit FROM claude_runs WHERE json_extract(rate_limit, '$.status') IN ('allowed_warning', 'rejected') ORDER BY id DESC LIMIT 1"
+        )
+        if warn:
+            rl = json.loads(warn["rate_limit"])
+            if rl.get("resets_at") and rl.get("utilization"):
+                start = datetime.fromtimestamp(rl["resets_at"] - 5 * 3600, ZoneInfo("UTC")).strftime("%Y-%m-%d %H:%M:%S")
+                spent = await self.db.fetchone(
+                    "SELECT sum(cost_usd) AS usd FROM claude_runs WHERE created_at >= ? AND created_at <= ?", (start, warn["created_at"])
+                )
+                out.append(f"  Vid senaste varningen ({self._t(warn['created_at'])}, {rl['utilization']:.0%}) hade Audax använt "
+                           f"${spent['usd'] or 0:.2f} av fönstret; resten var annan användning på kontot.")
+        return out
+
     async def usage(self, days: int = 7) -> str:
         """Where the subscription quota goes, and signs of waste. For analysis from the dev machine, not the chat."""
         since = f"-{days} days"
         q = self.db.fetchall
         out = [f"=== Användning, senaste {days} dagarna (kostnad = API-ekvivalent, ett mått på kvotandel) ==="]
+        out += await self._quota()
 
         daily = await q(
             "SELECT date(created_at, 'localtime') AS d, count(*) AS n, sum(cost_usd) AS usd, "
