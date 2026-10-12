@@ -30,6 +30,7 @@ Audax is only as good as the places it watches. For each goal and thread, ask wh
 
 A good system has a wide, cheap net and a smart filter. The filter already exists (prefilter, triage, dispatcher, shelf), so your job is the net:
 - **Breadth:** prefer many feeds and news topics over single pages. They cost almost nothing until something passes the prefilter. Use the source catalogue below or find and check your own. Each goal and thread should have several independent sources.
+- **Broken senses:** a sense that only errors (a careers page that moved, a feed that died) watches nothing. Find the right address with WebSearch, add it (`add_page` or `add_company`), and `disable` the broken one.
 - **Pace** (`tune`): check lively, valuable sources more often, and dead or noisy ones less often, going by the statistics (new items per day, kept/in). A source that never yields anything kept can be switched off (`disable`).
 - **Spread:** if one source dominates what comes in, or a goal has no sources, broaden on purpose.
 - Make few, well-considered changes per run, each with a reason.

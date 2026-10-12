@@ -175,7 +175,7 @@ SCHEMA = {
         },
         "log": {"type": "string", "description": "Swedish. What you changed and why, briefly. Empty if nothing."},
     },
-    "required": ["person_md", "now_md", "goals_md", "log"],
+    "required": ["person_md", "now_md", "goals_md", "pursuit_updates", "lead_decisions", "log"],
 }
 MEMORY_FILES = ("profile.md", "projects.md", "interests.md", "school.md", "schedule.md", "open-questions.md")
 

@@ -169,7 +169,14 @@ class QuotaState:
     # Runs at paused_from or lower priority are refused until paused_until.
     paused_from: Priority | None = None
     paused_until: float = 0.0
+    # The heavy, optional work (search missions, deep sweeps, reflection) can pause on its own, while the cheap
+    # pipeline (triage, dispatcher, page reading) keeps the senses working.
+    heavy_paused_until: float = 0.0
     last_rate_limit: RateLimitInfo | None = None
+
+
+HEAVY_KINDS = {"research", "research_deep", "director_reflect", "scout_queries"}
+WEEK_STOP = 0.9  # mechanical quota guard: above this share of the weekly window, all background work waits
 
 
 def _short(value: Any, limit: int = 160) -> str:
@@ -238,8 +245,15 @@ class ClaudeGate:
             # Out of quota: only chat may still try (the user then sees the error).
             self._pause(Priority.URGENT, resets_at)
         elif info.status == "allowed_warning":
-            # Claude Code itself warns that the window is running low: leave the rest to the user.
-            self._pause(Priority.RESEARCH, resets_at)
+            weekly = (info.rate_limit_type or "").startswith("seven_day")
+            if weekly and (info.utilization or 0) < WEEK_STOP:
+                # The weekly window is filling but has room, and it is shared with the owner's own Claude use:
+                # hold the heavy optional work until it resets, keep the cheap pipeline (senses, triage) running.
+                self.quota.heavy_paused_until = max(self.quota.heavy_paused_until, resets_at)
+                log.warning("weekly window at %s: heavy work waits until %s", info.utilization, time.ctime(resets_at))
+            else:
+                # The 5-hour window is nearly full (or the week is): leave the rest to the owner.
+                self._pause(Priority.RESEARCH, resets_at)
         log.info("rate limit: %s %s util=%s", info.status, info.rate_limit_type, info.utilization)
 
     def _pause(self, from_priority: Priority, until: float) -> None:
@@ -255,6 +269,8 @@ class ClaudeGate:
     async def run(self, task: ClaudeTask) -> RunResult:
         if (until := self.paused_until(task.priority)) is not None:
             raise QuotaPaused(until)
+        if task.kind in HEAVY_KINDS and time.time() < self.quota.heavy_paused_until:
+            raise QuotaPaused(self.quota.heavy_paused_until)
 
         async with self._slot(task.priority):
             # The pause may have started while we were waiting for the slot.

@@ -86,14 +86,18 @@ async def add_company(name: str, careers_url: str) -> str:
     if any(c.get("name", "").lower() == name.lower() for c in data.get("companies", [])):
         return f"{name} bevakas redan."
     entry = {"name": name, "careers_url": careers_url}
+    reachable = False
     try:
         from agent.sources import connectors
 
         async with public_client(timeout=20, follow_redirects=True, headers={"User-Agent": USER_AGENT}) as client:
             if found := await connectors.detect_ats(careers_url, client):
                 entry["ats"], entry["slug"] = found
+            reachable = (await client.get(careers_url)).status_code < 400
     except Exception as e:
         log.warning("detect_ats %s: %s", careers_url, e)
+    if "ats" not in entry and not reachable:
+        return f"{name}: karriärsidan {careers_url} svarar inte. Hitta rätt adress (t.ex. med en sökning) och lägg till igen."
     text = WATCHLIST_FILE.read_text().rstrip("\n")
     WATCHLIST_FILE.write_text(text + "\n  - " + json.dumps(entry, ensure_ascii=False) + "\n")
     commit_config(f"agent: bevaka {name}")

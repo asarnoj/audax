@@ -126,6 +126,26 @@ async def test_rate_limit_warning_pauses_background_but_not_chat(db, tmp_path):
     assert (await gate.run(task("urgent", Priority.URGENT))).text == "ok"
 
 
+async def test_weekly_warning_holds_heavy_work_but_keeps_the_senses_running(db, tmp_path):
+    util = [0.78]
+
+    async def runner(t, ws, on_rl):
+        on_rl(RateLimitInfo(status="allowed_warning", resets_at=int(time.time()) + 3600 * 37, rate_limit_type="seven_day", utilization=util[0]))
+        return RunResult(text="ok")
+
+    gate = ClaudeGate(db, tmp_path, runner=runner)
+    await gate.run(task("chat", Priority.CHAT))
+    assert (await gate.run(task("triage", Priority.RESEARCH))).text == "ok"  # the cheap pipeline continues
+    assert (await gate.run(task("page_extract", Priority.BACKGROUND))).text == "ok"
+    for heavy in ("research", "research_deep", "director_reflect"):
+        with pytest.raises(QuotaPaused):
+            await gate.run(task(heavy, Priority.RESEARCH))
+    util[0] = 0.93  # nearly full: everything in the background waits
+    await gate.run(task("chat", Priority.CHAT))
+    with pytest.raises(QuotaPaused):
+        await gate.run(task("triage", Priority.RESEARCH))
+
+
 async def test_expired_pause_is_lifted(db, tmp_path):
     async def runner(t, ws, on_rl):
         on_rl(RateLimitInfo(status="rejected", resets_at=int(time.time()) - 1))
