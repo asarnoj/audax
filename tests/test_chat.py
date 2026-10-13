@@ -250,7 +250,7 @@ async def test_change_watch_stops_a_source_and_tells_the_director(db, monkeypatc
     out = await tools["change_watch"].handler({"source": "hn", "action": "stop", "why": "behöver inte HN"})
     assert "avstängd" in out["content"][0]["text"]
     assert "enabled: false" in sources.read_text()
-    note = (await posts.inbox("director"))[0]
+    note = (await posts.inbox("researcher"))[0]  # watched sources are Researcher's
     assert note["verbatim"] == "behöver inte HN" and "hn-best" in note["body"]
 
     out = await tools["change_watch"].handler({"source": "nope", "action": "stop"})

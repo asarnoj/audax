@@ -5,7 +5,7 @@ Status: granskad 2026-10-11 · hör till [ARCHITECTURE.md](ARCHITECTURE.md)
 ## Vad som kör
 
 **En enda Python-process** (`agent.main`) på Pi:n, som systemd-tjänsten `agent`. Den är motorn och innehåller:
-- **en schemaläggare (APScheduler), som crontab inuti processen**: Manager, Director, dispatcher, sökuppdrag, kalendersynk, hälsovakt, säkerhetskopia och ett livstecken var 5:e minut. Systemets crontab används inte.
+- **en schemaläggare (APScheduler), som crontab inuti processen**: Manager, Director, Researcher (planering och sökuppdrag), schemats tick varje minut, kalendersynk, hälsovakt, säkerhetskopia och ett livstecken var 5:e minut. Systemets crontab används inte.
 - **sinnen** som lätta uppgifter i samma process: pollers (RSS, sidor, API:er, ämnen) och websocket-lyssnare.
 - **Telegram-boten**.
 
@@ -51,7 +51,7 @@ Prenumerationen har ett tak. Det som förbrukar den är främst **hur mycket sam
 ## Säkerhet
 
 - **Bara den publika webben.** Allt som kan följa en adress från en sida, ett mejl eller en modell (web_read, sinnena, kontroll av nya källor) går genom `agent/netguard.py`. Den vägrar Pi:n själv, hemnätverket och tailnet, även efter omdirigeringar.
-- **Mejl och webben blandas aldrig i samma körning.** En körning som har läst mejl kan inte nå nya adresser på webben, så att ett mejl från en främling inte kan få Audax att föra ut privat data i en adress. I chatten gäller det resten av rundan efter att den läst ett mejl. Directors nattliga genomgång läser mejlen men har ingen webbläsning; nya källor den hittar blir förslag som reflektionen (som aldrig ser mejl) kontrollerar och lägger till. Kvar finns en indirekt väg: något från ett mejl kan hamna i en fil (t.ex. Directors bild av dig) som en senare körning med webben läser. Den är smal, men den finns.
+- **Mejl och webben blandas aldrig i samma körning.** En körning som har läst mejl kan inte nå nya adresser på webben, så att ett mejl från en främling inte kan få Audax att föra ut privat data i en adress. I chatten gäller det resten av rundan efter att den läst ett mejl. Directors nattliga genomgång läser mejlen men har ingen webbläsning, och den lägger inte till källor själv: en källa den ser blir en beställning till Researcher, som aldrig läser mejl och kontrollerar adressen. Kvar finns en indirekt väg: något från ett mejl kan hamna i en fil (t.ex. Directors bild av dig) som en senare körning med webben läser. Den är smal, men den finns.
 - **Innehåll från andra är data.** Webbsidor och mejl lämnas till Claude som information, aldrig som instruktioner (lager 0, och märkt i verktygens svar).
 - **Bara läsrätt utåt.** GitHub- och Gmail-nycklarna kan bara läsa; Gmail-nyckeln vägras om den kan mer. Inget verktyg skickar något åt ägaren.
 - **Ändringar av motorn** kräver ägarens knapptryck, och byggläget har ingen åtkomst till hemkatalogen.

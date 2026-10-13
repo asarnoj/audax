@@ -27,34 +27,35 @@ async def db(tmp_path):
 
 
 def gate(db, tmp_path, calls):
-    """Fake Claude: generates numbered queries; research returns one finding per given query."""
-    counter = {"n": 0}
+    """Fake Claude: research returns one finding per given query."""
 
     async def runner(task, ws, on_rl):
         calls.append(task)
-        if task.kind == "scout_queries":
-            n = int(re.search(r"Propose (\d+) new queries", task.prompt).group(1))
-            qs = [{"query": f"q{counter['n'] + i}", "rationale": "r"} for i in range(n)]
-            counter["n"] += n
-            return RunResult(text="", structured={"queries": qs})
         given = [line[2:] for line in task.prompt.splitlines() if line.startswith("- q")]
         return RunResult(text="", structured={"findings": [
             {"title": f"Fynd {q}", "url": f"https://x/{q}", "summary": "s", "why_you": "w", "kind": "opportunity", "query": q} for q in given
-        ]})
+        ], "leads": [], "skipped": []})
 
     return ClaudeGate(db, tmp_path, runner=runner)
 
 
-async def test_generates_when_portfolio_small_and_selects_batch(db, tmp_path):
+async def seed(db, n=12, mission="jobs"):
+    """Queries come from Researcher's planning (agent/research_plan.py); here they are seeded."""
+    for i in range(n):
+        await db.execute("INSERT INTO scout_queries (mission, query, rationale) VALUES (?, ?, 'r')", (mission, f"q{i}"))
+
+
+async def test_selects_a_batch_from_the_portfolio_without_generating(db, tmp_path):
     calls = []
+    await seed(db)
     p = Portfolio(db, gate(db, tmp_path, calls), FakeMemory(), load_settings())
     chosen = await p.select(TASK)
-    assert len(chosen) == BATCH and calls[0].kind == "scout_queries"
-    assert len(await p.stats("jobs")) >= 8
+    assert len(chosen) == BATCH and calls == []  # no separate query generator any more
 
 
 async def test_exploit_good_queries_explore_new_and_retire_dead(db, tmp_path):
     calls = []
+    await seed(db)
     g = gate(db, tmp_path, calls)
     r = Researcher(load_settings(), db, g, FakeMemory())
     await r.run(TASK)
@@ -81,18 +82,27 @@ async def test_exploit_good_queries_explore_new_and_retire_dead(db, tmp_path):
 
 
 async def test_findings_are_attributed_to_their_query(db, tmp_path):
+    await seed(db)
     r = Researcher(load_settings(), db, gate(db, tmp_path, []), FakeMemory())
     assert await r.run(TASK) == BATCH
     stats = await r.portfolio.stats("jobs")
     assert sum(q["found"] for q in stats) == BATCH
 
 
-async def test_deep_sweep_uses_wide_batch_and_is_spaced(db, tmp_path):
+async def test_a_deep_sweep_runs_only_when_researcher_asked_and_is_spaced(db, tmp_path, monkeypatch):
+    from agent import research
     from agent.research import DEEP_BATCH
 
+    monkeypatch.setattr(research, "load_research", lambda: [TASK])
     calls = []
+    await seed(db, 30)
     r = Researcher(load_settings(), db, gate(db, tmp_path, calls), FakeMemory())
+    assert await r.due_deep() is None  # nobody asked
+    await db.kv_set("research.deep_requested.jobs", "2026-10-13T05:45:00+02:00")
+    assert (await r.due_deep()).id == "jobs"
     assert await r.run(TASK, deep=True) == DEEP_BATCH
-    research = [c for c in calls if c.kind == "research_deep"]
-    assert len(research) == 1 and "deep sweep" in research[0].prompt and research[0].max_turns == 120
+    research_calls = [c for c in calls if c.kind == "research_deep"]
+    assert len(research_calls) == 1 and "deep sweep" in research_calls[0].prompt and research_calls[0].max_turns == 120
+    assert await db.kv_get("research.deep_requested.jobs") is None  # done
+    await db.kv_set("research.deep_requested.jobs", "2026-10-13T06:00:00+02:00")
     assert await r.due_deep() is None  # spaced: no second deep sweep right after

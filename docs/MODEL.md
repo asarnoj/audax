@@ -1,6 +1,6 @@
 # Så tänker Audax
 
-Status: beslutad modell, 13 okt 2026 · etapp 1 (grunden) och 2 (schemat) byggda; se "Från i dag till modellen" längst ner
+Status: beslutad modell, 13 okt 2026 · etapp 1 (grunden), 2 (schemat) och 3 (Researcher) byggda; se "Från i dag till modellen" längst ner
 
 Audax är ett litet kontor som arbetar för dig. Fyra roller har var sitt ansvar och var sin anteckningsbok. De pratar med varandra genom en intern postgång, och bara en av dem pratar med dig.
 
@@ -127,11 +127,11 @@ Allt som ska gå att följa upp får ett ID: bokningar, poster, ansökningsspår
 
 ## Från i dag till modellen
 
-1. Researcher bryts ut ur Director. Kartor, ledtrådar, täckning, bevakningar och takt flyttar, och djupsvep och nya sökfrågor går upp i planeringen. Uppdragsfilen ägs av Researcher, och Director beställer via post.
-2. Triage blir Directors snabba uppgift och dispatchern Managers.
+1. **Klart (etapp 3):** Researcher är utbruten ur Director. Kartor, ledtrådar, täckning, bevakningar och takt flyttar, och djupsvep och nya sökfrågor går upp i planeringen. Uppdragsfilen ägs av Researcher, och Director beställer via post.
+2. **Klart (etapp 2–3):** triage är Directors snabba uppgift och dispatchern Managers.
 3. **Klart (etapp 1):** postgången ersätter anteckningar och förfrågningar, och `open-questions.md` är borta.
 4. **Klart (etapp 2):** schemat ersätter "vänta på lucka" och rundan var 10:e minut. Fynd och knuffar får en tidpunkt, och påminnelser och löften är bokningar. Kvar: frågor, avstämningar och schemafrågor ställs fortfarande i en ledig stund (kontrolleras var 15:e minut) i stället för att bokas.
-5. **Delvis klart (etapp 1):** arbetsminne för Director och Manager. Kvar: Assistant och Researcher, och Assistants nattpass (samtalssammanfattningen flyttar från Manager).
+5. **Delvis klart (etapp 1 och 3):** arbetsminne för Director, Manager och Researcher. Kvar: Assistant, och Assistants nattpass (samtalssammanfattningen flyttar från Manager).
 6. **Klart (etapp 1):** rättigheterna följer ägarskapet. Assistant har skrivrätt bara till sina egna filer.
 7. Läget: Director äger fakta (`now.md`), Manager äger slutsatsen. Målen flyttar ut ur profilen.
 8. Nattsvepet i ordning, med starttid räknad ur data.

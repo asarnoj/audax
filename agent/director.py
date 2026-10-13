@@ -38,8 +38,6 @@ log = logging.getLogger(__name__)
 
 LAST_KEY = "director.last_{mode}"
 WORKING_MEMORY = "arbetsminne/director.md"
-PROPOSED_KEY = "director.proposed_sources"  # URL sources from a review that read mail, for the reflection to check
-URL_OPS = ("add_page", "add_feed", "add_company")
 LEVEL = {"type": "string", "enum": ["low", "medium", "high"]}
 SCHEMA = {
     "type": "object",
@@ -60,37 +58,6 @@ SCHEMA = {
                 "required": ["slug", "status", "content_md"],
             },
         },
-        "missions": {
-            "type": "array",
-            "items": {
-                "type": "object",
-                "properties": {
-                    "op": {"type": "string", "enum": ["add", "update", "disable"]},
-                    "id": {"type": "string"},
-                    "goal": {"type": ["string", "null"]},
-                    "scope": {"type": ["string", "null"]},
-                    "interval_days": {"type": ["number", "null"]},
-                    "reason": {"type": "string"},
-                },
-                "required": ["op", "id", "reason"],
-            },
-        },
-        "senses": {
-            "type": "array",
-            "items": {
-                "type": "object",
-                "properties": {
-                    "op": {"type": "string", "enum": ["add_page", "add_feed", "add_company", "add_topic", "tune", "disable"]},
-                    "name": {"type": "string", "description": "Id of the page/feed, company name, or the topic's name"},
-                    "url": {"type": "string", "description": "URL of the page/feed or the company's careers page; add_topic: the search query; tune/disable: empty"},
-                    "poll_minutes": {"type": ["number", "null"], "description": "tune: how often the sense is checked"},
-                    "note": {"type": ["string", "null"], "description": "Swedish. What is worth something from this source (triage follows it)"},
-                    "kind": {"type": ["string", "null"]},
-                    "reason": {"type": "string"},
-                },
-                "required": ["op", "name", "reason"],
-            },
-        },
         "questions": {
             "type": "array",
             "description": "At most one, in Swedish",
@@ -105,6 +72,7 @@ SCHEMA = {
                     "to": {"type": "string", "enum": ["manager", "researcher"]},
                     "kind": {"type": "string", "enum": ["note", "order", "feedback"]},
                     "body": {"type": "string", "description": "Swedish"},
+                    "urgent": {"type": "boolean", "description": "Start the recipient now; only works when the owner's words started this"},
                 },
                 "required": ["to", "kind", "body"],
             },
@@ -125,51 +93,6 @@ SCHEMA = {
                     "expires": {"type": ["string", "null"], "description": "YYYY-MM-DD if the idea has a best-before date"},
                 },
                 "required": ["title", "brief", "why", "time_sensitivity"],
-            },
-        },
-        "search_maps": {
-            "type": "array",
-            "description": "Only maps that changed: the whole new map of a mission's search space",
-            "items": {
-                "type": "object",
-                "properties": {"mission": {"type": "string"}, "content_md": {"type": "string", "description": "Swedish"}},
-                "required": ["mission", "content_md"],
-            },
-        },
-        "lead_decisions": {
-            "type": "array",
-            "description": "Leads you have judged: add (and add the source with `senses`) or reject",
-            "items": {
-                "type": "object",
-                "properties": {"id": {"type": "integer"}, "decision": {"type": "string", "enum": ["add", "reject"]}, "reason": {"type": "string"}},
-                "required": ["id", "decision", "reason"],
-            },
-        },
-        "coverage_audit": {
-            "type": "array",
-            "description": "Reflection: for a mission, an independent benchmark of who typically offers what it looks for",
-            "items": {
-                "type": "object",
-                "properties": {
-                    "mission": {"type": "string"},
-                    "benchmark": {"type": "array", "items": {"type": "string"}, "description": "Organisation or source names, 20-50"},
-                    "note": {"type": "string", "description": "Swedish: how the benchmark was built"},
-                },
-                "required": ["mission", "benchmark", "note"],
-            },
-        },
-        "owner_updates": {
-            "type": "array",
-            "description": "Rarely: something about the search {owner} should know. The chat tells them, at a good moment.",
-            "items": {
-                "type": "object",
-                "properties": {
-                    "kind": {"type": "string", "enum": ["difficulty", "success", "discovery"]},
-                    "mission": {"type": ["string", "null"]},
-                    "title": {"type": "string"},
-                    "brief": {"type": "string", "description": "Swedish: what {owner} should know, and what it means for them"},
-                },
-                "required": ["kind", "title", "brief"],
             },
         },
         "pursuit_updates": {
@@ -193,7 +116,7 @@ SCHEMA = {
         },
         "log": {"type": "string", "description": "Swedish. What you changed and why, briefly. Empty if nothing."},
     },
-    "required": ["person_md", "now_md", "goals_md", "pursuit_updates", "lead_decisions", "working_memory_md", "log"],
+    "required": ["person_md", "now_md", "goals_md", "pursuit_updates", "working_memory_md", "log"],
 }
 MEMORY_FILES = ("profile.md", "projects.md", "interests.md", "school.md", "schedule.md")
 
@@ -208,6 +131,7 @@ class Director:
         self.posts = Posts(db)
         self._lock = asyncio.Lock()  # one Director at a time: its notebook has one writer
         self._seen_posts: list[int] = []
+        self._chain_from_owner = False
         self.tz = ZoneInfo(settings.timezone)
         self.dir = memory.path / "direction"
         self.windows = None  # async () -> str, set when windows (GitHub, notes, ...) exist
@@ -235,6 +159,7 @@ class Director:
 
         inbox = await self.posts.inbox("director")
         self._seen_posts = [p["id"] for p in inbox]
+        self._chain_from_owner = any(p["from_owner"] for p in inbox)
         context = {
             "now": f"{now:%Y-%m-%d %H:%M} ({['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'][now.weekday()]})",
             "working_memory": self.memory.read(WORKING_MEMORY) or "(empty: this is your first run with a working memory)",
@@ -249,14 +174,13 @@ class Director:
             )
             + await self._conversation(since_sql, full=(mode == "understand")),
             "notes": Posts.format(inbox),
-            "missions": await self._missions(),
+            "missions": await self._search_report(),
             "windows": await self._windows(mode),
             "state": self.memory.read("state.md"),
             "pursuits": await Pursuits(self.db, self.settings.timezone).summary() + "\n" + await Pursuits(self.db).stats(),
         }
         if mode == "reflect":
             context["idea_feedback"] = await self._idea_feedback()
-            context["proposed"] = self._proposed_text(await self.db.kv_get(PROPOSED_KEY) or [])
         reflect = mode == "reflect"
         # Isolation: a run that reads mail never reaches new web addresses (so a mail can't make it leak data in a
         # URL). With mail connected, the daily review reads mail and has no web_read; the reflection has the web and
@@ -294,8 +218,6 @@ class Director:
             log.warning("director %s failed: %s", mode, result.error)
             return None
         await self.apply(result.structured, mode, now)
-        if reflect:
-            await self.db.kv_set(PROPOSED_KEY, None)  # checked (added or let go) by this reflection
         await self.db.kv_set(LAST_KEY.format(mode=mode), now.isoformat())
         return result.structured
 
@@ -315,41 +237,6 @@ class Director:
             (self.dir / "threads" / f"{slug}.md").write_text(text + "\n")
             changes.append(f"tråd {slug} ({t['status']})")
 
-        if missions := out.get("missions"):
-            changes += ops.apply_missions(missions)
-        deferred = []
-        for s in out.get("senses") or []:
-            if mode == "understand" and self.mail is not None and s["op"] in URL_OPS and s.get("url"):
-                deferred.append(s)  # this run read mail: the reflection checks the address and adds it
-                changes.append(f"föreslagen källa {s['name']} <{s['url']}>, kontrolleras i reflektionen")
-                continue
-            if s["op"] == "tune" and s.get("poll_minutes"):
-                changes.append(ops.tune_sense(s["name"], s["poll_minutes"], s["reason"]))
-            elif s["op"] == "disable":
-                changes.append(ops.disable_sense(s["name"], s["reason"]))
-            elif not s.get("url"):
-                continue
-            elif s["op"] == "add_company":
-                changes.append(await ops.add_company(s["name"], s["url"]))
-            elif s["op"] == "add_topic":
-                changes.append(ops.add_topic(s["name"], s["url"], "sv" if any(c in s["url"] for c in "åäö") else "en", s.get("note") or ""))
-            else:
-                changes.append(
-                    ops.add_page(s["name"], s["url"], s.get("note") or "", s.get("kind") or "event", "rss" if s["op"] == "add_feed" else "page")
-                )
-
-        if deferred:
-            await self.db.kv_set(PROPOSED_KEY, ((await self.db.kv_get(PROPOSED_KEY)) or []) + deferred)
-
-        missions = {t.id for t in load_research()}
-        for m in out.get("search_maps") or []:
-            if m["mission"] not in missions:
-                continue  # maps belong to missions (create the mission first)
-            p = search_map.map_path(self.memory.path, m["mission"])
-            p.parent.mkdir(parents=True, exist_ok=True)
-            p.write_text(m["content_md"].strip() + "\n")
-            changes.append(f"sökkarta {m['mission']}")
-        changes += await search_map.decide_leads(self.db, out.get("lead_decisions") or [])
         pursuits = Pursuits(self.db, self.settings.timezone)
         for u in out.get("pursuit_updates") or []:
             try:
@@ -357,25 +244,6 @@ class Director:
                 changes.append(f"{'nytt spår' if created else 'spår'} #{pid}: {u['title']} ({u['status']})")
             except ValueError:
                 continue
-        for a in out.get("coverage_audit") or []:
-            if a["mission"] not in missions:
-                continue
-            changes.append(await search_map.audit(
-                self.db, a["mission"], a["benchmark"], a.get("note", ""), (ops.SOURCES_FILE, ops.WATCHLIST_FILE, ops.RESEARCH_FILE)
-            ))
-        for u in (out.get("owner_updates") or [])[:1]:
-            await add_candidate(
-                self.db,
-                kind="search_update",
-                title=u["title"],
-                body=u["brief"],
-                features={
-                    "relevance": "high", "actionability": "medium" if u["kind"] == "difficulty" else "low",
-                    "time_sensitivity": "low", "novelty": "high", "confidence": "high", "complement": "high",
-                    "reason": f"Director ({mode}), sökningen: {u['kind']}",
-                },
-            )
-            changes.append(f"läge om sökningen till ägaren: {u['title']}")
         for q in (out.get("questions") or [])[:1]:
             await self.posts.send("director", "assistant", "question", q["what"], context=q["why"])
             changes.append(f"fråga: {q['what']}")
@@ -407,7 +275,9 @@ class Director:
 
         for p in out.get("posts") or []:
             if p.get("to") in ROLES and p["to"] != "director":
-                pid = await self.posts.send("director", p["to"], p.get("kind", "note"), p["body"])
+                pid = await self.posts.send(
+                    "director", p["to"], p.get("kind", "note"), p["body"], from_owner=self._chain_from_owner, wake=bool(p.get("urgent")),
+                )
                 changes.append(f"post #P{pid} till {p['to']}")
         if wm := (out.get("working_memory_md") or "").strip():
             path = self.memory.path / WORKING_MEMORY
@@ -434,10 +304,6 @@ class Director:
                 log.warning("mail window failed: %s", e)
                 parts.append(f"Mail: couldn't be read this time ({type(e).__name__}).")
         return "\n\n".join(parts)
-
-    @staticmethod
-    def _proposed_text(items: list[dict]) -> str:
-        return "\n".join(f"- {s['op']} {s['name']} <{s['url']}>: {s.get('reason', '')}" for s in items) or "None."
 
     def _person_empty(self) -> bool:
         p = self.dir / "person.md"
@@ -480,90 +346,18 @@ class Director:
         return "\n".join(lines) or "Nothing."
 
 
-    async def _missions(self) -> str:
-        lines = ["Search missions:"]
+    async def _search_report(self) -> str:
+        """What Director ordered from Researcher, and what each mission delivered: the basis for feedback."""
+        lines = []
         for t in load_research():
-            q = await self.db.fetchall(
-                "SELECT q.query, q.status, q.runs, (SELECT count(*) FROM events e JOIN candidates c ON c.event_id = e.id "
-                "WHERE e.source = 'research:' || q.mission AND json_extract(e.payload, '$.query') = q.query "
-                "AND c.status IN ('sent', 'shelved', 'pulled')) AS kept FROM scout_queries q WHERE q.mission = ?",
-                (t.id,),
-            )
-            best = sorted((x for x in q if x["status"] == "active"), key=lambda x: x["kept"], reverse=True)[:3]
-            lines.append(
-                f"- {t.id} ({'on' if t.enabled else 'off'}, every {t.interval_days:g} days): {t.goal} · scope: {t.scope}"
-                + (" · best queries: " + ", ".join(f"\"{x['query']}\" ({x['kept']}/{x['runs']})" for x in best) if best else "")
-            )
-        rows = await self.db.fetchall(
-            "SELECT e.source, count(*) AS n, sum(c.status = 'sent') AS sent, sum(c.status IN ('shelved', 'pulled')) AS shelf, "
-            "sum(c.status = 'dropped') AS dropped FROM events e LEFT JOIN candidates c ON c.event_id = e.id "
-            "WHERE e.created_at >= datetime('now', '-7 days') AND COALESCE(e.triaged_at, '') != 'baseline' GROUP BY e.source ORDER BY n DESC"
-        )
-        lines.append("Senses, last 7 days (in → sent / shelf / dropped):")
-        lines += [f"- {r['source']}: {r['n']} → {r['sent'] or 0} / {r['shelf'] or 0} / {r['dropped'] or 0}" for r in rows] or ["- none"]
-        lines.append(await self._sense_pace())
-        lines.append(self._catalog())
-        lines.append("\n# Search strategy per mission (maps in direction/search/)")
-        for t in load_research():
-            if t.enabled:
-                lines.append(await search_map.overview(self.db, self.memory.path, t.id))
-        if self.web is not None:
-            lines.append("Reading per domain (method successes/attempts), hardest first:\n" + await self.web.stats())
-        return "\n".join(lines)
-
-    async def _sense_pace(self) -> str:
-        """Per sense: how often it's checked, how often something new turns up, and whether it's worth anything."""
-        from agent.sources.streams import load_stream_configs
-
-        stats = {r["stream"]: r for r in await self.db.fetchall("SELECT * FROM stream_stats")}
-        kept = {
-            r["source"]: (r["n"], r["kept"])
-            for r in await self.db.fetchall(
-                "SELECT e.source, count(*) AS n, sum(c.status IN ('sent', 'shelved', 'pulled')) AS kept FROM events e "
-                "LEFT JOIN candidates c ON c.event_id = e.id WHERE COALESCE(e.triaged_at, '') != 'baseline' "
-                "AND e.created_at >= datetime('now', '-14 days') GROUP BY e.source"
-            )
-        }
-        total = sum(n for n, _ in kept.values()) or 1
-        lines = ["Pace and yield per sense (id · checked every · new per day · kept/in 14 d · share of everything in):"]
-        for c in load_stream_configs():
-            st = stats.get(c.id)
-            days = max((datetime.now(ZoneInfo("UTC")) - datetime.fromisoformat(st["first_poll"] + "+00:00")).total_seconds() / 86400, 0.1) if st else None
-            n, k = kept.get(c.source, (0, 0))
-            lines.append(
-                f"- {c.id} ({c.type}{'' if c.enabled else ', OFF'}) · every {c.poll_minutes:g} min · "
-                + (f"{st['new'] / days:.1f} new/day, {st['errors']} errors" if st else "no statistics yet")
-                + f" · {k or 0}/{n} · {100 * n / total:.0f}%"
-            )
-        top = max(kept.items(), key=lambda x: x[1][0], default=None)
-        if top and top[1][0] / total > 0.4:
-            lines.append(f"Note: {top[0]} accounts for {100 * top[1][0] / total:.0f}% of everything coming in. The intake is one-sided.")
-        return "\n".join(lines)
-
-    def _catalog(self) -> str:
-        """Verified sources not yet in use (config/source_catalog.yaml)."""
-        import yaml
-
-        from agent.config import ROOT
-        from agent.sources.streams import load_stream_configs
-
-        path = ROOT / "config" / "source_catalog.yaml"
-        if not path.exists():
-            return ""
-        cat = yaml.safe_load(path.read_text()) or {}
-        used = {c.url for c in load_stream_configs()} | {str(c.params.get("query")) for c in load_stream_configs()}
-        lines = ["Source catalogue, verified but not in use (add_feed / add_topic / add_page):"]
-        for group, feeds in (cat.get("feeds") or {}).items():
-            free = [f for f in feeds if f["url"] not in used]
-            if free:
-                lines.append(f"- feeds, {group}: " + ", ".join(f"{f['name']} <{f['url']}>" for f in free))
-        free_topics = [t for t in cat.get("topics") or [] if t["query"] not in used]
-        if free_topics:
-            lines.append("- topics: " + ", ".join(f"{t['name']} [{t['query']}, {t['lang']}]" for t in free_topics))
-        free_pages = [p for p in cat.get("pages") or [] if p["url"] not in used]
-        if free_pages:
-            lines.append("- pages: " + ", ".join(f"{p['name']} <{p['url']}>" for p in free_pages))
-        return "\n".join(lines)
+            if not t.enabled:
+                continue
+            lines.append(f"### {t.id}\nGoal: {t.goal}\nScope: {t.scope}")
+            lines.append(await search_map.deliveries(self.db, t.id))
+            cov = await self.db.fetchone("SELECT created_at, recall FROM coverage WHERE mission = ? ORDER BY id DESC LIMIT 1", (t.id,))
+            if cov and cov["recall"] is not None:
+                lines.append(f"Researcher's latest coverage audit ({cov['created_at'][:10]}): {cov['recall']:.0%} of an independent benchmark reached.")
+        return "\n\n".join(lines) or "No missions yet."
 
     async def _idea_feedback(self) -> str:
         rows = await self.db.fetchall(

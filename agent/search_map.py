@@ -3,15 +3,15 @@
 Measuring each query only shows how good the queries are. It can't tell "there is nothing out there" from
 "we are looking in the wrong places". Three things make that visible:
 
-- **The map** (`memory/direction/search/<mission>.md`, written by Director): the segments of the space a mission
+- **The map** (`memory/research/maps/<mission>.md`, written by Researcher): the segments of the space a mission
   searches, where each segment publishes and when, which of Audax's methods cover it, and what is tried next.
 - **Leads**: places and organisations a search came across that Audax doesn't watch yet. They accumulate here,
-  and Director turns the good ones into watched sources, so the net grows over time.
-- **Coverage audits**: Director lists, independently of what Audax already watches, who typically offers what a
+  and Researcher turns the good ones into watched sources, so the net grows over time.
+- **Coverage audits**: Researcher lists, independently of what Audax already watches, who typically offers what a
   mission looks for. Python checks each name against everything Audax watches or has seen, and the share
   covered (recall against the benchmark) shows how much is likely missed, and where.
 
-Python gathers and computes; Director judges and writes the map.
+Python gathers and computes; Researcher judges and writes the map (agent/research_plan.py).
 """
 
 from __future__ import annotations
@@ -26,7 +26,28 @@ from agent.db import Database
 
 
 def map_path(memory_path: Path, mission: str) -> Path:
-    return memory_path / "direction" / "search" / f"{mission}.md"
+    return memory_path / "research" / "maps" / f"{mission}.md"
+
+
+async def deliveries(db: Database, mission: str, days: int = 14) -> str:
+    """What a mission delivered and what became of it: the feedback loop between Researcher and Director."""
+    rows = await db.fetchall(
+        "SELECT c.id, c.title, c.status, json_extract(c.features, '$.reason') AS why, "
+        "(SELECT group_concat(f.value, ' ') FROM feedback f WHERE f.candidate_id = c.id AND f.signal IN ('reaction', 'reply', 'text', 'shelf_pull')) AS owner "
+        "FROM events e JOIN candidates c ON c.event_id = e.id WHERE e.source = ? AND e.created_at >= datetime('now', ?) ORDER BY c.id DESC",
+        (f"research:{mission}", f"-{days} days"),
+    )
+    if not rows:
+        return f"Delivered, last {days} days: nothing."
+    counts: dict[str, int] = {}
+    for r in rows:
+        counts[r["status"]] = counts.get(r["status"], 0) + 1
+    kept = [r for r in rows if r["status"] in ("sent", "scheduled", "shelved", "pulled", "pending")][:6]
+    dropped = [r for r in rows if r["status"] == "dropped"][:4]
+    lines = [f"Delivered, last {days} days: {len(rows)} findings ({', '.join(f'{k} {v}' for k, v in counts.items())})."]
+    lines += [f"- kept #F{r['id']} {r['title'][:80]} ({r['status']})" + (f" · the owner: {r['owner']}" if r["owner"] else "") for r in kept]
+    lines += [f"- dropped {r['title'][:70]}: {(r['why'] or '')[:100]}" for r in dropped]
+    return "\n".join(lines)
 
 
 def lead_key(name: str, url: str | None) -> str:

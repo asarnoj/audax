@@ -175,7 +175,7 @@ class QuotaState:
     last_rate_limit: RateLimitInfo | None = None
 
 
-HEAVY_KINDS = {"research", "research_deep", "director_reflect", "scout_queries"}
+HEAVY_KINDS = {"research", "research_deep", "director_reflect", "researcher_plan"}
 WEEK_STOP = 0.9  # mechanical quota guard: above this share of the weekly window, all background work waits
 
 

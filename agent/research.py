@@ -69,33 +69,15 @@ FINDINGS_SCHEMA = {
 }
 
 
-QUERIES_SCHEMA = {
-    "type": "object",
-    "properties": {
-        "queries": {
-            "type": "array",
-            "items": {
-                "type": "object",
-                "properties": {"query": {"type": "string"}, "rationale": {"type": "string"}},
-                "required": ["query", "rationale"],
-            },
-        }
-    },
-    "required": ["queries"],
-}
-
 # Portfolio mechanics (docs/SENSES.md, layer 3). These are search mechanics, not attention policy.
 BATCH = 6  # queries per run
 EXPLORE = 2  # of which untested
 DEEP_BATCH = 20  # weekly deep sweep: wide, like a deep-research run
-DEEP_EVERY = timedelta(days=7)
 DEEP_SPACING = timedelta(hours=3)  # never two deep sweeps close together (quota)
 DEEP_NOTE = (
     "\nThis is the weekly deep sweep: run every query, follow leads, read 20-40 pages if useful, and look into adjacent "
     "angles and new kinds of sources. Wider coverage, the same bar for quality.\n"
 )
-MIN_ACTIVE = 10  # generate more below this
-GENERATE = 8
 RETIRE_AFTER_RUNS = 3  # without a single kept finding
 
 KEPT = ("sent", "shelved", "pulled")
@@ -141,7 +123,8 @@ def normalize_url(url: str) -> str:
 
 
 class Portfolio:
-    """The query portfolio of one mission: generate, select (explore/exploit), retire."""
+    """The query portfolio of one mission: select (explore/exploit) and retire. New queries come from Researcher's
+    planning (agent/research_plan.py), aimed at the gaps in the mission's map."""
 
     def __init__(self, db: Database, gate: ClaudeGate, memory: MemoryRepo, settings: Settings):
         self.db = db
@@ -156,7 +139,7 @@ class Portfolio:
             "(SELECT count(*) FROM events e WHERE e.source = 'research:' || q.mission "
             "   AND json_extract(e.payload, '$.query') = q.query) AS found, "
             "(SELECT count(*) FROM events e JOIN candidates c ON c.event_id = e.id WHERE e.source = 'research:' || q.mission "
-            "   AND json_extract(e.payload, '$.query') = q.query AND c.status IN ('sent', 'shelved', 'pulled')) AS kept "
+            "   AND json_extract(e.payload, '$.query') = q.query AND c.status IN ('sent', 'shelved', 'pulled', 'scheduled')) AS kept "
             "FROM scout_queries q WHERE q.mission = ? ORDER BY q.id",
             (mission,),
         )
@@ -164,10 +147,7 @@ class Portfolio:
 
     async def select(self, task: ResearchTask, batch: int = BATCH) -> list[str]:
         await self._retire(task.id)
-        active = [q for q in await self.stats(task.id) if q["status"] == "active"]
-        if len(active) < max(MIN_ACTIVE, batch):
-            await self._generate(task, max(GENERATE, batch - len(active)))
-            active = [q for q in await self.stats(task.id) if q["status"] == "active"]
+        active = [q for q in await self.stats(task.id) if q["status"] == "active"]  # a thin portfolio makes planning due
         untested = [q for q in active if q["runs"] == 0]
         tested = sorted((q for q in active if q["runs"] > 0), key=lambda q: (q["kept"] + 1) / (q["runs"] + 2), reverse=True)
         explore = untested[: max(EXPLORE, batch // 3)]
@@ -187,40 +167,6 @@ class Portfolio:
         for q in await self.stats(mission):
             if q["status"] == "active" and q["runs"] >= RETIRE_AFTER_RUNS and q["kept"] == 0:
                 await self.db.execute("UPDATE scout_queries SET status = 'retired' WHERE id = ?", (q["id"],))
-
-    async def _generate(self, task: ResearchTask, n: int = GENERATE) -> None:
-        stats = await self.stats(task.id)
-        good = sorted((q for q in stats if q["kept"] > 0), key=lambda q: q["kept"], reverse=True)[:10]
-        prompt = prompt_template("scout_queries").format(
-            id=task.id,
-            goal=task.goal,
-            scope=task.scope,
-            today=datetime.now(ZoneInfo(self.settings.timezone)).date().isoformat(),
-            memory=self.memory.read("direction/goals.md", "profile.md", "interests.md", "projects.md"),
-            good="\n".join(f"- {q['query']} → {q['kept']}" for q in good) or "(no history yet)",
-            existing="\n".join(f"- {q['query']}" for q in stats) or "(none)",
-            gaps=await search_map.gaps(self.memory.path, task.id) or "(no map yet)",
-            n=n,
-        )
-        r = await self.gate.run(
-            ClaudeTask(
-                kind="scout_queries",
-                prompt=prompt,
-                priority=Priority.RESEARCH,
-                model=self.settings.models.research,
-                output_schema=QUERIES_SCHEMA,
-                max_turns=2,
-            )
-        )
-        if r.is_error or not isinstance(r.structured, dict):
-            log.warning("query generation for %s failed: %s", task.id, r.error)
-            return
-        for q in r.structured.get("queries", []):
-            await self.db.execute(
-                "INSERT OR IGNORE INTO scout_queries (mission, query, rationale) VALUES (?, ?, ?)",
-                (task.id, q["query"].strip(), q.get("rationale", "")),
-            )
-        log.info("scout %s: generated %d queries", task.id, len(r.structured.get("queries", [])))
 
 
 class Researcher:
@@ -245,16 +191,16 @@ class Researcher:
         return out
 
     async def due_deep(self) -> ResearchTask | None:
-        """The mission most overdue for its weekly deep sweep, if any is due and none ran recently."""
+        """A mission Researcher's planning asked to sweep widely, if none ran recently (Researcher decides when)."""
         now = datetime.now(self.tz)
         last_any = await self.db.kv_get("research.last_deep_any")
         if last_any and now - datetime.fromisoformat(last_any) < DEEP_SPACING:
             return None
         due = []
         for t in load_research():
-            last = await self.db.kv_get(f"research.last_deep.{t.id}")
-            if t.enabled and (last is None or now - datetime.fromisoformat(last) >= DEEP_EVERY):
-                due.append((last or "", t))
+            requested = await self.db.kv_get(f"research.deep_requested.{t.id}")
+            if t.enabled and requested:
+                due.append((requested, t))
         return min(due, key=lambda x: x[0])[1] if due else None
 
     async def run(self, task: ResearchTask, deep: bool = False) -> int:
@@ -275,6 +221,7 @@ class Researcher:
             now = datetime.now(self.tz).isoformat()
             await self.db.kv_set(f"research.last_deep.{task.id}", now)
             await self.db.kv_set("research.last_deep_any", now)
+            await self.db.kv_set(f"research.deep_requested.{task.id}", None)
         prompt = prompt_template("research").format(
             depth=DEEP_NOTE if deep else "",
             queries="\n".join(f"- {q}" for q in queries) or "(none; search freely)",

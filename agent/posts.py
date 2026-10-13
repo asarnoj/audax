@@ -56,7 +56,7 @@ class Posts:
     async def inbox(self, role: str) -> list[dict]:
         rows = await self.db.fetchall(
             "SELECT p.*, q.body AS question FROM posts p LEFT JOIN posts q ON q.id = p.answer_to "
-            "WHERE p.recipient = ? AND p.status = 'new' AND p.kind != 'question' ORDER BY p.id", (role,),
+            "WHERE p.recipient = ? AND p.status = 'new' AND NOT (p.kind = 'question' AND p.recipient = 'assistant') ORDER BY p.id", (role,),
         )
         return [dict(r) for r in rows]
 
@@ -85,12 +85,11 @@ class Posts:
 
     async def open_question(self) -> dict | None:
         """The oldest question waiting to be asked, unless one is already waiting for an answer."""
-        if await self.db.fetchone("SELECT 1 FROM posts WHERE kind = 'question' AND status = 'asked' AND asked_at >= datetime('now', '-2 days')"):
+        mine = "kind = 'question' AND recipient = 'assistant'"
+        if await self.db.fetchone(f"SELECT 1 FROM posts WHERE {mine} AND status = 'asked' AND asked_at >= datetime('now', '-2 days')"):
             return None
-        await self.db.execute(
-            "UPDATE posts SET status = 'expired' WHERE kind = 'question' AND status = 'asked' AND asked_at < datetime('now', '-2 days')"
-        )
-        row = await self.db.fetchone("SELECT * FROM posts WHERE kind = 'question' AND status = 'new' ORDER BY id LIMIT 1")
+        await self.db.execute(f"UPDATE posts SET status = 'expired' WHERE {mine} AND status = 'asked' AND asked_at < datetime('now', '-2 days')")
+        row = await self.db.fetchone(f"SELECT * FROM posts WHERE {mine} AND status = 'new' ORDER BY id LIMIT 1")
         return dict(row) if row else None
 
     async def asked(self, post_id: int, message_id: int | None = None) -> None:

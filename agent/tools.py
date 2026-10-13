@@ -575,7 +575,7 @@ def _post_tools(posts: Posts, turn: TurnContext | None = None) -> list:
             kind = "rss" if args["type"] == "feed" else "page"
             result = ops.add_page(args["name"], args["url"], args.get("note", ""), "event", kind)
             result += " " + await ops.verify_source(kind, args["url"])
-        await posts.send("assistant", "director", "note", f"Ägaren lade till en {args['type']}-bevakning: {result}",
+        await posts.send("assistant", "researcher", "note", f"Ägaren lade till en {args['type']}-bevakning: {result}",
                          verbatim=f"[bad om bevakning] {args['name']}: {args['url']}", from_owner=True)
         return _text(result)
 
@@ -608,7 +608,7 @@ def _post_tools(posts: Posts, turn: TurnContext | None = None) -> list:
             result = ops.tune_sense(sid, args["minutes"], args.get("why", ""))
         else:
             return _text("[internal] Give the number of minutes between checks.")
-        await posts.send("assistant", "director", "note", f"Ägaren ändrade bevakningen {sid}: {result}",
+        await posts.send("assistant", "researcher", "note", f"Ägaren ändrade bevakningen {sid}: {result}",
                          verbatim=args.get("why") or f"[bad om ändring] {sid}: {args['action']}", from_owner=True)
         return _text(result.replace("avstängt", "avstängd, inget mer därifrån").replace(": var", " kollas nu var"))
 

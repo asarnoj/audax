@@ -44,12 +44,12 @@ Allt hamnar som händelser i samma pipeline som tidigare (förfilter → triage 
 
 Att mäta varje sökfråga visar hur bra frågorna är, men inte hur mycket av det som finns Audax når. "Inga fynd" kan betyda att det inte finns något, eller att Audax letar på fel ställen, vid fel tidpunkt eller för snävt. Ägaren kan inte se skillnaden, så systemet måste kunna det ([agent/search_map.py](../agent/search_map.py)).
 
-- **En karta per sökuppdrag** (`memory/direction/search/<uppdrag>.md`, skriven av Director): områdets segment (för sommarpraktik t.ex. storbolagens program, scaleups, startups, offentlig sektor, forskning, konsultbolag), var varje segment annonserar och när, vilka metoder som täcker det och vad de har gett. Kartan slutar med "Luckor och nästa steg", och sökningarna och frågegeneratorn riktar sitt utforskande dit.
-- **Ledtrådar bygger nätet över tid.** Varje sökning lämnar, utöver fynd, ledtrådar: företag, aggregatorer, listor, program, communities och eventkalendrar den stötte på. De samlas med antal gånger de setts, och Director lägger till de bra som bevakningar.
-- **Utforska metoder, inte bara ord.** Är ett segment tunt byter Director sorts metod (bevaka företagen själva, hitta aggregatorn, följa en karriärsida, tajma efter när ansökan öppnar), inte bara sökord.
-- **Täckningsrevision** i reflektionen: Director tar fram ett oberoende riktmärke, 20–50 aktörer som brukar erbjuda det uppdraget letar efter, utan att först titta på vad Audax bevakar. Systemet kollar varje namn mot allt Audax bevakar eller har sett. Andelen som täcks är en uppskattning av hur mycket som nås, och de som saknas är luckorna.
-- **Uppdrag som tystnar** granskas: fel ställen, fel tid på året eller för snävt? Hänger det på hur ägaren ser det frågar Director.
-- **Insyn:** ägaren kan fråga hur Audax letar (`search_overview`). Director berättar själv, sällan och via chatten, när en sökning har svårigheter, går påtagligt bra eller upptäcker något ägaren borde veta.
+- **En karta per sökuppdrag** (`memory/research/maps/<uppdrag>.md`, skriven av Researcher): områdets segment (för sommarpraktik t.ex. storbolagens program, scaleups, startups, offentlig sektor, forskning, konsultbolag), var varje segment annonserar och när, vilka metoder som täcker det och vad de har gett. Kartan slutar med "Luckor och nästa steg", och sökningarna och Researchers nya sökfrågor riktas dit.
+- **Ledtrådar bygger nätet över tid.** Varje sökning lämnar, utöver fynd, ledtrådar: företag, aggregatorer, listor, program, communities och eventkalendrar den stötte på. De samlas med antal gånger de setts, och Researcher lägger till de bra som bevakningar.
+- **Utforska metoder, inte bara ord.** Är ett segment tunt byter Researcher sorts metod (bevaka företagen själva, hitta aggregatorn, följa en karriärsida, tajma efter när ansökan öppnar), inte bara sökord.
+- **Täckningsrevision** i Researchers planering: Researcher tar fram ett oberoende riktmärke, 20–50 aktörer som brukar erbjuda det uppdraget letar efter, utan att först titta på vad Audax bevakar. Systemet kollar varje namn mot allt Audax bevakar eller har sett. Andelen som täcks är en uppskattning av hur mycket som nås, och de som saknas är luckorna.
+- **Uppdrag som tystnar** granskas: fel ställen, fel tid på året eller för snävt? Hänger det på hur ägaren ser det frågar Researcher Director, som avgör eller frågar ägaren.
+- **Insyn:** ägaren kan fråga hur Audax letar (`search_overview`). Researcher berättar själv, sällan och via chatten, när en sökning har svårigheter, går påtagligt bra eller upptäcker något ägaren borde veta.
 
 ## Kostnad och kvot
 
