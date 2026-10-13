@@ -59,7 +59,7 @@ class Outbox:
     async def expire(self) -> None:
         await self.db.execute(
             "UPDATE candidates SET status = 'expired', updated_at = datetime('now') "
-            "WHERE status IN ('pending', 'shelved') AND expires_at IS NOT NULL AND expires_at < ?",
+            "WHERE status IN ('pending', 'scheduled', 'shelved') AND expires_at IS NOT NULL AND expires_at < ?",
             (utc_iso(self.schedule.now()),),
         )
 
@@ -82,7 +82,7 @@ class Outbox:
         claimed = []
         for r in rows:
             if await self.db.execute_count(
-                "UPDATE candidates SET status = 'sending', updated_at = datetime('now') WHERE id = ? AND status = 'pending'", (r["id"],)
+                "UPDATE candidates SET status = 'sending', updated_at = datetime('now') WHERE id = ? AND status IN ('pending', 'scheduled')", (r["id"],)
             ):
                 claimed.append(r)
         if len(claimed) < len(rows):
@@ -142,6 +142,7 @@ class Outbox:
             "UPDATE candidates SET status = 'sent' WHERE status = 'sending' AND id IN (SELECT candidate_id FROM message_candidates)"
         )
         n = await self.db.execute_count("UPDATE candidates SET status = 'pending' WHERE status = 'sending'")
+        await self.db.execute("UPDATE bookings SET status = 'planned' WHERE status = 'sending' AND message_id IS NULL")
         if n:
             log.info("outbox: %d interrupted delivery(ies) back to pending", n)
 

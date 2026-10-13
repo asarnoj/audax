@@ -149,3 +149,32 @@ async def test_small_chat_session_is_kept(env, tmp_path):
     await db.execute("INSERT INTO claude_runs (kind, is_error, context_tokens) VALUES ('chat', 0, 30000)")
     await manager(db, memory, tmp_path).apply(BASE, NOW)
     assert await db.kv_get("chat.session_id") == "small"
+
+
+async def test_manager_owns_the_schedule_but_not_the_owners_bookings(env, tmp_path):
+    from agent.agenda import Agenda
+    from agent.config import load_settings
+    from agent.schedule import Schedule
+
+    db, memory, _ = env
+
+    class Clock(Schedule):
+        def now(self):
+            return NOW
+
+        async def slots(self, start, end, include_not_mine=False):
+            return []
+
+    agenda = Agenda(db, Clock(load_settings(), db, []))
+    planned = await db.execute("INSERT INTO candidates (kind, title, body, status, deliver_at) VALUES ('event', 'Hack', 'b', 'scheduled', '2026-10-12T10:00:00+00:00')")
+    own, _ = await agenda.book("reminder", "Google", "Sök Google", NOW.replace(day=12, hour=9), "assistant", fixed=True)
+    m = manager(db, memory, tmp_path)
+    m.agenda = agenda
+    changes = []
+    await m.apply({**BASE, "agenda_changes": [
+        {"id": f"#F{planned}", "action": "move", "at": "2026-10-13 09:00", "reason": "för tätt i dag"},
+        {"id": f"#B{own}", "action": "cancel", "reason": "onödig"},
+    ]}, NOW)
+    assert (await db.fetchone("SELECT deliver_at FROM candidates WHERE id = ?", (planned,)))["deliver_at"].startswith("2026-10-13T07:00")
+    assert (await db.fetchone("SELECT status FROM bookings WHERE id = ?", (own,)))["status"] == "planned"  # the owner's own: fixed
+    assert "bara ägaren kan stryka" in (memory.path / "changelog.md").read_text()

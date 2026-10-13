@@ -98,6 +98,20 @@ SCHEMA = {
                 "required": ["to", "kind", "body"],
             },
         },
+        "agenda_changes": {
+            "type": "array",
+            "description": "Move or cancel planned contact (#F planned deliveries, #B bookings). The owner's own bookings are fixed.",
+            "items": {
+                "type": "object",
+                "properties": {
+                    "id": {"type": "string", "description": "#F210 or #B12"},
+                    "action": {"type": "string", "enum": ["move", "cancel"]},
+                    "at": {"type": ["string", "null"], "description": "move: local time, YYYY-MM-DD HH:MM"},
+                    "reason": {"type": "string", "description": "Swedish"},
+                },
+                "required": ["id", "action", "reason"],
+            },
+        },
         "working_memory_md": {"type": "string", "description": "Swedish. Your whole new working memory (see the prompt)"},
         "journal_md": {"type": "string", "description": "Swedish. Today's journal entry"},
         "changelog": {"type": "string", "description": "Swedish. What you changed and why; empty string if nothing"},
@@ -120,6 +134,7 @@ class Manager:
         self.memory = memory
         self.tz = ZoneInfo(settings.timezone)
         self.posts = Posts(db)
+        self.agenda = None  # set by main: the schedule Manager owns (agent/agenda.py)
         self._lock = asyncio.Lock()  # one Manager at a time: its notebook has one writer
         self._seen_posts: list[int] = []
 
@@ -145,6 +160,7 @@ class Manager:
             since=f"{since:%Y-%m-%d %H:%M}",
             working_memory=self.memory.read(WORKING_MEMORY) or "(empty: this is your first run with a working memory)",
             situation=self.memory.read("direction/now.md") or "(Director has no picture yet)",
+            planned=await self.agenda.upcoming(7) if self.agenda else "(no schedule)",
             policy=self.memory.read("policy.md"),
             experiments=await self._experiments(),
             activity=await self._activity(since_sql),
@@ -205,6 +221,17 @@ class Manager:
             if p.get("to") in ROLES and p["to"] != "manager":
                 pid = await self.posts.send("manager", p["to"], p.get("kind", "note"), p["body"])
                 changes.append(f"post #P{pid} till {p['to']}")
+        for c in out.get("agenda_changes") or []:
+            if self.agenda is None:
+                break
+            ref = "#" + str(c["id"]).strip().lstrip("#").upper()
+            if c["action"] == "cancel" and ref.startswith("#B"):
+                changes.append(await self.agenda.cancel(int(ref[2:]), "manager", c.get("reason", "")))
+            elif c["action"] == "cancel" and ref.startswith("#F"):
+                await self.db.execute("UPDATE candidates SET status = 'shelved', tier = 'shelf' WHERE id = ? AND status = 'scheduled'", (int(ref[2:]),))
+                changes.append(f"{ref} sparad till senare i stället: {c.get('reason', '')}")
+            elif c["action"] == "move" and (at := self.agenda.parse(c.get("at") or "")):
+                changes.append(await self.agenda.move(ref, at, "manager", c.get("reason", "")))
         if wm := (out.get("working_memory_md") or "").strip():
             path = self.memory.path / WORKING_MEMORY
             path.parent.mkdir(parents=True, exist_ok=True)

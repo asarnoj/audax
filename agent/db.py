@@ -406,6 +406,28 @@ MIGRATIONS: list[str] = [
         PRIMARY KEY (message_id, ref)
     );
     """,
+    # 19: the schedule (docs/MODEL.md, "Schemat"): findings get a delivery time instead of waiting in a queue that
+    # is re-sorted every ten minutes, and reminders and promises are bookings with a time.
+    """
+    ALTER TABLE candidates ADD COLUMN deliver_at TEXT;
+    CREATE TABLE bookings (
+        id INTEGER PRIMARY KEY,
+        created_at TEXT NOT NULL DEFAULT (datetime('now')),
+        kind TEXT NOT NULL,              -- reminder (the owner asked) | promise (the Assistant said it would)
+        title TEXT NOT NULL,
+        body TEXT NOT NULL,              -- what to say, as a brief for the Assistant
+        due_at TEXT NOT NULL,            -- UTC ISO
+        latest_at TEXT,                  -- a promise may move, but not past this
+        fixed INTEGER NOT NULL DEFAULT 0,-- the owner's own booking: only the owner moves it
+        requested_by TEXT NOT NULL,
+        ref TEXT,                        -- what it is about, e.g. #S3
+        status TEXT NOT NULL DEFAULT 'planned',  -- planned|sent|cancelled
+        reason TEXT,
+        message_id INTEGER REFERENCES messages(id),
+        sent_at TEXT
+    );
+    CREATE INDEX bookings_due ON bookings(status, due_at);
+    """,
 ]
 
 

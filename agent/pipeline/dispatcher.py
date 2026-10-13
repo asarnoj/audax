@@ -1,6 +1,9 @@
-"""Dispatcher: decides whether, when and how outbox candidates reach användaren (docs/ATTENTION.md §4.4).
+"""Dispatcher: Manager's fast task (docs/MODEL.md). When should each new finding reach the owner?
 
-Hard rules in code: quiet hours, silence and focus modes, no duplicates. Everything else is judgment against policy.md.
+It gives every new finding a delivery time (now, or a planned moment), or saves it for later, or lets it go, under
+Manager's policy. Planned deliveries go into the schedule (agent/agenda.py); `tick()` runs every minute in Python and
+delivers what is due after a last check (quiet hours, a pause, the owner busy in a session), so no Claude run is spent
+waiting. It only thinks again when something new arrives or the situation changes.
 """
 
 from __future__ import annotations
@@ -10,20 +13,21 @@ import json
 import logging
 from datetime import datetime, timedelta
 
+from agent.agenda import FOCUS_KEY, SILENCE_KEY, Agenda
 from agent.claude_gate import ClaudeGate, ClaudeTask, Priority, QuotaPaused
 from agent.config import Settings
 from agent.db import Database
 from agent.memory import MemoryRepo
 from agent.prompts import prompt as prompt_template
-from agent.pipeline.outbox import FallbackDispatcher, Outbox, SendPoll
-from agent.schedule import Schedule
+from agent.pipeline.outbox import AlreadySaid, FallbackDispatcher, Outbox, SendPoll
+from agent.schedule import Schedule, utc_iso
 
 log = logging.getLogger(__name__)
 
-MODULE = "dispatcher@1"
-TIERS = ["interrupt", "next_gap", "bundle", "shelf", "drop"]
-# Re-ask about an unchanged outbox at most this often (mechanics, not policy: saves quota).
-RECONSIDER_AFTER = timedelta(hours=2)
+MODULE = "dispatcher@2"
+DECISIONS = ["now", "at", "shelf", "drop"]
+RETRY_UNDECIDED = timedelta(minutes=10)  # mechanics: a finding nobody could decide on (quota, error) is retried
+ASK_EVERY = timedelta(minutes=15)  # mechanics: how often an idle moment is checked for an open question
 
 SCHEMA = {
     "type": "object",
@@ -34,11 +38,11 @@ SCHEMA = {
                 "type": "object",
                 "properties": {
                     "candidate_id": {"type": "integer"},
-                    "tier": {"type": "string", "enum": TIERS},
-                    "send_now": {"type": "boolean"},
+                    "decision": {"type": "string", "enum": DECISIONS},
+                    "at": {"type": ["string", "null"], "description": "For 'at': local time, YYYY-MM-DD HH:MM"},
                     "reason": {"type": "string", "description": "Swedish, shown to the owner if they ask why"},
                 },
-                "required": ["candidate_id", "tier", "send_now", "reason"],
+                "required": ["candidate_id", "decision", "reason"],
             },
         },
     },
@@ -46,8 +50,6 @@ SCHEMA = {
 }
 
 WEEKDAYS = ["mån", "tis", "ons", "tor", "fre", "lör", "sön"]
-SILENCE_KEY = "dispatch.silence_until"
-FOCUS_KEY = "dispatch.focus_until"
 
 
 class Dispatcher:
@@ -66,18 +68,19 @@ class Dispatcher:
     ):
         self.settings = settings
         self.db = db
-        self._lock = asyncio.Lock()  # one run at a time: the 10-min job, new events and search missions all call run()
+        self._lock = asyncio.Lock()  # one at a time: deciding and delivering never overlap
         self.gate = gate
         self.memory = memory
         self.schedule = schedule
+        self.agenda = Agenda(db, schedule)
         self.outbox = outbox
         self.send_poll = send_poll
         self.manager = manager  # Manager questions (proposals, check-ins) share the question slot
         self.send_proposal = send_proposal
         self.inbox = inbox
         self.fallback = FallbackDispatcher(outbox)
-        self._last_state: tuple | None = None
-        self._last_run: datetime | None = None
+        self._last_decide: datetime | None = None
+        self._last_ask: datetime | None = None
 
     # --- user controls ----------------------------------------------------
 
@@ -96,37 +99,25 @@ class Dispatcher:
     async def focus_until(self) -> datetime | None:
         return await self._until(FOCUS_KEY)
 
-    # --- main loop ----------------------------------------------------------
+    # --- deciding: when should each new finding reach the owner? -----------------
 
     async def run(self, force: bool = False) -> None:
+        """Decides on findings nobody has decided on yet (called when something new arrives or the situation changes)."""
         async with self._lock:
-            await self._run(force)
+            await self._prepare()
+            pending = await self.outbox.pending()
+            if pending:
+                await self._decide(pending)
 
-    async def _run(self, force: bool) -> None:
+    async def _prepare(self) -> None:
         from agent.pursuits import Pursuits
 
         await Pursuits(self.db, self.settings.timezone).tick()  # missed deadlines; due nudges join the outbox
         await self.outbox.expire()
-        now = self.schedule.now()
-        avail = await self.schedule.availability(now)
-        if avail.quiet or await self.silenced_until():
-            return
-        focus = await self.focus_until() is not None
-        busy = avail.current is not None
 
-        pending = await self.outbox.pending()
-        if pending:
-            # Only spend a Claude run when something changed, or the outbox has waited a while.
-            state = (tuple(r["id"] for r in pending), busy)
-            stale = self._last_run is None or now - self._last_run >= RECONSIDER_AFTER
-            if force or state != self._last_state or stale:
-                self._last_state, self._last_run = state, now
-                await self._decide(pending, avail, focus)
-
-        if not busy and not focus:
-            await self._maybe_ask()
-
-    async def _decide(self, pending: list, avail, focus: bool) -> None:
+    async def _decide(self, pending: list) -> None:
+        self._last_decide = self.schedule.now()
+        avail = await self.schedule.availability()
         context = await self._context(pending, avail)
         try:
             result = await self.gate.run(
@@ -148,27 +139,34 @@ class Dispatcher:
             return
 
         by_id = {r["id"]: r for r in pending}
-        trace = {"availability": context["availability"], "gaps": context["gaps"], "focus": focus}
-        to_send = []
+        trace = {"availability": context["availability"], "gaps": context["gaps"]}
+        now_rows = []
         for d in result.structured.get("decisions", []):
             row = by_id.get(d.get("candidate_id"))
-            if row is None or d.get("tier") not in TIERS:
+            if row is None or d.get("decision") not in DECISIONS:
                 continue
-            tier = d["tier"]
-            if focus and tier != "interrupt":
-                d["send_now"] = False  # focus mode: only interruptions get through
-            if tier == "shelf":
-                await self.outbox.set_tier(row["id"], tier, "shelved")
-            elif tier == "drop":
-                await self.outbox.set_tier(row["id"], tier, "dropped")
-            else:
-                await self.outbox.set_tier(row["id"], tier)
-                if d.get("send_now"):
-                    to_send.append(row)
-            await self.outbox.record(row["id"], MODULE, tier + (" (nu)" if d.get("send_now") and tier not in ("shelf", "drop") else ""), d.get("reason", ""), trace)
-
-        if to_send:
-            await self.outbox.deliver(to_send)  # the chat writes the message
+            decision, label = d["decision"], d["decision"]
+            if decision == "at":
+                at = self.agenda.parse(d.get("at") or "")
+                if at is None or at <= self.schedule.now():
+                    decision, label = "now", "now"
+                else:
+                    await self.outbox.set_tier(row["id"], "at")
+                    await self.agenda.schedule_findings([row["id"]], at)
+                    label = f"planerad {self.agenda.show(at)}"
+            if decision == "now":
+                await self.outbox.set_tier(row["id"], "now")
+                now_rows.append(row)
+                label = "nu"
+            elif decision == "shelf":
+                await self.outbox.set_tier(row["id"], "shelf", "shelved")
+                label = "sparad till senare"
+            elif decision == "drop":
+                await self.outbox.set_tier(row["id"], "drop", "dropped")
+                label = "släppt"
+            await self.outbox.record(row["id"], MODULE, label, d.get("reason", ""), trace)
+        if now_rows:
+            await self._deliver_findings(now_rows, self.schedule.now(), decided_now=True)
 
     async def _context(self, pending: list, avail) -> dict:
         now = self.schedule.now()
@@ -179,18 +177,98 @@ class Dispatcher:
             candidates.append(
                 f"[id {r['id']}] {r['kind']} · {r['title']}\n"
                 f"features: {r['features']}\n"
-                f"waiting: {int(age.total_seconds() // 3600)} h · earlier decision: {r['tier'] or '-'} · expires: {r['expires_at'] or '-'}\n"
+                f"waiting: {int(age.total_seconds() // 3600)} h · expires: {r['expires_at'] or '-'}\n"
                 f"brief: {r['body']}"
             )
+        modes = []
+        if until := await self.silenced_until():
+            modes.append(f"the owner asked for quiet until {self.agenda.show(until)}")
+        if until := await self.focus_until():
+            modes.append(f"the owner asked for only important things until {self.agenda.show(until)}")
         return {
             "now": f"{WEEKDAYS[now.weekday()]} {now:%Y-%m-%d %H:%M}",
-            "availability": avail.status_line(),
+            "availability": avail.status_line() + ("; " + "; ".join(modes) if modes else ""),
             "gaps": ", ".join(f"{a:%H:%M}–{b:%H:%M}" for a, b in gaps) or "none left today",
             "activity": await self._activity(),
             "interrupt": self.memory.read("interrupt.md") or "(empty)",
             "policy": self.memory.read("policy.md", "state.md"),
+            "planned": await self.agenda.upcoming(days=3),
             "candidates": "\n\n".join(candidates),
         }
+
+    # --- delivering: Python, every minute ---------------------------------------
+
+    async def tick(self) -> None:
+        """Delivers what is due after a last check; retries undecided findings; offers an idle moment for a question."""
+        async with self._lock:
+            await self._prepare()
+            now = self.schedule.now()
+            if due := await self.agenda.due_findings(now):
+                await self._deliver_findings(due, now)
+            for b in await self.agenda.due_bookings(now):
+                await self._deliver_booking(b, now)
+            undecided = await self.outbox.pending()
+        if undecided and (self._last_decide is None or now - self._last_decide >= RETRY_UNDECIDED):
+            await self.run()
+        avail = await self.schedule.availability(now)
+        idle = not avail.quiet and avail.current is None and not await self.silenced_until() and not await self.focus_until()
+        if idle and (self._last_ask is None or now - self._last_ask >= ASK_EVERY):
+            self._last_ask = now
+            await self._maybe_ask()
+
+    async def _hold_until(self, now: datetime, urgent: bool, decided_now: bool = False) -> datetime | None:
+        """When a delivery due now must wait instead (mechanics executing the plan, not new judgement). Quiet hours and
+        the owner's own quiet or focus requests always hold; a session holds unless the dispatcher chose to interrupt."""
+        if self.settings.quiet_hours.contains(now.time()):
+            return self.agenda.quiet_end(now)
+        if until := await self.silenced_until():
+            return until
+        if not urgent and (until := await self.focus_until()):
+            return until
+        if not (urgent or decided_now) and (busy := (await self.schedule.availability(now)).current) is not None:
+            return busy.end + timedelta(minutes=2)
+        return None
+
+    async def _deliver_findings(self, rows: list, now: datetime, decided_now: bool = False) -> None:
+        hold, go = [], []
+        for r in rows:
+            urgent = json.loads(r["features"] or "{}").get("time_sensitivity") == "high"
+            until = await self._hold_until(now, urgent, decided_now)
+            (hold if until else go).append((r, until))
+        for r, until in hold:
+            await self.outbox.set_tier(r["id"], "at")
+            await self.agenda.schedule_findings([r["id"]], until)
+            await self.outbox.record(r["id"], MODULE, f"väntar till {self.agenda.show(until)}", "Tiden kom, men det var nattro, paus eller ett pass.", {})
+        if go:
+            await self.outbox.deliver([r for r, _ in go])  # the Assistant writes the message
+
+    async def _deliver_booking(self, b, now: datetime) -> None:
+        """A reminder the owner asked for, or a promise the Assistant made, through the one voice."""
+        if not b["fixed"] and (until := await self._hold_until(now, urgent=False)):  # promises wait; the owner's own bookings don't
+            await self.db.execute("UPDATE bookings SET due_at = ? WHERE id = ?", (utc_iso(until), b["id"]))
+            return
+        if not await self.db.execute_count("UPDATE bookings SET status = 'sending' WHERE id = ? AND status = 'planned'", (b["id"],)):
+            return
+        what = "a reminder the owner asked for" if b["kind"] == "reminder" else "something you promised the owner"
+        ids: list[int] = []
+        if self.outbox.speak is not None:
+            try:
+                ids = await self.outbox.speak(
+                    f"It is time for {what} (#B{b['id']}" + (f", about {b['ref']}" if b["ref"] else "") + f"): {b['body']}\n"
+                    "Tell them now, briefly and in your own words; look things up if you need the details."
+                )
+            except AlreadySaid:
+                ids = []
+            except Exception as e:
+                log.warning("couldn't deliver booking %s through the chat: %s", b["id"], e)
+        if not ids:
+            ids = await self.outbox.send_text(b["body"])
+        await self.db.execute(
+            "UPDATE bookings SET status = 'sent', sent_at = datetime('now'), message_id = ? WHERE id = ?", (ids[0] if ids else None, b["id"])
+        )
+        from agent import refs
+
+        await refs.link(self.db, ids, {f"#B{b['id']}"} | ({b["ref"]} if b["ref"] else set()))
 
     async def _activity(self) -> str:
         sent = await self.db.fetchall(

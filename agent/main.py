@@ -88,6 +88,7 @@ async def run() -> None:
     manager = Manager(settings, db, gate, memory)
     outbox.speak = bot.chat.speak  # one voice: the chat session writes proactive messages too
     dispatcher = Dispatcher(settings, db, gate, memory, schedule, outbox, bot.send_poll, manager, bot.send_proposal, bot.chat.inbox)
+    manager.agenda = dispatcher.agenda  # Manager owns the schedule; its desk (the dispatcher) fills it during the day
     bot.manager = manager
     triage = Triage(settings, db, gate, memory)
     researcher = Researcher(settings, db, gate, memory)
@@ -184,7 +185,7 @@ async def run() -> None:
     scheduler = AsyncIOScheduler(timezone=settings.timezone, job_defaults={"misfire_grace_time": None, "coalesce": True})
     scheduler.add_job(sync_calendars, "interval", minutes=cal_options.get("poll_minutes", 30), next_run_time=datetime.now(),
                       id="calendar_sync", max_instances=1, coalesce=True)
-    scheduler.add_job(dispatcher.run, "interval", minutes=10, id="dispatcher", max_instances=1, coalesce=True)
+    scheduler.add_job(dispatcher.tick, "interval", minutes=1, id="schedule", max_instances=1, coalesce=True)  # Python delivers what is due
     inspector = Inspector(db, settings.timezone)
 
     async def health_watch() -> None:

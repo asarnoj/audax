@@ -407,7 +407,80 @@ def _control_tools(controls: Controls, turn: TurnContext) -> list:
 
         return _text(prompt("self") + "\n\n## Right now\n" + await controls.sources())
 
-    return [pause_messages, get_shelf, shelf_told, explain_message, source_overview, run_research, activity_report, how_i_work]
+    agenda = controls.dispatcher.agenda
+
+    @tool(
+        "book",
+        "Book a time to contact {owner}, before you promise it. kind=reminder when {owner} asks to be reminded ('påminn "
+        "mig fredag'): their own booking, fixed. kind=promise when you say you will come back at a time ('jag hör av mig i "
+        "morgon'); give `latest` if it may move. The booking is checked at once: if something stands in the way (quiet "
+        "hours, a session, a pause, a time that has passed) nothing is booked and you get the conflicts. Tell {owner} and "
+        "ask; if they still want that time, book again with confirm=true. Only promise what is booked.",
+        {
+            "type": "object",
+            "properties": {
+                "kind": {"type": "string", "enum": ["reminder", "promise"]},
+                "when": {"type": "string", "description": "Local time, YYYY-MM-DD HH:MM"},
+                "what": {"type": "string", "description": "Swedish: what to say then, as a brief for yourself"},
+                "about": {"type": "string", "description": "Optional id it concerns, e.g. #S3"},
+                "latest": {"type": "string", "description": "promise: the latest acceptable time, YYYY-MM-DD HH:MM"},
+                "confirm": {"type": "boolean", "description": "{owner} wants this time despite the conflicts"},
+            },
+            "required": ["kind", "when", "what"],
+        },
+    )
+    async def book(args: dict[str, Any]) -> dict[str, Any]:
+        at = agenda.parse(args["when"])
+        if at is None:
+            return _text("[internal] Give the time as YYYY-MM-DD HH:MM.")
+        latest = agenda.parse(args["latest"]) if args.get("latest") else None
+        bid, conflicts = await agenda.book(
+            args["kind"], args["what"][:80], args["what"], at, "assistant", fixed=args["kind"] == "reminder",
+            latest=latest, ref=args.get("about"), confirm=bool(args.get("confirm")),
+        )
+        if bid is None:
+            return _text(personalize(
+                "[internal] Not booked: " + "; ".join(conflicts) + ". Tell {owner} and suggest another time; if they still "
+                "want this one, book again with confirm=true. Don't promise until it is booked."
+            ))
+        turn.refs.add(f"#B{bid}")
+        return _text(f"[internal] Booked #B{bid}: {agenda.show(at)}" + (f" (despite: {'; '.join(conflicts)})" if conflicts else "") + ".")
+
+    @tool(
+        "change_booking",
+        "Move or cancel something planned when {owner} asks: a booking (#B…) or a planned delivery of a finding (#F…). "
+        "action=move needs `when` (YYYY-MM-DD HH:MM).",
+        {
+            "type": "object",
+            "properties": {
+                "id": {"type": "string", "description": "#B12 or #F210"},
+                "action": {"type": "string", "enum": ["move", "cancel"]},
+                "when": {"type": "string"},
+            },
+            "required": ["id", "action"],
+        },
+    )
+    async def change_booking(args: dict[str, Any]) -> dict[str, Any]:
+        ref = "#" + args["id"].strip().lstrip("#").upper()
+        if args["action"] == "cancel":
+            if ref.startswith("#F"):
+                await controls.dispatcher.outbox.set_tier(int(ref[2:]), "shelf", "shelved")
+                return _text(f"[internal] {ref} is no longer planned; it is saved for later.")
+            return _text("[internal] " + await agenda.cancel(int(ref[2:]), "assistant", "ägaren bad om det"))
+        at = agenda.parse(args.get("when") or "")
+        if at is None:
+            return _text("[internal] Give the new time as YYYY-MM-DD HH:MM.")
+        return _text("[internal] " + await agenda.move(ref, at, "assistant", "ägaren bad om det"))
+
+    @tool(
+        "get_agenda",
+        "What the office plans to contact {owner} about, and when: planned deliveries, reminders and your promises.",
+        {"type": "object", "properties": {"days": {"type": "integer", "description": "default 7"}}},
+    )
+    async def get_agenda(args: dict[str, Any]) -> dict[str, Any]:
+        return _text("[internal] Planned:\n" + await agenda.upcoming(int(args.get("days") or 7)))
+
+    return [pause_messages, get_shelf, shelf_told, book, change_booking, get_agenda, explain_message, source_overview, run_research, activity_report, how_i_work]
 
 
 def _post_tools(posts: Posts, turn: TurnContext | None = None) -> list:

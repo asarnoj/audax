@@ -26,8 +26,13 @@ class FakeMemory:
 
 
 class Clock(Schedule):
+    at = None  # a test can move the clock
+
     def now(self):
-        return NOW
+        return Clock.at or NOW
+
+    async def slots(self, start, end, include_not_mine=False):
+        return []
 
 
 @pytest.fixture
@@ -66,17 +71,19 @@ async def make_dispatcher(db, tmp_path, structured, calls=None):
 # --- dispatcher -------------------------------------------------------------
 
 
-async def test_dispatcher_applies_tiers_and_bundles(db, tmp_path):
+async def test_dispatcher_sends_now_plans_later_shelves_and_drops(db, tmp_path):
     a = await add_candidate(db, "event", "Hackathon", "Hackathon på Uni", {"time_sensitivity": "medium"}, url="https://x/a")
     b = await add_candidate(db, "opportunity", "Jobb", "Sommarjobb", {"time_sensitivity": "medium"}, url="https://x/b")
+    p = await add_candidate(db, "opportunity", "Praktik", "Praktik hos X", {}, url="https://x/p")
     c = await add_candidate(db, "news", "Nyhet", "Kul nyhet", {})
     e = await add_candidate(db, "event", "Gammalt", "Redan över", {})
     decisions = {
         "decisions": [
-            {"candidate_id": a, "tier": "bundle", "send_now": True, "reason": "lucka nu"},
-            {"candidate_id": b, "tier": "bundle", "send_now": True, "reason": "lucka nu"},
-            {"candidate_id": c, "tier": "shelf", "send_now": False, "reason": "inte värt att störa"},
-            {"candidate_id": e, "tier": "drop", "send_now": False, "reason": "utgånget"},
+            {"candidate_id": a, "decision": "now", "reason": "lucka nu"},
+            {"candidate_id": b, "decision": "now", "reason": "lucka nu"},
+            {"candidate_id": p, "decision": "at", "at": "2026-10-13 12:10", "reason": "lunchen i morgon"},
+            {"candidate_id": c, "decision": "shelf", "reason": "inte värt att störa"},
+            {"candidate_id": e, "decision": "drop", "reason": "utgånget"},
         ],
     }
     d, sent = await make_dispatcher(db, tmp_path, decisions)
@@ -84,42 +91,82 @@ async def test_dispatcher_applies_tiers_and_bundles(db, tmp_path):
 
     assert len(sent) == 1 and "https://x/a" in sent[0] and "https://x/b" in sent[0]  # one message, both items
     status = {r["id"]: r["status"] for r in await db.fetchall("SELECT id, status FROM candidates")}
-    assert status == {a: "sent", b: "sent", c: "shelved", e: "dropped"}
-    links = await db.fetchall("SELECT candidate_id FROM message_candidates")
-    assert {r["candidate_id"] for r in links} == {a, b}  # both traceable for /varfor and reactions
-    assert (await db.fetchone("SELECT count(*) AS n FROM decisions"))["n"] == 4
+    assert status == {a: "sent", b: "sent", p: "scheduled", c: "shelved", e: "dropped"}
+    assert "#F" in await d.agenda.upcoming() and "Praktik" in await d.agenda.upcoming()
+    assert (await db.fetchone("SELECT count(*) AS n FROM decisions"))["n"] == 5
 
-    rows = await d.outbox.pull_shelf()
-    assert [r["id"] for r in rows] == [c]
-    assert await d.outbox.pull_shelf() == []  # pulled items leave the shelf
+    Clock.at = NOW.replace(day=13, hour=12, minute=10)  # the planned moment: Python delivers, no Claude run
+    try:
+        await d.tick()
+    finally:
+        Clock.at = None
+    assert len(sent) == 2 and "https://x/p" in sent[1]
 
 
-async def test_dispatcher_only_reruns_when_state_changes(db, tmp_path):
+async def test_dispatcher_only_thinks_about_new_findings(db, tmp_path):
     calls = []
     a = await add_candidate(db, "event", "A", "A", {})
-    d, _ = await make_dispatcher(db, tmp_path, lambda t: {"decisions": [{"candidate_id": a, "tier": "next_gap", "send_now": False, "reason": "vänta"}]}, calls)
+    d, _ = await make_dispatcher(
+        db, tmp_path, lambda t: {"decisions": [{"candidate_id": cid, "decision": "at", "at": "2026-10-13 09:00", "reason": "i morgon"}
+                                               for cid in (a, a + 1)]}, calls)
     await d.run()
     await d.run()
-    assert len(calls) == 1  # unchanged outbox: no second Claude run
+    await d.tick()
+    assert len(calls) == 1  # decided once; waiting costs nothing
     await add_candidate(db, "event", "B", "B", {})
     await d.run()
     assert len(calls) == 2
 
 
-async def test_focus_blocks_everything_but_interrupts(db, tmp_path):
+async def test_the_owners_focus_and_quiet_hours_always_hold(db, tmp_path):
     a = await add_candidate(db, "event", "A", "inte akut", {})
     b = await add_candidate(db, "schedule_change", "B", "akut", {"time_sensitivity": "high"})
     d, sent = await make_dispatcher(
-        db,
-        tmp_path,
-        {"decisions": [
-            {"candidate_id": a, "tier": "next_gap", "send_now": True, "reason": "x"},
-            {"candidate_id": b, "tier": "interrupt", "send_now": True, "reason": "y"},
-        ]},
+        db, tmp_path,
+        {"decisions": [{"candidate_id": a, "decision": "now", "reason": "x"}, {"candidate_id": b, "decision": "now", "reason": "y"}]},
     )
     await d.silence(FOCUS_KEY, NOW + timedelta(hours=1))
     await d.run()
     assert sent == ["akut"]
+    held = await db.fetchone("SELECT status, deliver_at FROM candidates WHERE id = ?", (a,))
+    assert held["status"] == "scheduled" and held["deliver_at"].startswith("2026-10-12T13:00")  # when focus ends (15:00 local)
+
+    c = await add_candidate(db, "event", "C", "sent kväll", {"time_sensitivity": "high"})
+    d2, sent2 = await make_dispatcher(db, tmp_path, {"decisions": [{"candidate_id": c, "decision": "now", "reason": "z"}]})
+    Clock.at = NOW.replace(hour=23, minute=30)
+    try:
+        await d2.run()
+    finally:
+        Clock.at = None
+    assert sent2 == []  # quiet hours hold even what was decided "now"
+    assert (await db.fetchone("SELECT deliver_at FROM candidates WHERE id = ?", (c,)))["deliver_at"].startswith("2026-10-13T04:30")
+
+
+async def test_a_booking_is_checked_before_it_is_promised_and_delivered_through_the_voice(db, tmp_path):
+    d, sent = await make_dispatcher(db, tmp_path, {"decisions": []})
+    late = NOW.replace(hour=23, minute=30)
+    bid, conflicts = await d.agenda.book("reminder", "Google", "Sök Google-praktiken", late, "assistant", fixed=True)
+    assert bid is None and "nattro" in conflicts[0]  # nothing promised yet
+    bid, _ = await d.agenda.book("reminder", "Google", "Sök Google-praktiken", NOW.replace(hour=16), "assistant", fixed=True, ref="#S1")
+    assert "fast" in await d.agenda.upcoming()
+    assert "ägarens egen bokning" in await d.agenda.move(f"#B{bid}", NOW.replace(hour=18), "manager")  # Manager can't move it
+    spoken = []
+
+    async def speak(instruction):
+        spoken.append(instruction)
+        return [await db.execute("INSERT INTO messages (telegram_message_id, direction, text) VALUES (3, 'out', 'påminnelse')")]
+
+    d.outbox.speak = speak
+    Clock.at = NOW.replace(hour=16, minute=1)
+    try:
+        await d.tick()
+        await d.tick()
+    finally:
+        Clock.at = None
+    assert len(spoken) == 1 and f"#B{bid}" in spoken[0] and "Sök Google-praktiken" in spoken[0]
+    assert (await db.fetchone("SELECT status FROM bookings WHERE id = ?", (bid,)))["status"] == "sent"
+    refs = {r["ref"] for r in await db.fetchall("SELECT ref FROM message_refs")}
+    assert refs == {f"#B{bid}", "#S1"}
 
 
 async def test_dispatcher_falls_back_when_claude_fails(db, tmp_path):
@@ -174,7 +221,7 @@ def test_parse_duration():
 
 async def test_delivery_goes_through_the_voice_and_falls_back(db, tmp_path):
     a = await add_candidate(db, "event", "Hackathon", "Hackathon på Uni", {}, url="https://h")
-    d, sent = await make_dispatcher(db, tmp_path, {"decisions": [{"candidate_id": a, "tier": "next_gap", "send_now": True, "reason": "lucka"}]})
+    d, sent = await make_dispatcher(db, tmp_path, {"decisions": [{"candidate_id": a, "decision": "now", "reason": "lucka"}]})
     spoken = []
 
     async def speak(instruction):
@@ -187,7 +234,7 @@ async def test_delivery_goes_through_the_voice_and_falls_back(db, tmp_path):
     assert (await db.fetchone("SELECT candidate_id FROM message_candidates"))["candidate_id"] == a
 
     b = await add_candidate(db, "event", "B", "Utkast B", {})
-    d2, sent2 = await make_dispatcher(db, tmp_path, {"decisions": [{"candidate_id": b, "tier": "next_gap", "send_now": True, "reason": "x"}]})
+    d2, sent2 = await make_dispatcher(db, tmp_path, {"decisions": [{"candidate_id": b, "decision": "now", "reason": "x"}]})
 
     async def broken(instruction):
         raise RuntimeError("quota")
@@ -204,7 +251,7 @@ async def test_concurrent_dispatcher_runs_deliver_a_candidate_once(db, tmp_path)
     import asyncio
 
     a = await add_candidate(db, "news", "Machinarium 2", "Trailer ute", {}, url="https://m")
-    d, sent = await make_dispatcher(db, tmp_path, {"decisions": [{"candidate_id": a, "tier": "interrupt", "send_now": True, "reason": "nu"}]})
+    d, sent = await make_dispatcher(db, tmp_path, {"decisions": [{"candidate_id": a, "decision": "now", "reason": "nu"}]})
     await asyncio.gather(d.run(force=True), d.run(force=True), d.run(force=True))
     assert len(sent) == 1
     assert (await db.fetchone("SELECT status FROM candidates WHERE id = ?", (a,)))["status"] == "sent"
