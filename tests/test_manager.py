@@ -7,7 +7,7 @@ import pytest
 from agent.claude_gate import ClaudeGate, RunResult
 from agent.config import load_settings
 from agent.db import Database
-from agent.manager import CHAT_SEED_KEY, Manager
+from agent.manager import Manager
 from agent.memory import MemoryRepo
 
 NOW = datetime(2026, 10, 12, 3, 30, tzinfo=ZoneInfo("Europe/Stockholm"))
@@ -35,7 +35,8 @@ def manager(db, memory, tmp_path, structured=None):
     return Manager(load_settings(), db, ClaudeGate(db, tmp_path, runner=runner), memory)
 
 
-BASE = {"policy_md": None, "policy_reason": "", "journal_md": "Lugn dag.", "changelog": "", "checkin": False, "restart_chat": False, "chat_summary": "Sammanfattning."}
+BASE = {"policy_md": None, "policy_reason": "", "journal_md": "Lugn dag.", "changelog": "", "checkin": False,
+        "desk_review": {"sampled": 3, "followed_policy": True, "notes": ""}}
 
 
 async def test_apply_writes_policy_journal_changelog_and_commits(env, tmp_path):
@@ -79,15 +80,14 @@ async def test_proposal_flow_one_at_a_time(env, tmp_path):
     assert "redan avgjort" in await m.decide_proposal(q["id"], False)
 
 
-async def test_note_goes_through_outbox_and_restart_seeds_chat(env, tmp_path):
+async def test_note_goes_through_the_desk_and_the_spot_check_is_logged(env, tmp_path):
     db, memory, _ = env
-    await db.kv_set("chat.session_id", "old")
     m = manager(db, memory, tmp_path)
-    await m.apply({**BASE, "note_to_owner": "Jag skickar lite färre jobbtips nu.", "restart_chat": True, "chat_summary": "Pratade om Google."}, NOW)
+    await m.apply({**BASE, "note_to_owner": "Jag skickar lite färre jobbtips nu.",
+                   "desk_review": {"sampled": 5, "followed_policy": False, "notes": "skickade sent på kvällen trots policyn"}}, NOW)
     row = await db.fetchone("SELECT kind, status, body FROM candidates")
     assert (row["kind"], row["status"]) == ("manager_note", "pending")  # the dispatcher decides when
-    assert await db.kv_get("chat.session_id") is None
-    assert await db.kv_get(CHAT_SEED_KEY) == "Pratade om Google."
+    assert "gled från policyn: skickade sent på kvällen" in (memory.path / "changelog.md").read_text()
 
 
 async def test_checkin_is_queued_as_question(env, tmp_path):
@@ -133,22 +133,6 @@ async def test_manager_v2_style_state_shelf_and_questions(env, tmp_path):
     assert (memory.path / "arbetsminne" / "manager.md").read_text() == "Fokus: längden.\n"
     assert "stilguide: två klagomål på längd" in (memory.path / "changelog.md").read_text()
 
-
-
-async def test_big_chat_session_is_restarted_from_the_summary(env, tmp_path):
-    db, memory, _ = env
-    await db.kv_set("chat.session_id", "big")
-    await db.execute("INSERT INTO claude_runs (kind, is_error, context_tokens) VALUES ('chat', 0, 109000)")
-    await manager(db, memory, tmp_path).apply({**BASE, "chat_summary": "Pratade om tentan."}, NOW)
-    assert await db.kv_get("chat.session_id") is None and await db.kv_get(CHAT_SEED_KEY) == "Pratade om tentan."
-
-
-async def test_small_chat_session_is_kept(env, tmp_path):
-    db, memory, _ = env
-    await db.kv_set("chat.session_id", "small")
-    await db.execute("INSERT INTO claude_runs (kind, is_error, context_tokens) VALUES ('chat', 0, 30000)")
-    await manager(db, memory, tmp_path).apply(BASE, NOW)
-    assert await db.kv_get("chat.session_id") == "small"
 
 
 async def test_manager_owns_the_schedule_but_not_the_owners_bookings(env, tmp_path):

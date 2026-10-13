@@ -207,6 +207,7 @@ class ChatSession:
         session_id = await self.db.kv_get(SESSION_KEY)
         prompt = await self._prompt(batch)
         pursuing = await Pursuits(self.db, self.settings.timezone).summary()
+        working_memory = self.memory.read("arbetsminne/assistant.md")
 
         def task(resume: str | None, prefix: str = "") -> ClaudeTask:
             return ClaudeTask(
@@ -223,7 +224,8 @@ class ChatSession:
                 + "\n\n# Interests, and what never to suggest (applies even to things discussed earlier)\n"
                 + self.memory.read("interests.md")
                 + "\n\n# What " + personalize("{owner}") + " is pursuing (keep it current with track_pursuit)\n"
-                + pursuing,
+                + pursuing
+                + ("\n\n# Your working memory (from your last night pass)\n" + working_memory if working_memory else ""),
             )
 
         typing = None if internal else asyncio.create_task(self._keep_typing())

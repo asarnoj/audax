@@ -33,8 +33,6 @@ MODULE = "manager@1"
 LAST_RUN_KEY = "manager.last_run"
 WORKING_MEMORY = "arbetsminne/manager.md"
 CHECKIN_KEY = "manager.last_checkin"
-CHAT_SEED_KEY = "chat.seed_summary"
-CHAT_CONTEXT_LIMIT = 60_000  # tokens; above this the nightly pass starts the chat over from a summary
 AREAS = ["pacing", "timing", "content", "tone"]
 
 SCHEMA = {
@@ -116,10 +114,18 @@ SCHEMA = {
         "journal_md": {"type": "string", "description": "Swedish. Today's journal entry"},
         "changelog": {"type": "string", "description": "Swedish. What you changed and why; empty string if nothing"},
         "note_to_owner": {"type": ["string", "null"], "description": "Swedish brief for the chat, or null"},
-        "restart_chat": {"type": "boolean", "description": "Only if the conversation itself needs a fresh start"},
-        "chat_summary": {"type": "string", "description": "Always. Swedish: short summary of the conversation so far (ongoing threads, promises, what is current). Used if the session restarts."},
+        "desk_review": {
+            "type": "object",
+            "description": "Your spot check of the desk's (the dispatcher's) decisions since the last run",
+            "properties": {
+                "sampled": {"type": "integer", "description": "How many decisions you checked"},
+                "followed_policy": {"type": "boolean"},
+                "notes": {"type": "string", "description": "Swedish: where it drifted from the policy, if anywhere, and what you changed"},
+            },
+            "required": ["sampled", "followed_policy", "notes"],
+        },
     },
-    "required": ["policy_md", "policy_reason", "working_memory_md", "journal_md", "changelog", "checkin", "restart_chat", "chat_summary"],
+    "required": ["policy_md", "policy_reason", "working_memory_md", "desk_review", "journal_md", "changelog", "checkin"],
 }
 
 CHECKIN_QUESTION = "Avstämning: hur har mängden meddelanden från mig känts senaste tiden?"
@@ -161,6 +167,8 @@ class Manager:
             working_memory=self.memory.read(WORKING_MEMORY) or "(empty: this is your first run with a working memory)",
             situation=self.memory.read("direction/now.md") or "(Director has no picture yet)",
             planned=await self.agenda.upcoming(7) if self.agenda else "(no schedule)",
+            desk=await self._desk(since_sql),
+            measures=await self._measures(),
             policy=self.memory.read("policy.md"),
             experiments=await self._experiments(),
             activity=await self._activity(since_sql),
@@ -232,6 +240,12 @@ class Manager:
                 changes.append(f"{ref} sparad till senare i stället: {c.get('reason', '')}")
             elif c["action"] == "move" and (at := self.agenda.parse(c.get("at") or "")):
                 changes.append(await self.agenda.move(ref, at, "manager", c.get("reason", "")))
+        if review := out.get("desk_review"):
+            changes.append(
+                f"stickprov på desken: {review.get('sampled', 0)} beslut, "
+                + ("följde policyn" if review.get("followed_policy") else "gled från policyn")
+                + (f": {review['notes']}" if review.get("notes") else "")
+            )
         if wm := (out.get("working_memory_md") or "").strip():
             path = self.memory.path / WORKING_MEMORY
             path.parent.mkdir(parents=True, exist_ok=True)
@@ -283,17 +297,6 @@ class Manager:
                 features={"time_sensitivity": "low", "relevance": "medium", "actionability": "low"},
             )
 
-        # Mechanical hygiene (not UX policy): a chat session that has grown big resends its whole history on
-        # every reply, which is what eats the subscription quota. Start it over from the summary.
-        last = await self.db.fetchone("SELECT context_tokens, cost_usd FROM claude_runs WHERE kind = 'chat' ORDER BY id DESC LIMIT 1")
-        too_big = bool(last) and (
-            last["context_tokens"] > CHAT_CONTEXT_LIMIT if last["context_tokens"] else (last["cost_usd"] or 0) > 1.0  # unmeasured: cost as proxy
-        )
-        if (out.get("restart_chat") or too_big) and out.get("chat_summary"):
-            await self.db.kv_set(CHAT_SEED_KEY, out["chat_summary"])
-            await self.db.kv_set("chat.session_id", None)
-            changes.append("chattsessionen startades om med sammanfattning")
-
         await self.memory.commit_if_changed(f"manager {now:%Y-%m-%d %H:%M}")
         log.info("manager applied: %s", "; ".join(changes) or "inga ändringar")
 
@@ -334,6 +337,59 @@ class Manager:
             await self.db.kv_set(CHECKIN_KEY, self.now().isoformat())
 
     # --- context ----------------------------------------------------------
+
+    async def _desk(self, since: str) -> str:
+        """The dispatcher's decisions since the last run, with reasons, and the misses: what the owner wanted but didn't get."""
+        rows = await self.db.fetchall(
+            "SELECT d.created_at, d.tier, d.reason, c.id, c.kind, c.title FROM decisions d JOIN candidates c ON c.id = d.candidate_id "
+            "WHERE d.module LIKE 'dispatcher%' AND d.created_at >= ? ORDER BY d.id", (since,),
+        )
+        lines = [f"Decisions ({len(rows)}):"]
+        lines += [f"- {self._local(r['created_at'])} #F{r['id']} {r['kind']}: {r['title'][:70]} → {r['tier']}: {(r['reason'] or '')[:140]}" for r in rows[-40:]]
+        misses = await self.db.fetchall(
+            "SELECT f.created_at, f.signal, f.value, f.note, c.id, c.title, c.tier FROM feedback f LEFT JOIN candidates c ON c.id = f.candidate_id "
+            "WHERE f.created_at >= ? AND (f.signal = 'shelf_pull' OR f.value LIKE 'missed%') ORDER BY f.id", (since,),
+        )
+        if misses:
+            lines.append("Misses (the owner pulled it from what was saved, or asked why they weren't told):")
+            lines += [
+                f"- {self._local(m['created_at'])} {m['signal']}: " + (f"#F{m['id']} {m['title'][:70]} (the desk said {m['tier']})" if m["id"] else (m["note"] or "")[:140])
+                for m in misses
+            ]
+        return "\n".join(lines) if rows or misses else "No decisions since the last run."
+
+    async def _measures(self) -> str:
+        """Measures of the experience, computed here and interpreted by Manager: signals, not targets."""
+        sent = await self.db.fetchall(
+            "SELECT id, created_at FROM messages WHERE direction = 'out' AND origin = 'proactive' AND created_at >= datetime('now', '-7 days')"
+        )
+        delays = []
+        for m in sent:
+            reply = await self.db.fetchone(
+                "SELECT created_at FROM messages WHERE direction = 'in' AND id > ? AND created_at <= datetime(?, '+6 hours') ORDER BY id LIMIT 1",
+                (m["id"], m["created_at"]),
+            )
+            if reply:
+                delays.append((datetime.fromisoformat(reply["created_at"]) - datetime.fromisoformat(m["created_at"])).total_seconds() / 60)
+        delays.sort()
+        reactions = await self.db.fetchall(
+            "SELECT c.kind, f.value, count(*) AS n FROM feedback f JOIN candidates c ON c.id = f.candidate_id "
+            "WHERE f.signal = 'reaction' AND f.created_at >= datetime('now', '-7 days') GROUP BY c.kind, f.value ORDER BY n DESC LIMIT 10"
+        )
+        by_hour = await self.db.fetchall(
+            "SELECT strftime('%H', created_at, 'localtime') AS h, count(*) AS n FROM messages WHERE direction = 'out' AND origin = 'proactive' "
+            "AND created_at >= datetime('now', '-7 days') GROUP BY h ORDER BY h"
+        )
+        pauses = await self.db.fetchone("SELECT count(*) AS n FROM feedback WHERE signal = 'command' AND created_at >= datetime('now', '-7 days')")
+        pulls = await self.db.fetchone("SELECT count(*) AS n FROM feedback WHERE signal = 'shelf_pull' AND created_at >= datetime('now', '-7 days')")
+        return "\n".join([
+            f"Proactive messages, last 7 days: {len(sent)} ({len(sent) / 7:.1f} per day); by hour: "
+            + (", ".join(f"{r['h']}:{r['n']}" for r in by_hour) or "none"),
+            f"Replied to within 6 h: {len(delays)} of {len(sent)}" + (f"; median after {delays[len(delays) // 2]:.0f} min" if delays else ""),
+            "Reactions by kind: " + (", ".join(f"{r['kind']} {r['value']}×{r['n']}" for r in reactions) or "none"),
+            f"Pause or focus requests: {pauses['n']}. Things pulled from what was saved: {pulls['n']}.",
+            await Pursuits(self.db, self.settings.timezone).stats(7),
+        ])
 
     async def _experiments(self) -> str:
         rows = await self.db.fetchall("SELECT * FROM experiments WHERE status = 'active' ORDER BY id")

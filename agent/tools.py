@@ -403,9 +403,9 @@ def _control_tools(controls: Controls, turn: TurnContext) -> list:
         {"type": "object", "properties": {}},
     )
     async def how_i_work(args: dict[str, Any]) -> dict[str, Any]:
-        from agent.prompts import prompt
+        from agent.self_description import describe
 
-        return _text(prompt("self") + "\n\n## Right now\n" + await controls.sources())
+        return _text(describe() + "\n\n## Right now: what you watch\n" + await controls.sources())
 
     agenda = controls.dispatcher.agenda
 

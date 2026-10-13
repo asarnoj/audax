@@ -8,6 +8,7 @@ import os
 import re
 import signal
 from datetime import datetime, timedelta
+from zoneinfo import ZoneInfo
 
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 
@@ -33,6 +34,8 @@ from agent.pipeline.triage import Triage
 from agent.reload import ConfigWatcher
 from agent.research import Researcher, load_research
 from agent.research_plan import ResearchPlanner
+from agent.assistant_night import AssistantNight
+from agent.night import Night
 from agent.schedule import Schedule, describe_change, utc_iso
 from agent.sources.calendar import build_sources, load_calendar_configs
 from agent.telegram_bot import TelegramBot
@@ -234,10 +237,31 @@ async def run() -> None:
         await db.kv_set("engine.snapshot", {"at": datetime.now().astimezone().isoformat(), "pid": os.getpid(), "jobs": jobs})
 
     scheduler.add_job(snapshot, "interval", minutes=5, next_run_time=datetime.now() + timedelta(seconds=30), id="snapshot")
-    scheduler.add_job(manager.run, "cron", hour=3, minute=30, id="manager", max_instances=1)
-    scheduler.add_job(director.run, "cron", hour=4, minute=15, args=["understand"], id="director_understand", max_instances=1)
-    scheduler.add_job(director.run, "cron", day_of_week="mon,wed,sat", hour=5, minute=0, args=["reflect"], id="director_reflect", max_instances=1)
-    scheduler.add_job(planner.run_if_due, "cron", hour=5, minute=45, id="researcher_plan", max_instances=1)  # after Director's orders
+    # The night sweep (agent/night.py): the slow tasks in order, starting when the owner usually sleeps.
+    night_pass = AssistantNight(settings, db, gate, memory, dispatcher.agenda)
+
+    async def assistant_step() -> bool:
+        return await night_pass.run() is not None
+
+    async def director_step() -> bool:
+        tz = ZoneInfo(settings.timezone)
+        if (datetime.now(tz) + timedelta(hours=6)).weekday() in (0, 2, 5) and await director.run("reflect") is not None:
+            return True  # Monday, Wednesday and Saturday mornings: the reflection
+        return await director.run("understand") is not None
+
+    async def researcher_step() -> bool:
+        reason = await planner.due()
+        return reason is None or await planner.run(reason) is not None
+
+    async def manager_step() -> bool:
+        return await manager.run() is not None
+
+    night = Night(settings, db, [("assistant", assistant_step), ("director", director_step), ("researcher", researcher_step), ("manager", manager_step)])
+
+    async def night_tick() -> None:
+        await night.tick(datetime.now(ZoneInfo(settings.timezone)))
+
+    scheduler.add_job(night_tick, "interval", minutes=10, id="night", max_instances=1, coalesce=True)
     scheduler.add_job(db.backup, "cron", hour=3, minute=15, args=[settings.database.parent / "backups"], id="backup")
     scheduler.add_job(research_tick, "interval", minutes=30, next_run_time=datetime.now() + timedelta(minutes=2),
                       id="research", max_instances=1, coalesce=True)

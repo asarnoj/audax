@@ -49,13 +49,14 @@ Det användaren säger som rör en annan roll skickas som en **anteckning**: anv
 En roll som behöver något av användaren, som ett svar eller en åtkomst, lämnar en **förfrågan** med *vad* och *varför*. Dispatchern avgör när, och Worker ställer den med egna ord. Det finns en öppen fråga åt gången, för alla roller tillsammans. Svaret går tillbaka som en anteckning.
 
 ### Rytm
+Rollerna, postgången, schemat och nattsvepet beskrivs nu i [MODEL.md](MODEL.md), som ersätter den här delen.
+
 | Vad | När |
 |---|---|
-| Sinnen, triage, dispatcher | löpande (sinnena efter egen takt) |
-| Manager | varje natt 03:30, och när den väcks |
-| Director, genomgång | varje natt 04:15, och när den väcks |
-| Director, reflektion | mån, ons och lör 05:00 |
-| Sökuppdrag | efter sitt intervall, plus djupsvep varje vecka |
+| Sinnen, triage, dispatcher | löpande; leveranser enligt schemat, kontrolleras varje minut |
+| Nattsvepet: Assistant → Director → Researcher → Manager | en gång per natt, när ägaren brukar ha somnat |
+| Director, reflektion | i nattsvepet måndag, onsdag och lördag morgon |
+| Sökuppdrag | efter sitt intervall; djupsvep när Researcher ber om det |
 
 Manager och Director påverkar varandra bara genom sina filer: Managers *läge* får Director att prioritera, och Directors *mål* styr vad Worker letar efter. Det gör strukturen enkel att resonera om. Varje ändring har en ägare, en kanal och ett spår i loggen.
 

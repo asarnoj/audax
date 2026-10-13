@@ -19,7 +19,7 @@ Se det live:
 
 Prenumerationen har ett tak. Det som förbrukar den är främst **hur mycket sammanhang varje anrop skickar**, och om cachen hinner gå ut mellan anropen.
 - Bakgrundsarbetet är billigt: triage, dispatcher och sidläsning körs med Haiku och utan sessioner.
-- Chatten är en pågående session, så varje svar skickar med hela samtalet (i dag upp till cirka 110 000 tokens). Det mesta läses från cachen och kostar lite; det dyra är när cachen har hunnit gå ut. Manager skriver varje natt en sammanfattning, och om sammanhanget har vuxit över 60 000 tokens startar sessionen om med sammanfattningen och de senaste meddelandena.
+- Chatten är en pågående session, så varje svar skickar med hela samtalet (i dag upp till cirka 110 000 tokens). Det mesta läses från cachen och kostar lite; det dyra är när cachen har hunnit gå ut. Assistants nattpass skriver varje natt en sammanfattning, och om sammanhanget har vuxit över 60 000 tokens startar sessionen om med sammanfattningen och de senaste meddelandena.
 - **Mätfel, rättat 12 okt:** Claude Code rapporterar kostnaden för en återupptagen session som en löpande summa. Varje chattsvar loggades därför med alla tidigare svars kostnad, och chatten såg ut att stå för 90 % och kosta över $2 per svar. Nu loggas varje körnings egen kostnad (och historiken är omräknad). Vid kvotvarningen 11 okt (91 %) hade Audax bara använt cirka $1,70 av fönstret; resten var annan användning på kontot.
 - **Kostnad i dollar är API-ekvivalent**, alltså vad det hade kostat via API:t. Prenumerationen debiteras inte per dollar, men beloppet är ett jämförbart mått på hur mycket av kvoten något tar. Fönstren (5 timmar och vecka) delas med all annan Claude-användning på kontot, och Claude Code säger hur fulla de är först nära taket. `audax usage` visar Audax andel bredvid senast kända nivå.
 - När Claude Code varnar för att **5-timmarsfönstret** tar slut pausas bakgrundsjobben tills det återställs, och chatten fortsätter (`claude_gate.py`).
@@ -30,7 +30,7 @@ Prenumerationen har ett tak. Det som förbrukar den är främst **hur mycket sam
 | Händelse | Vad som händer | Belägg |
 |---|---|---|
 | Processen kraschar | systemd startar om efter 10 s (`Restart=on-failure`) | `deploy/agent.service` |
-| Pi:n startas om | tjänsten är aktiverad och startar; missade jobb (t.ex. Manager kl. 03:30) körs när motorn är uppe igen | `misfire_grace_time=None` i `main.py` |
+| Pi:n startas om | tjänsten är aktiverad och startar; nattsvepet fortsätter där det slutade om motorn kommer upp under natten | `misfire_grace_time=None` i `main.py` |
 | Claude svarar inte eller ger fel | körningen loggas som fel. Dispatchern går över till en regelbaserad reserv (bara brådskande skickas). Chatten säger till. Hälsovakten larmar vid upprepade fel | `test_dispatcher_falls_back_when_claude_fails`, `test_health_flags_repeated_claude_failures_only` |
 | Kvoten tar slut | bakgrundsjobb pausas tills den återställs, och hälsovakten berättar det | `test_rate_limit_warning_pauses_background_but_not_chat` |
 | Nätet går ner | sinnena loggar felet och försöker igen vid nästa intervall. Telegram-boten återansluter av sig själv | stream_stats.errors, sett i drift 9 okt |

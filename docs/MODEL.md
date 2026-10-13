@@ -1,6 +1,6 @@
 # Så tänker Audax
 
-Status: beslutad modell, 13 okt 2026 · etapp 1 (grunden), 2 (schemat) och 3 (Researcher) byggda; se "Från i dag till modellen" längst ner
+Status: beslutad modell, 13 okt 2026 · etapp 1–4 byggda (grunden, schemat, Researcher, natten); se "Från i dag till modellen" längst ner
 
 Audax är ett litet kontor som arbetar för dig. Fyra roller har var sitt ansvar och var sin anteckningsbok. De pratar med varandra genom en intern postgång, och bara en av dem pratar med dig.
 
@@ -131,11 +131,11 @@ Allt som ska gå att följa upp får ett ID: bokningar, poster, ansökningsspår
 2. **Klart (etapp 2–3):** triage är Directors snabba uppgift och dispatchern Managers.
 3. **Klart (etapp 1):** postgången ersätter anteckningar och förfrågningar, och `open-questions.md` är borta.
 4. **Klart (etapp 2):** schemat ersätter "vänta på lucka" och rundan var 10:e minut. Fynd och knuffar får en tidpunkt, och påminnelser och löften är bokningar. Kvar: frågor, avstämningar och schemafrågor ställs fortfarande i en ledig stund (kontrolleras var 15:e minut) i stället för att bokas.
-5. **Delvis klart (etapp 1 och 3):** arbetsminne för Director, Manager och Researcher. Kvar: Assistant, och Assistants nattpass (samtalssammanfattningen flyttar från Manager).
+5. **Klart (etapp 1, 3 och 4):** arbetsminne för alla fyra roller, och Assistants nattpass (som nu skriver samtalssammanfattningen).
 6. **Klart (etapp 1):** rättigheterna följer ägarskapet. Assistant har skrivrätt bara till sina egna filer.
-7. Läget: Director äger fakta (`now.md`), Manager äger slutsatsen. Målen flyttar ut ur profilen.
-8. Nattsvepet i ordning, med starttid räknad ur data.
+7. **Klart (etapp 1 och 4):** läget: Director äger fakta (`now.md`), Manager äger slutsatsen. Målen hör till Director; Assistants nattpass flyttar dem ur profilen.
+8. **Klart (etapp 4):** nattsvepet i ordning, med starttid räknad ur när ägaren brukar skriva sist.
 9. **Klart (etapp 1):** två körfält.
 10. **Klart (etapp 1 och 2):** ID:n (#P, #S, #F, #B) och uppslagsverktyget.
-11. Managers rapport om dispatcherns beslut, stickprov och mått.
-12. Promptarna skrivs om från grunden mot den här sidan, en roll i taget. `self.md` genereras från den här sidan.
+11. **Klart (etapp 4):** Managers rapport om dispatcherns beslut och missarna, stickprov och mått.
+12. **Klart (etapp 2–4):** promptarna är omskrivna mot den här sidan, en roll i taget. `how_i_work` läser den här sidan direkt (`self.md` är borta).

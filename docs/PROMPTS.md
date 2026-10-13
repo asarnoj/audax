@@ -1,5 +1,7 @@
 # Promptarna: förteckning och granskning
 
+> Historik från steg B (11–12 okt). Den aktuella listan över alla Claude-anrop och deras promptar finns i [agent/calls.py](../agent/calls.py) (`./deploy/audax claude`), och modellen de bygger på i [MODEL.md](MODEL.md).
+
 Status: steg B klart (alla promptar på engelska) · 2026-10-12 · hör till [ARCHITECTURE.md](ARCHITECTURE.md)
 
 ## Förteckning
