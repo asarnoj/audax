@@ -205,8 +205,7 @@ class FallbackDispatcher:
         rows = [r for r in await self.outbox.pending() if json.loads(r["features"]).get("time_sensitivity") == "high"]
         if not rows:
             return
-        await self.outbox.deliver(rows)
         for r in rows:
-            tier = "interrupt" if busy else "next_gap"
-            await self.outbox.set_tier(r["id"], tier)
-            await self.outbox.record(r["id"], self.MODULE, tier, "reserv: Claude otillgänglig, bara brådskande skickas", {"availability": context})
+            await self.outbox.set_tier(r["id"], "now")
+            await self.outbox.record(r["id"], self.MODULE, "nu", "Reserv: Claude var otillgänglig, så bara det brådskande skickades.", {"availability": context})
+        await self.outbox.deliver(rows)  # the rest stays undecided; the desk tries again when Claude is back
