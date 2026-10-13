@@ -195,3 +195,25 @@ async def test_resumed_session_cost_is_logged_per_run_not_as_running_total(tmp_p
     assert [round(r["cost_usd"], 2) for r in rows] == [2.22, 0.03, 0.05]
     assert [r["session_cost_usd"] for r in rows] == [2.22, 2.25, 2.30]
     await db.close()
+
+
+async def test_a_reply_written_before_a_tool_call_is_not_lost(tmp_path, monkeypatch):
+    """The model lists findings, marks them as told, then closes: the owner must get all of it (13 Oct)."""
+    from claude_agent_sdk import AssistantMessage, ResultMessage, TextBlock, ToolUseBlock
+
+    from agent import claude_gate
+    from agent.claude_gate import ClaudeTask, Priority, sdk_runner
+
+    async def fake_query(prompt, options):
+        yield AssistantMessage(content=[ToolUseBlock(id="1", name="mcp__agent__get_shelf", input={})], model="m")
+        yield AssistantMessage(content=[TextBlock(text="Två saker från veckan:\n- A\n- B"),
+                                        ToolUseBlock(id="2", name="mcp__agent__shelf_told", input={"ids": [1, 2]})], model="m")
+        yield AssistantMessage(content=[TextBlock(text="Det är det jag har till pausen.")], model="m")
+        yield ResultMessage(subtype="success", duration_ms=1, duration_api_ms=1, is_error=False, num_turns=3, session_id="s",
+                            result="Det är det jag har till pausen.")
+
+    monkeypatch.setattr(claude_gate, "query", fake_query)
+    r = await sdk_runner(ClaudeTask(kind="chat", prompt="x", priority=Priority.CHAT), tmp_path, lambda info: None)
+    assert r.text == "Två saker från veckan:\n- A\n- B\n\nDet är det jag har till pausen."
+    assert r.final_text == "Det är det jag har till pausen."
+    assert [t["tool"] for t in r.trace] == ["agent__get_shelf", "agent__shelf_told"]

@@ -254,7 +254,7 @@ class ChatSession:
             await self.db.kv_set(SESSION_KEY, result.session_id)
             await self.db.kv_set("chat.seed_summary", None)
         ids: list[int] = []
-        if internal and result.text.strip() == SKIP:  # a delivery that would only repeat what was already said
+        if internal and SKIP in (result.text.strip(), result.final_text.strip()):  # a delivery that would only repeat what was already said
             if batch[0].done and not batch[0].done.done():
                 batch[0].done.set_exception(AlreadySaid())
             return

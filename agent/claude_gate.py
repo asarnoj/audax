@@ -66,7 +66,8 @@ class ClaudeTask:
 
 @dataclass
 class RunResult:
-    text: str
+    text: str  # everything the model wrote in this run, in order (text before and between tool calls included)
+    final_text: str = ""  # only what it wrote after its last tool call
     session_id: str | None = None
     structured: Any = None
     cost_usd: float | None = None
@@ -152,7 +153,10 @@ async def sdk_runner(task: ClaudeTask, workspace: Path, on_rate_limit: OnRateLim
             "cache_write": u.get("cache_creation_input_tokens") or 0,
             "turns": result.num_turns or 0,
         },
-        text=result.result or "\n".join(texts),
+        # All of it: a reply written before a tool call (e.g. listing findings, then marking them as told) is part of
+        # the answer. Taking only the last block once sent the owner just a closing line (13 Oct).
+        text="\n\n".join(t.strip() for t in texts if t.strip()) or (result.result or ""),
+        final_text=result.result or (texts[-1] if texts else ""),
         session_id=result.session_id,
         structured=result.structured_output,
         cost_usd=result.total_cost_usd,
