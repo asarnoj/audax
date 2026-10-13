@@ -11,6 +11,7 @@ Python gathers the facts, Claude judges, Python applies the result within fixed 
 
 from __future__ import annotations
 
+import asyncio
 import json
 import logging
 from datetime import datetime, timedelta
@@ -21,7 +22,7 @@ from agent.pursuits import Pursuits
 from agent.claude_gate import ClaudeGate, ClaudeTask, Priority, QuotaPaused
 from agent.config import Settings
 from agent.db import Database
-from agent.inbox import Inbox
+from agent.posts import ROLES, Posts
 from agent.memory import MemoryRepo
 from agent.pipeline.outbox import add_candidate
 from agent.prompts import prompt as prompt_template
@@ -30,6 +31,7 @@ log = logging.getLogger(__name__)
 
 MODULE = "manager@1"
 LAST_RUN_KEY = "manager.last_run"
+WORKING_MEMORY = "arbetsminne/manager.md"
 CHECKIN_KEY = "manager.last_checkin"
 CHAT_SEED_KEY = "chat.seed_summary"
 CHAT_CONTEXT_LIMIT = 60_000  # tokens; above this the nightly pass starts the chat over from a summary
@@ -83,13 +85,27 @@ SCHEMA = {
             "required": ["kind", "title", "description"],
         },
         "checkin": {"type": "boolean", "description": "Send the check-in question now"},
+        "posts": {
+            "type": "array",
+            "description": "Notes or feedback to another role (not to the owner). They read it at their next run.",
+            "items": {
+                "type": "object",
+                "properties": {
+                    "to": {"type": "string", "enum": ["director", "researcher"]},
+                    "kind": {"type": "string", "enum": ["note", "feedback"]},
+                    "body": {"type": "string", "description": "Swedish"},
+                },
+                "required": ["to", "kind", "body"],
+            },
+        },
+        "working_memory_md": {"type": "string", "description": "Swedish. Your whole new working memory (see the prompt)"},
         "journal_md": {"type": "string", "description": "Swedish. Today's journal entry"},
         "changelog": {"type": "string", "description": "Swedish. What you changed and why; empty string if nothing"},
         "note_to_owner": {"type": ["string", "null"], "description": "Swedish brief for the chat, or null"},
         "restart_chat": {"type": "boolean", "description": "Only if the conversation itself needs a fresh start"},
         "chat_summary": {"type": "string", "description": "Always. Swedish: short summary of the conversation so far (ongoing threads, promises, what is current). Used if the session restarts."},
     },
-    "required": ["policy_md", "policy_reason", "journal_md", "changelog", "checkin", "restart_chat", "chat_summary"],
+    "required": ["policy_md", "policy_reason", "working_memory_md", "journal_md", "changelog", "checkin", "restart_chat", "chat_summary"],
 }
 
 CHECKIN_QUESTION = "Avstämning: hur har mängden meddelanden från mig känts senaste tiden?"
@@ -103,6 +119,9 @@ class Manager:
         self.gate = gate
         self.memory = memory
         self.tz = ZoneInfo(settings.timezone)
+        self.posts = Posts(db)
+        self._lock = asyncio.Lock()  # one Manager at a time: its notebook has one writer
+        self._seen_posts: list[int] = []
 
     def now(self) -> datetime:
         return datetime.now(self.tz)
@@ -110,7 +129,13 @@ class Manager:
     # --- run ----------------------------------------------------------------
 
     async def run(self) -> dict | None:
+        async with self._lock:
+            return await self._run()
+
+    async def _run(self) -> dict | None:
         now = self.now()
+        inbox = await self.posts.inbox("manager")
+        self._seen_posts = [p["id"] for p in inbox]
         last = await self.db.kv_get(LAST_RUN_KEY)
         since = datetime.fromisoformat(last) if last else now - timedelta(days=1)
         since_sql = since.astimezone(ZoneInfo("UTC")).strftime("%Y-%m-%d %H:%M:%S")
@@ -118,13 +143,15 @@ class Manager:
         prompt = prompt_template("manager").format(
             now=f"{now:%Y-%m-%d %H:%M} ({['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'][now.weekday()]})",
             since=f"{since:%Y-%m-%d %H:%M}",
+            working_memory=self.memory.read(WORKING_MEMORY) or "(empty: this is your first run with a working memory)",
+            situation=self.memory.read("direction/now.md") or "(Director has no picture yet)",
             policy=self.memory.read("policy.md"),
             experiments=await self._experiments(),
             activity=await self._activity(since_sql),
             feedback=await self._feedback(since_sql),
             conversation=await self._conversation(since_sql),
             style_state=self.memory.read("style.md", "state.md"),
-            notes=self._format_notes(await Inbox(self.db).unprocessed("manager")),
+            notes=Posts.format(inbox),
             shelf=await self._shelf(),
             proposals=await self._proposals(),
             misc=await self._misc(),
@@ -172,9 +199,18 @@ class Manager:
                 )
                 changes.append(f"tog fram {cid} från hyllan")
         for q in (out.get("questions") or [])[:1]:
-            await Inbox(self.db).request("manager", q["what"], q["why"])
-            changes.append(f"fråga till användaren: {q['what']}")
-        await Inbox(self.db).mark_processed("manager")
+            await self.posts.send("manager", "assistant", "question", q["what"], context=q["why"])
+            changes.append(f"fråga till ägaren: {q['what']}")
+        for p in out.get("posts") or []:
+            if p.get("to") in ROLES and p["to"] != "manager":
+                pid = await self.posts.send("manager", p["to"], p.get("kind", "note"), p["body"])
+                changes.append(f"post #P{pid} till {p['to']}")
+        if wm := (out.get("working_memory_md") or "").strip():
+            path = self.memory.path / WORKING_MEMORY
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_text(wm + "\n")
+        await self.posts.handled(self._seen_posts, f"läst av Manager {now:%Y-%m-%d}")
+        self._seen_posts = []
 
         for e in out.get("experiments_close") or []:
             await self.db.execute(
@@ -328,12 +364,6 @@ class Manager:
             lines.append(f"{self._local(r['created_at'])} {who} [{len(r['text'])} chars]: {text}")
         return "\n".join(lines) or "Nothing."
 
-    @staticmethod
-    def _format_notes(notes: list[dict]) -> str:
-        return "\n".join(
-            f"- \"{n['verbatim']}\" → {n['interpretation']}" + (f" (answer to: {n['question']})" if n.get("question") else "")
-            for n in notes
-        ) or "None."
 
     async def _shelf(self) -> str:
         await self.db.execute(  # mechanical hygiene: shelved items without a date go stale after three weeks

@@ -3,7 +3,8 @@
 from __future__ import annotations
 
 import logging
-from dataclasses import dataclass
+import re
+from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any
 
 from claude_agent_sdk import create_sdk_mcp_server as _create_sdk_mcp_server
@@ -17,7 +18,7 @@ log = logging.getLogger(__name__)
 if TYPE_CHECKING:
     from agent.builder import Builder
     from agent.controls import Controls
-    from agent.inbox import Inbox
+    from agent.posts import Posts
     from agent.schedule import Schedule
 
 SERVER_NAME = "agent"
@@ -50,6 +51,7 @@ class TurnContext:
     # Isolation (docs/OPERATIONS.md, Säkerhet): once a run has read mail, it may not reach new addresses on the web,
     # so nothing written by a stranger in a mail can make Audax carry private data out in a URL.
     mail_read: bool = False
+    refs: set = field(default_factory=set)  # IDs this turn touched (#P, #S, #F), linked to the messages afterwards
 
 
 ISOLATED = (
@@ -72,8 +74,7 @@ def build_chat_tools(
     schedule: Schedule | None = None,
     controls: Controls | None = None,
     builder: Builder | None = None,
-    inbox: Inbox | None = None,
-    wake_director=None,
+    inbox: Posts | None = None,
     memory_path=None,
 ) -> tuple[dict[str, Any], list[str]]:
     """Returns (mcp_servers entry, allowed tool names)."""
@@ -188,13 +189,26 @@ def build_chat_tools(
         except ValueError:
             return _text("[internal] Give a title (or reply to the tip it is about).")
         row = await db.fetchone("SELECT * FROM pursuits WHERE id = ?", (pid,))
+        turn.refs.add(f"#S{pid}")
         return _text(
-            f"[internal] {'Tracked' if created else 'Updated'} #{pid}: {row['title']} · {LABEL.get(row['status'], row['status'])}"
+            f"[internal] {'Tracked' if created else 'Updated'} #S{pid}: {row['title']} · {LABEL.get(row['status'], row['status'])}"
             + (f" · deadline {row['deadline']}" if row["deadline"] else " · no deadline known")
             + (f" · reminder {row['remind_at']}" if row["remind_at"] else "")
         )
 
-    tools = [record_feedback, interview_guide, report_problem, track_pursuit]
+    @tool(
+        "lookup",
+        "Look things up instead of trying to remember: an ID (#P12 a post, #S3 something {owner} is pursuing, #F210 a "
+        "finding) gives its details and history; a few words search posts, pursuits, findings and the conversation. Use "
+        "it for 'vad lovade du om Google?', 'vad hände med X?', or before you answer about something from earlier.",
+        {"type": "object", "properties": {"query": {"type": "string"}}, "required": ["query"]},
+    )
+    async def lookup(args: dict[str, Any]) -> dict[str, Any]:
+        from agent import refs
+
+        return _text("[internal] " + await refs.lookup(db, args["query"]))
+
+    tools = [record_feedback, interview_guide, report_problem, track_pursuit, lookup]
 
     if memory_path is not None:
 
@@ -292,7 +306,7 @@ def build_chat_tools(
         tools.append(request_change)
 
     if inbox is not None:
-        tools += _inbox_tools(inbox, wake_director, turn)
+        tools += _post_tools(inbox, turn)
 
     server = create_sdk_mcp_server(SERVER_NAME, tools=tools)
     return {SERVER_NAME: server}, [tool_name(t.name) for t in tools]
@@ -336,6 +350,7 @@ def _control_tools(controls: Controls, turn: TurnContext) -> list:
     )
     async def shelf_told(args: dict[str, Any]) -> dict[str, Any]:
         n = await controls.dispatcher.outbox.mark_pulled([int(i) for i in args["ids"]])
+        turn.refs.update(f"#F{int(i)}" for i in args["ids"])
         return _text(f"[internal] {n} marked as told.")
 
     @tool(
@@ -395,42 +410,65 @@ def _control_tools(controls: Controls, turn: TurnContext) -> list:
     return [pause_messages, get_shelf, shelf_told, explain_message, source_overview, run_research, activity_report, how_i_work]
 
 
-def _inbox_tools(inbox: Inbox, wake_director=None, turn: TurnContext | None = None) -> list:
-    """Routing between the one voice and the two minds behind it (docs/ARCHITECTURE.md)."""
+def _post_tools(posts: Posts, turn: TurnContext | None = None) -> list:
+    """The internal mail (docs/MODEL.md, "Postgången"): the Assistant passes on what the owner says and asks the office's questions."""
 
     @tool(
-        "route_note",
-        "Pass something {owner} said to the right part of Audax, with their exact words. director: goals, projects, what "
-        "{owner} spends time on, what chafes, ideas, what matters in their life. manager: how Audax feels to them (too "
-        "much or too little, timing, length, tone, what was good). Also use it when {owner} answers an open question "
-        "(give request_id). Facts about {owner} still go into memory as usual.",
+        "send_post",
+        "Pass something {owner} said to the role it concerns, with their exact words and your reading. director: goals, "
+        "projects, what {owner} spends time on, what chafes, ideas, what matters in their life. manager: how Audax feels "
+        "to them (too much or too little, timing, length, tone, what was good). When {owner} answers an open question, "
+        "give answer_to (its #P id): it goes back to whoever asked. Facts about {owner} still go into memory as usual.",
         {
             "type": "object",
             "properties": {
-                "owner": {"type": "string", "enum": ["director", "manager"]},
+                "to": {"type": "string", "enum": ["director", "manager"], "description": "Not needed with answer_to"},
                 "verbatim": {"type": "string", "description": "{owner_s} exact words, quoted verbatim"},
-                "interpretation": {"type": "string", "description": "Your interpretation, briefly"},
-                "request_id": {"type": ["integer", "null"]},
-                "act_now": {
+                "interpretation": {"type": "string", "description": "Your reading, briefly"},
+                "answer_to": {"type": ["string", "null"], "description": "The open question's id, e.g. #P12"},
+                "wake": {
                     "type": "boolean",
-                    "description": "Wake the recipient now instead of tonight. director: {owner} wants something driven "
+                    "description": "Start the recipient's work now instead of tonight. director: {owner} wants something driven "
                     "now ('hjälp mig hitta en praktikplats'). manager: clear, important feedback on the experience that "
                     "shouldn't wait ('det här blir för mycket', 'sluta skriva så långt').",
                 },
             },
-            "required": ["owner", "verbatim", "interpretation"],
+            "required": ["verbatim", "interpretation"],
         },
     )
-    async def route_note(args: dict[str, Any]) -> dict[str, Any]:
-        await inbox.note(args["owner"], args["verbatim"], args["interpretation"], args.get("request_id"))
-        if args.get("act_now") and wake_director:
-            wake_director(args["owner"])
+    async def send_post(args: dict[str, Any]) -> dict[str, Any]:
+        answer_to, to = None, args.get("to")
+        if args.get("answer_to"):
+            m = re.search(r"\d+", str(args["answer_to"]))
+            q = await posts.get(int(m.group())) if m else None
+            if q is None:
+                return _text("[internal] No such question; give its #P id from the open question.")
+            answer_to, to = q["id"], q["sender"]
+        if to not in ("director", "manager"):
+            return _text("[internal] Give `to` (director or manager), or answer_to.")
+        pid = await posts.send(
+            "assistant", to, "answer" if answer_to else "note", args["interpretation"], verbatim=args["verbatim"],
+            answer_to=answer_to, from_owner=True, wake=bool(args.get("wake")),
+        )
+        if turn is not None:
+            turn.refs.add(f"#P{pid}")
+        if args.get("wake"):
             return _text(personalize(
-                "[internal] Saved, and acted on: it is being set up now (a thread, search missions and watched sources as "
-                "needed). How it is routed is internal. Tell {owner} the outcome as your own commitment, e.g. what you will "
-                "look for and that you will report back."
+                f"[internal] Sent (#P{pid}), and acted on now. How it is routed is internal. Tell {{owner}} the outcome as "
+                "your own commitment, e.g. what you will look for and that you will report back."
             ))
-        return _text("[internal] Saved.")
+        return _text(f"[internal] Sent (#P{pid}).")
+
+    @tool(
+        "mark_question_asked",
+        "Call this once you have asked {owner} an open question from the office (its #P id).",
+        {"type": "object", "properties": {"id": {"type": "string"}}, "required": ["id"]},
+    )
+    async def mark_question_asked(args: dict[str, Any]) -> dict[str, Any]:
+        m = re.search(r"\d+", str(args["id"]))
+        if m:
+            await posts.asked(int(m.group()))
+        return _text("[internal] Noted.")
 
     @tool(
         "watch_source",
@@ -464,7 +502,8 @@ def _inbox_tools(inbox: Inbox, wake_director=None, turn: TurnContext | None = No
             kind = "rss" if args["type"] == "feed" else "page"
             result = ops.add_page(args["name"], args["url"], args.get("note", ""), "event", kind)
             result += " " + await ops.verify_source(kind, args["url"])
-        await inbox.note("director", f"[bad om bevakning] {args['name']}: {args['url']}", f"Ägaren lade till en {args['type']}-bevakning: {result}")
+        await posts.send("assistant", "director", "note", f"Ägaren lade till en {args['type']}-bevakning: {result}",
+                         verbatim=f"[bad om bevakning] {args['name']}: {args['url']}", from_owner=True)
         return _text(result)
 
     @tool(
@@ -496,19 +535,11 @@ def _inbox_tools(inbox: Inbox, wake_director=None, turn: TurnContext | None = No
             result = ops.tune_sense(sid, args["minutes"], args.get("why", ""))
         else:
             return _text("[internal] Give the number of minutes between checks.")
-        await inbox.note("director", args.get("why") or f"[bad om ändring] {sid}: {args['action']}", f"Ägaren ändrade bevakningen {sid}: {result}")
+        await posts.send("assistant", "director", "note", f"Ägaren ändrade bevakningen {sid}: {result}",
+                         verbatim=args.get("why") or f"[bad om ändring] {sid}: {args['action']}", from_owner=True)
         return _text(result.replace("avstängt", "avstängd, inget mer därifrån").replace(": var", " kollas nu var"))
 
-    @tool(
-        "mark_request_asked",
-        "Call this once you have asked {owner} an open question from Director or Manager.",
-        {"type": "object", "properties": {"request_id": {"type": "integer"}}, "required": ["request_id"]},
-    )
-    async def mark_request_asked(args: dict[str, Any]) -> dict[str, Any]:
-        await inbox.mark_asked(args["request_id"])
-        return _text("[internal] Noted.")
-
-    return [route_note, mark_request_asked, watch_source, change_watch]
+    return [send_post, mark_question_asked, watch_source, change_watch]
 
 
 def build_github_tools(reader) -> tuple[dict[str, Any], list[str]]:

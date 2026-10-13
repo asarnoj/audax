@@ -232,20 +232,20 @@ class Dispatcher:
         """Director's/Manager's free-text questions: the chat session asks them in its own words."""
         if self.inbox is None or self.outbox.speak is None:
             return
-        req = await self.inbox.open_request()
-        if req is None:
+        q = await self.inbox.open_question()
+        if q is None:
             return
         try:
             ids = await self.outbox.speak(
-                f"{req['owner'].capitalize()} wants to know something. Ask the owner naturally and briefly, as part of your "
-                f"conversation, not as a form. When they answer later, use route_note with request_id {req['id']}.\n"
-                f"What: {req['what']}\nWhy (for you; no need to say it): {req['why']}"
+                f"{q['sender'].capitalize()} wants to know something (#P{q['id']}). Ask the owner naturally and briefly, as "
+                f"part of your conversation, not as a form. When they answer later, use send_post with answer_to #P{q['id']}.\n"
+                f"What: {q['body']}\nWhy (for you; no need to say it): {q['context'] or '-'}"
             )
         except Exception as e:
-            log.warning("couldn't ask request %s: %s", req["id"], e)
+            log.warning("couldn't ask question %s: %s", q["id"], e)
             return
-        await self.inbox.mark_asked(req["id"], ids[0] if ids else None)
-        log.info("asked request %s from %s", req["id"], req["owner"])
+        await self.inbox.asked(q["id"], ids[0] if ids else None)
+        log.info("asked question %s from %s", q["id"], q["sender"])
 
     async def _ask_manager(self, q: dict) -> None:
         if q["type"] == "proposal":

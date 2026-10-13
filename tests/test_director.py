@@ -10,7 +10,7 @@ from agent.claude_gate import ClaudeGate, RunResult
 from agent.config import load_settings
 from agent.db import Database
 from agent.director import Director
-from agent.inbox import Inbox
+from agent.posts import Posts
 from agent.memory import MemoryRepo
 from agent.schedule import Schedule
 
@@ -54,7 +54,8 @@ BASE = {"person_md": None, "now_md": None, "goals_md": None, "log": ""}
 async def test_apply_writes_direction_threads_missions_senses_questions_ideas(env, tmp_path):
     db, memory, research, sources = env
     d = director(db, memory, tmp_path)
-    await Inbox(db).note("director", "jag söker en affärspartner till sidoprojektet", "partner behövs")
+    await Posts(db).send("assistant", "director", "note", "partner behövs", verbatim="jag söker en affärspartner till sidoprojektet", from_owner=True)
+    d._seen_posts = [p["id"] for p in await Posts(db).inbox("director")]
     changes = await d.apply({
         **BASE,
         "now_md": "# Nu\nTenta torsdag, flytt.",
@@ -73,11 +74,11 @@ async def test_apply_writes_direction_threads_missions_senses_questions_ideas(en
     assert thread.startswith("Status: active")
     assert [r["id"] for r in yaml.safe_load(research.read_text())] == ["jobs", "partner"]
     assert yaml.safe_load(sources.read_text())["streams"][-1]["url"] == "https://sses/events"
-    assert [r["what"] for r in await db.fetchall("SELECT what FROM requests")] == ["Vilken sorts partner?"]
+    assert [r["body"] for r in await db.fetchall("SELECT body FROM posts WHERE kind = 'question'")] == ["Vilken sorts partner?"]
     idea = await db.fetchone("SELECT kind, status, url, expires_at FROM candidates")
     assert (idea["kind"], idea["status"], idea["url"]) == ("insight", "pending", "https://sses/x")
     assert idea["expires_at"].startswith("2026-10-20")
-    assert await Inbox(db).unprocessed("director") == []
+    assert await Posts(db).inbox("director") == []
     assert "Startade partnertråden." in (memory.path / "direction" / "log.md").read_text()
     assert await memory.changed_files() == []
     assert any(c.startswith("idé till") for c in changes)

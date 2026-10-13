@@ -12,6 +12,9 @@ When mail is connected, this run reads it and therefore has no `web_read`. You c
 
 Now: {now}
 
+## Your working memory (from your last run)
+{working_memory}
+
 ## Your current picture
 {direction}
 
@@ -24,7 +27,7 @@ Now: {now}
 ## The conversation since the last review
 {conversation}
 
-## Notes to you ({owner_s} exact words → the chat's interpretation)
+## Your inbox
 {notes}
 
 ## Missions and senses, and what they have yielded

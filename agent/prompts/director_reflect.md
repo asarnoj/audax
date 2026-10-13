@@ -29,6 +29,9 @@ You have web search, `web_read`, and read access to {owner_s} GitHub through `gi
 
 Now: {now}
 
+## Your working memory (from your last run)
+{working_memory}
+
 ## Your current picture, goals, threads and ideas
 {direction}
 
@@ -41,7 +44,7 @@ Now: {now}
 ## The conversation in the last week (shortened)
 {conversation}
 
-## Notes to you ({owner_s} exact words → the chat's interpretation)
+## Your inbox
 {notes}
 
 ## Missions and senses, and what they have yielded

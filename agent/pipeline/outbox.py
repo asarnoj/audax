@@ -105,6 +105,9 @@ class Outbox:
             for r in rows:
                 await self.db.execute("UPDATE candidates SET status = 'pending' WHERE id = ? AND status = 'sending'", (r["id"],))
             return
+        from agent import refs
+
+        await refs.link(self.db, message_ids, {f"#F{r['id']}" for r in rows})
         for r in rows:
             await self.db.execute("UPDATE candidates SET status = 'sent', updated_at = datetime('now') WHERE id = ?", (r["id"],))
             for mid in message_ids:

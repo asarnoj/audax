@@ -374,6 +374,38 @@ MIGRATIONS: list[str] = [
         by TEXT
     );
     """,
+    # 18: the internal mail (docs/MODEL.md, "Postgången") replaces notes and requests, and messages link to the
+    # things they are about (posts, pursuits, findings ...) so the Assistant can look them up instead of remembering.
+    """
+    CREATE TABLE posts (
+        id INTEGER PRIMARY KEY,
+        created_at TEXT NOT NULL DEFAULT (datetime('now')),
+        sender TEXT NOT NULL,            -- owner|assistant|director|researcher|manager|system
+        recipient TEXT NOT NULL,         -- assistant|director|researcher|manager
+        kind TEXT NOT NULL,              -- note|question|answer|order|feedback|report
+        body TEXT NOT NULL,              -- the content, or the sender's reading of the owner's words
+        verbatim TEXT,                   -- the owner's exact words, when they matter
+        context TEXT,                    -- why (for questions: not to be said, only to phrase it well)
+        answer_to INTEGER REFERENCES posts(id),
+        from_owner INTEGER NOT NULL DEFAULT 0,
+        status TEXT NOT NULL DEFAULT 'new',   -- new|asked|done|expired
+        message_id INTEGER REFERENCES messages(id),
+        asked_at TEXT,
+        handled_at TEXT,
+        outcome TEXT
+    );
+    CREATE INDEX posts_inbox ON posts(recipient, status);
+    INSERT INTO posts (created_at, sender, recipient, kind, body, context, status, asked_at)
+        SELECT created_at, owner, 'assistant', 'question', what, why, CASE status WHEN 'asked' THEN 'asked' ELSE 'new' END, asked_at
+        FROM requests WHERE status IN ('pending', 'asked');
+    INSERT INTO posts (created_at, sender, recipient, kind, body, verbatim, from_owner)
+        SELECT created_at, 'assistant', owner, 'note', interpretation, verbatim, 1 FROM notes WHERE processed_at IS NULL;
+    CREATE TABLE message_refs (
+        message_id INTEGER NOT NULL REFERENCES messages(id),
+        ref TEXT NOT NULL,               -- e.g. #P12 (post), #S3 (pursuit), #F210 (finding)
+        PRIMARY KEY (message_id, ref)
+    );
+    """,
 ]
 
 

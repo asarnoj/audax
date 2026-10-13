@@ -12,7 +12,7 @@ from dataclasses import dataclass
 
 @dataclass(frozen=True)
 class Call:
-    role: str  # Worker | Director | Manager | Builder | Tooling
+    role: str  # Assistant | Director | Researcher | Manager | Senses | Builder | Tooling (docs/MODEL.md)
     purpose: str
     prompt: str  # prompt file(s) or where the instruction lives
     model: str  # settings.models.<key>, or a literal
@@ -21,21 +21,21 @@ class Call:
 
 
 CALLS: dict[str, Call] = {
-    "chat": Call("Worker", "The conversation, and writing every proactive message (internal turns)",
+    "chat": Call("Assistant", "The conversation, and writing every proactive message (internal turns)",
                  "prompts/chat.md + claude_md.md + style/state/interests", "models.chat",
                  "memory files, web search, web_read, github, mail (read), control/inbox tools", "each message from the owner; each delivery"),
-    "triage": Call("Worker", "Value features and a factual brief per new event, in batches",
+    "triage": Call("Director", "Value features and a factual brief per new event, in batches",
                    "prompts/triage.md", "models.triage", "none (structured output)", "new events from senses or research"),
-    "dispatcher": Call("Worker", "Whether, when and how pending items reach the owner",
+    "dispatcher": Call("Manager", "Whether, when and how pending items reach the owner",
                        "prompts/dispatcher.md", "models.dispatcher", "none (structured output)", "every 10 min when the outbox changed"),
-    "research": Call("Worker", "Run a mission's search queries and return checked findings",
+    "research": Call("Researcher", "Run a mission's search queries and return checked findings",
                      "prompts/research.md", "models.research", "web search, web_read", "per mission interval (1-4 days)"),
-    "research_deep": Call("Worker", "Weekly wide sweep of a mission (about 20 queries)",
+    "research_deep": Call("Researcher", "Weekly wide sweep of a mission (about 20 queries)",
                           "prompts/research.md + deep-sweep preamble", "models.research", "web search, web_read",
                           "weekly per mission, daytime, 3 h apart"),
-    "scout_queries": Call("Worker", "Generate new queries for a mission's search portfolio",
+    "scout_queries": Call("Researcher", "Generate new queries for a mission's search portfolio",
                           "prompts/scout_queries.md", "models.research", "none (structured output)", "when a portfolio runs low"),
-    "page_extract": Call("Worker", "Pull new items out of a watched page's changed lines",
+    "page_extract": Call("Senses", "Pull new items out of a watched page's changed lines",
                          "inline in sources/pages.py", "models.triage", "none (structured output)", "a watched page changed"),
     "director_understand": Call("Director", "Keep the picture of the owner current; steer missions and senses",
                                 "prompts/director.md + director_understand.md", "models.director", "memory (read), web search, web_read, mail (read)",

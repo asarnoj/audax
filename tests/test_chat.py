@@ -111,7 +111,7 @@ async def test_record_feedback_links_to_replied_message(db, monkeypatch):
 
     monkeypatch.setattr(tools_mod, "create_sdk_mcp_server", capture)
     _, names = build_chat_tools(db, TurnContext(replied_to_message_id=msg_id))
-    assert names == ["mcp__agent__record_feedback", "mcp__agent__interview_guide", "mcp__agent__report_problem", "mcp__agent__track_pursuit"]
+    assert names == ["mcp__agent__record_feedback", "mcp__agent__interview_guide", "mcp__agent__report_problem", "mcp__agent__track_pursuit", "mcp__agent__lookup"]
 
     await captured["tools"][0].handler({"target": "replied", "sentiment": "negative", "aspect": "amount", "note": "för långt"})
     row = await db.fetchone("SELECT message_id, signal, value, note FROM feedback")
@@ -187,11 +187,12 @@ async def test_speak_failure_raises_so_caller_can_fall_back(db, tmp_path):
         await chat.speak("säg något")
 
 
-async def test_open_request_is_offered_and_answer_routed_verbatim(db, tmp_path):
-    from agent.inbox import Inbox
+async def test_open_question_is_offered_and_the_answer_goes_back_to_whoever_asked(db, tmp_path):
+    from agent.posts import Posts
+    from agent.tools import TurnContext, _post_tools
 
-    inbox = Inbox(db)
-    rid = await inbox.request("director", "Varför står sidoprojektet still?", "Vill förstå om det är tid eller motivation")
+    posts = Posts(db)
+    qid = await posts.send("director", "assistant", "question", "Varför står sidoprojektet still?", context="Tid eller motivation?")
     prompts = []
 
     async def runner(task, ws, on_rl):
@@ -207,36 +208,72 @@ async def test_open_request_is_offered_and_answer_routed_verbatim(db, tmp_path):
     chat = ChatSession(load_settings(), db, ClaudeGate(db, tmp_path, runner=runner), FakeMemory(), send, typing)
     chat.submit(Incoming(text="tråkig dag"))
     await wait_idle(chat)
-    assert f"[open question #{rid} from director" in prompts[0]
+    assert f"[open question #P{qid} from director" in prompts[0]
 
-    await inbox.mark_asked(rid)
-    assert await inbox.open_request() is None  # one question at a time
-    await inbox.note("director", "Jag har fastnat på hur jag ska nå användare", "Distributionsproblem, inte tekniskt", rid)
-    notes = await inbox.unprocessed("director")
-    assert notes[0]["verbatim"] == "Jag har fastnat på hur jag ska nå användare" and notes[0]["question"].startswith("Varför")
-    assert (await db.fetchone("SELECT status FROM requests WHERE id = ?", (rid,)))["status"] == "answered"
+    await posts.asked(qid)
+    assert await posts.open_question() is None  # one question at a time
+    turn = TurnContext()
+    tools = {t.name: t for t in _post_tools(posts, turn)}
+    await tools["send_post"].handler({"verbatim": "Jag har fastnat på hur jag ska nå användare",
+                                      "interpretation": "Distributionsproblem, inte tekniskt", "answer_to": f"#P{qid}"})
+    [answer] = await posts.inbox("director")  # back to the one who asked
+    assert answer["verbatim"].startswith("Jag har fastnat") and answer["question"].startswith("Varför") and answer["kind"] == "answer"
+    assert (await posts.get(qid))["status"] == "done" and f"#P{answer['id']}" in turn.refs
+
+
+async def test_only_the_owners_words_may_wake_a_role(db):
+    from agent.posts import Posts
+
+    woken = []
+    Posts.waker = woken.append
+    try:
+        await Posts(db).send("assistant", "director", "note", "hitta praktik nu", verbatim="hjälp mig hitta praktik", from_owner=True, wake=True)
+        await Posts(db).send("manager", "director", "note", "Julius är stressad", wake=True)  # role to role: waits
+    finally:
+        Posts.waker = None
+    assert woken == ["director"]
+    assert len(await Posts(db).inbox("director")) == 2
 
 
 async def test_change_watch_stops_a_source_and_tells_the_director(db, monkeypatch):
     from agent import direction_ops as ops
     from agent.config import instance_config
-    from agent.inbox import Inbox
-    from agent.tools import _inbox_tools
+    from agent.posts import Posts
+    from agent.tools import _post_tools
 
     sources = instance_config("sources.yaml")
     sources.write_text("streams:\n  - id: hn-best\n    type: rss\n    url: https://hn\n")
     monkeypatch.setattr(ops, "SOURCES_FILE", sources)
-    inbox = Inbox(db)
-    tools = {t.name: t for t in _inbox_tools(inbox)}
+    posts = Posts(db)
+    tools = {t.name: t for t in _post_tools(posts)}
 
     out = await tools["change_watch"].handler({"source": "hn", "action": "stop", "why": "behöver inte HN"})
     assert "avstängd" in out["content"][0]["text"]
     assert "enabled: false" in sources.read_text()
-    note = (await inbox.unprocessed("director"))[0]
-    assert note["verbatim"] == "behöver inte HN" and "hn-best" in note["interpretation"]
+    note = (await posts.inbox("director"))[0]
+    assert note["verbatim"] == "behöver inte HN" and "hn-best" in note["body"]
 
     out = await tools["change_watch"].handler({"source": "nope", "action": "stop"})
     assert "Ingen bevakning matchar" in out["content"][0]["text"]
+
+
+async def test_lookup_finds_ids_and_words_and_messages_link_to_them(db):
+    from agent import refs
+    from agent.pursuits import Pursuits
+
+    sid, _ = await Pursuits(db).upsert({"title": "Google SRE Intern", "deadline": "2026-10-23"}, "chat")
+    mid = await db.execute("INSERT INTO messages (telegram_message_id, direction, text) VALUES (1, 'out', 'Jag påminner dig om Google den 16:e')")
+    await refs.link(db, [mid], {f"#S{sid}"})
+    assert "Google SRE Intern" in await refs.lookup(db, f"#S{sid}")
+    found = await refs.lookup(db, "google")
+    assert f"#S{sid}" in found and "påminner dig om Google" in found and f"[#S{sid}]" in found
+
+
+def test_the_assistant_can_only_write_its_own_files():
+    from agent.chat import CHAT_TOOLS
+
+    writes = [t for t in CHAT_TOOLS if t.startswith(("Edit", "Write"))]
+    assert "Edit(./memory/profile.md)" in writes and not any("**" in t or "direction" in t or "policy" in t for t in writes)
 
 
 def test_memory_is_new_until_the_profile_differs_from_the_template(tmp_path):

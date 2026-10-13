@@ -113,11 +113,12 @@ async def test_manager_v2_style_state_shelf_and_questions(env, tmp_path):
     (memory.path / "style.md").write_text("# Stil\nkort\n")
     shelved = await db.execute("INSERT INTO candidates (kind, title, body, status) VALUES ('event', 'Hack', 'b', 'shelved')")
     sent = await db.execute("INSERT INTO candidates (kind, title, body, status) VALUES ('event', 'X', 'b', 'sent')")
-    from agent.inbox import Inbox
+    from agent.posts import Posts
 
-    await Inbox(db).note("manager", "det där var för långt", "längd")
+    note = await Posts(db).send("assistant", "manager", "note", "längd", verbatim="det där var för långt", from_owner=True)
     m = manager(db, memory, tmp_path)
-    await m.apply({**BASE, "style_md": "# Stil\nännu kortare", "style_reason": "två klagomål på längd",
+    m._seen_posts = [note]
+    await m.apply({**BASE, "working_memory_md": "Fokus: längden.", "posts": [{"to": "director", "kind": "note", "body": "Julius verkar stressad"}], "style_md": "# Stil\nännu kortare", "style_reason": "två klagomål på längd",
                    "state_md": "Tentavecka.", "resurface": [shelved, sent],
                    "questions": [{"what": "Funkar kvällarna?", "why": "timing"}, {"what": "extra", "why": "x"}]}, NOW)
 
@@ -125,9 +126,11 @@ async def test_manager_v2_style_state_shelf_and_questions(env, tmp_path):
     assert (memory.path / "state.md").read_text() == "Tentavecka.\n"
     st = {r["id"]: r["status"] for r in await db.fetchall("SELECT id, status FROM candidates")}
     assert st == {shelved: "pending", sent: "sent"}  # only shelved items can be resurfaced
-    reqs = await db.fetchall("SELECT owner, what FROM requests")
-    assert [(r["owner"], r["what"]) for r in reqs] == [("manager", "Funkar kvällarna?")]  # at most one
-    assert await Inbox(db).unprocessed("manager") == []
+    qs = await db.fetchall("SELECT sender, recipient, body FROM posts WHERE kind = 'question'")
+    assert [(r["sender"], r["recipient"], r["body"]) for r in qs] == [("manager", "assistant", "Funkar kvällarna?")]  # at most one
+    assert await Posts(db).inbox("manager") == []  # read, so handled
+    assert [p["body"] for p in await Posts(db).inbox("director")] == ["Julius verkar stressad"]
+    assert (memory.path / "arbetsminne" / "manager.md").read_text() == "Fokus: längden.\n"
     assert "stilguide: två klagomål på längd" in (memory.path / "changelog.md").read_text()
 
 

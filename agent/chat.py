@@ -17,7 +17,8 @@ from zoneinfo import ZoneInfo
 from agent.claude_gate import ClaudeGate, ClaudeTask, Priority, QuotaPaused
 from agent.config import Settings
 from agent.db import Database
-from agent.inbox import Inbox
+from agent.posts import Posts
+from agent import refs as refs_mod
 from agent.memory import MemoryRepo
 from agent.pipeline.outbox import SKIP, AlreadySaid
 from agent.prompts import personalize
@@ -36,10 +37,11 @@ MONTHS = ["jan", "feb", "mar", "apr", "maj", "jun", "jul", "aug", "sep", "okt", 
 
 # Tools for the chat session; paths are relative to workspace/ and further limited by
 # workspace/.claude/settings.json (e.g. policy.md is read-only).
+# Rights follow ownership (docs/MODEL.md): the Assistant reads all of memory but writes only its own files.
+ASSISTANT_FILES = ("profile.md", "interests.md", "projects.md", "school.md", "schedule.md", "interrupt.md", "arbetsminne/assistant.md")
 CHAT_TOOLS = [
     "Read(./memory/**)",
-    "Edit(./memory/**)",
-    "Write(./memory/**)",
+    *(f"{verb}(./memory/{f})" for f in ASSISTANT_FILES for verb in ("Edit", "Write")),
     "WebSearch",
 ]
 
@@ -49,6 +51,7 @@ class Incoming:
     text: str
     replied_to_message_id: int | None = None  # messages.id
     replied_to_text: str | None = None
+    message_row_id: int | None = None  # messages.id of an incoming message, so the turn's IDs can be linked to it
     internal: bool = False  # an instruction from the system (dispatcher, Director, Manager), not from the owner
     done: asyncio.Future | None = None  # internal turns: resolved with the messages.id rows that were sent
 
@@ -72,12 +75,11 @@ class ChatSession:
         self.schedule = schedule
         self.controls = None  # set by main once the dispatcher exists
         self.builder = None  # set by main
-        self.wake_director = None  # set by main: () -> None, runs Director's daily pass soon
         self.github = None  # set by main: read-only GitHubReader
         self.web = None  # set by main: WebReader (web_read tool)
         self.mail = None  # set by main: read-only MailReader
         self.db = db
-        self.inbox = Inbox(db)
+        self.inbox = Posts(db)
         self.gate = gate
         self.memory = memory
         self._send = send
@@ -137,10 +139,11 @@ class ChatSession:
             parts.append(f"[new session: summary of the conversation so far]\n{seed}\n[end]")
             parts.append(await self._recent_conversation(limit=12))
         parts.extend(await self._proactive_since_last_turn())
-        if not batch[0].internal and (req := await self.inbox.open_request()):
+        if not batch[0].internal and (q := await self.inbox.open_question()):
             parts.append(
-                f"[open question #{req['id']} from {req['owner']}: ask only if it fits naturally now; if you ask it, call "
-                f"mark_request_asked. What: {req['what']} · Why: {req['why']}]"
+                f"[open question #P{q['id']} from {q['sender']}: ask only if it fits naturally now; if you ask it, call "
+                f"mark_question_asked. When {{owner}} answers, send_post with answer_to #P{q['id']}. "
+                f"What: {q['body']} · Why: {q['context'] or '-'}]".replace("{owner}", "the owner")
             )
         for m in batch:
             if m.internal:
@@ -189,7 +192,7 @@ class ChatSession:
     async def _turn(self, batch: list[Incoming]) -> None:
         turn = TurnContext(replied_to_message_id=next((m.replied_to_message_id for m in reversed(batch) if m.replied_to_message_id), None))
         mcp_servers, tool_names = build_chat_tools(
-            self.db, turn, self.schedule, self.controls, self.builder, self.inbox, self.wake_director, getattr(self.memory, "path", None)
+            self.db, turn, self.schedule, self.controls, self.builder, self.inbox, getattr(self.memory, "path", None)
         )
         if self.web is not None:
             w_servers, w_names = build_web_tools(self.web, turn)
@@ -255,6 +258,8 @@ class ChatSession:
             return
         if result.text.strip():
             ids = await self._send(result.text.strip(), origin="proactive" if internal else "chat", in_session=True)
+        if turn.refs:  # link what this turn was about to its messages, so it can be looked up later
+            await refs_mod.link(self.db, ids + [m.message_row_id for m in batch if m.message_row_id], turn.refs)
         if internal and batch[0].done and not batch[0].done.done():
             batch[0].done.set_result(ids)
         await self.memory.commit_if_changed(f"chat {self._now()}")

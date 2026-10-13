@@ -377,7 +377,7 @@ class TelegramBot:
         if msg.reply_to_message:
             replied_text = msg.reply_to_message.text
             replied_row = await self._message_row_id(msg.reply_to_message.message_id)
-        await self.db.execute(
+        row_id = await self.db.execute(
             "INSERT INTO messages (telegram_message_id, direction, text) VALUES (?, 'in', ?)", (msg.message_id, msg.text)
         )
         if replied_row is not None:
@@ -386,7 +386,7 @@ class TelegramBot:
                 "SELECT id, candidate_id, 'reply', 'reply', ? FROM messages WHERE id = ?",
                 (msg.text[:500], replied_row),
             )
-        self.chat.submit(Incoming(text=msg.text, replied_to_message_id=replied_row, replied_to_text=replied_text))
+        self.chat.submit(Incoming(text=msg.text, replied_to_message_id=replied_row, replied_to_text=replied_text, message_row_id=row_id))
 
     async def on_reaction(self, update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
         r = update.message_reaction

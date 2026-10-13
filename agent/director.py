@@ -6,11 +6,14 @@ Two loops, both in the background, never talking to the owner directly:
   shares one through the outbox, where the dispatcher and Manager's policy still decide when
 
 Python gathers the facts, Claude judges, Python applies the result: direction files, missions and senses
-via direction_ops, questions via the inbox, ideas as outbox candidates.
+via direction_ops, posts to the other roles and questions for the owner via the internal mail (agent/posts.py),
+ideas as outbox candidates. Its working memory (memory/arbetsminne/director.md) is what makes it the same mind
+from night to night: read first, rewritten every run (docs/MODEL.md).
 """
 
 from __future__ import annotations
 
+import asyncio
 import logging
 import re
 from collections import defaultdict
@@ -23,7 +26,7 @@ from agent.pursuits import Pursuits
 from agent.claude_gate import ClaudeGate, ClaudeTask, Priority, QuotaPaused
 from agent.config import Settings
 from agent.db import Database
-from agent.inbox import Inbox
+from agent.posts import ROLES, Posts
 from agent.memory import MemoryRepo
 from agent.pipeline.outbox import add_candidate
 from agent.prompts import prompt as prompt_template
@@ -34,6 +37,7 @@ from agent.tools import build_github_tools, build_mail_tools, build_web_tools
 log = logging.getLogger(__name__)
 
 LAST_KEY = "director.last_{mode}"
+WORKING_MEMORY = "arbetsminne/director.md"
 PROPOSED_KEY = "director.proposed_sources"  # URL sources from a review that read mail, for the reflection to check
 URL_OPS = ("add_page", "add_feed", "add_company")
 LEVEL = {"type": "string", "enum": ["low", "medium", "high"]}
@@ -92,6 +96,20 @@ SCHEMA = {
             "description": "At most one, in Swedish",
             "items": {"type": "object", "properties": {"what": {"type": "string"}, "why": {"type": "string"}}, "required": ["what", "why"]},
         },
+        "posts": {
+            "type": "array",
+            "description": "Notes, orders or feedback to another role (not to the owner). They read it at their next run.",
+            "items": {
+                "type": "object",
+                "properties": {
+                    "to": {"type": "string", "enum": ["manager", "researcher"]},
+                    "kind": {"type": "string", "enum": ["note", "order", "feedback"]},
+                    "body": {"type": "string", "description": "Swedish"},
+                },
+                "required": ["to", "kind", "body"],
+            },
+        },
+        "working_memory_md": {"type": "string", "description": "Swedish. Your whole new working memory (see the prompt)"},
         "ideas_md": {"type": ["string", "null"], "description": "Swedish. The whole new ideas.md, or null"},
         "share": {
             "type": "array",
@@ -175,9 +193,9 @@ SCHEMA = {
         },
         "log": {"type": "string", "description": "Swedish. What you changed and why, briefly. Empty if nothing."},
     },
-    "required": ["person_md", "now_md", "goals_md", "pursuit_updates", "lead_decisions", "log"],
+    "required": ["person_md", "now_md", "goals_md", "pursuit_updates", "lead_decisions", "working_memory_md", "log"],
 }
-MEMORY_FILES = ("profile.md", "projects.md", "interests.md", "school.md", "schedule.md", "open-questions.md")
+MEMORY_FILES = ("profile.md", "projects.md", "interests.md", "school.md", "schedule.md")
 
 
 class Director:
@@ -187,7 +205,9 @@ class Director:
         self.gate = gate
         self.memory = memory
         self.schedule = schedule
-        self.inbox = Inbox(db)
+        self.posts = Posts(db)
+        self._lock = asyncio.Lock()  # one Director at a time: its notebook has one writer
+        self._seen_posts: list[int] = []
         self.tz = ZoneInfo(settings.timezone)
         self.dir = memory.path / "direction"
         self.windows = None  # async () -> str, set when windows (GitHub, notes, ...) exist
@@ -199,6 +219,10 @@ class Director:
 
     async def run(self, mode: str = "understand") -> dict | None:
         assert mode in ("understand", "reflect")
+        async with self._lock:
+            return await self._run(mode)
+
+    async def _run(self, mode: str) -> dict | None:
         now = datetime.now(self.tz)
         last = await self.db.kv_get(LAST_KEY.format(mode=mode))
         since = datetime.fromisoformat(last) if last else now - timedelta(days=7 if mode == "reflect" else 2)
@@ -209,8 +233,11 @@ class Director:
             since = now - timedelta(days=60)
         since_sql = since.astimezone(ZoneInfo("UTC")).strftime("%Y-%m-%d %H:%M:%S")
 
+        inbox = await self.posts.inbox("director")
+        self._seen_posts = [p["id"] for p in inbox]
         context = {
             "now": f"{now:%Y-%m-%d %H:%M} ({['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'][now.weekday()]})",
+            "working_memory": self.memory.read(WORKING_MEMORY) or "(empty: this is your first run with a working memory)",
             "direction": self._direction(),
             "memory": self.memory.read(*MEMORY_FILES),
             "time": await self._time(now),
@@ -221,7 +248,7 @@ class Director:
                 else ""
             )
             + await self._conversation(since_sql, full=(mode == "understand")),
-            "notes": self._notes(await self.inbox.unprocessed("director")),
+            "notes": Posts.format(inbox),
             "missions": await self._missions(),
             "windows": await self._windows(mode),
             "state": self.memory.read("state.md"),
@@ -350,7 +377,7 @@ class Director:
             )
             changes.append(f"läge om sökningen till ägaren: {u['title']}")
         for q in (out.get("questions") or [])[:1]:
-            await self.inbox.request("director", q["what"], q["why"])
+            await self.posts.send("director", "assistant", "question", q["what"], context=q["why"])
             changes.append(f"fråga: {q['what']}")
         for idea in (out.get("share") or [])[:2]:
             expires = None
@@ -378,7 +405,16 @@ class Director:
             )
             changes.append(f"idé till ägaren: {idea['title']}")
 
-        await self.inbox.mark_processed("director")
+        for p in out.get("posts") or []:
+            if p.get("to") in ROLES and p["to"] != "director":
+                pid = await self.posts.send("director", p["to"], p.get("kind", "note"), p["body"])
+                changes.append(f"post #P{pid} till {p['to']}")
+        if wm := (out.get("working_memory_md") or "").strip():
+            path = self.memory.path / WORKING_MEMORY
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_text(wm + "\n")
+        await self.posts.handled(self._seen_posts, f"läst av Director ({mode} {now:%Y-%m-%d})")
+        self._seen_posts = []
         log_text = (out.get("log") or "").strip()
         if log_text or changes:
             with (self.dir / "log.md").open("a") as f:
@@ -443,12 +479,6 @@ class Director:
             lines.append(f"{d:%d/%m %H:%M} {who}: {text}")
         return "\n".join(lines) or "Nothing."
 
-    @staticmethod
-    def _notes(notes: list[dict]) -> str:
-        return "\n".join(
-            f"- \"{n['verbatim']}\" → {n['interpretation']}" + (f" (answer to: {n['question']})" if n.get("question") else "")
-            for n in notes
-        ) or "None."
 
     async def _missions(self) -> str:
         lines = ["Search missions:"]

@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import logging
 import os
+import re
 import signal
 from datetime import datetime, timedelta
 
@@ -23,6 +24,7 @@ from agent.windows import GitHubReader, all_windows
 from agent.db import Database
 from agent.manager import Manager
 from agent.memory import MemoryRepo
+from agent.posts import Posts
 from agent.pipeline.dispatcher import Dispatcher
 from agent.pipeline.ingest import Ingest
 from agent.sources.pages import claude_extractor
@@ -35,6 +37,20 @@ from agent.sources.calendar import build_sources, load_calendar_configs
 from agent.telegram_bot import TelegramBot
 
 log = logging.getLogger("agent")
+
+
+async def move_open_questions(memory: MemoryRepo, posts: Posts) -> None:
+    """open-questions.md is replaced by the internal mail (docs/MODEL.md): its content goes to Director, once."""
+    path = memory.path / "open-questions.md"
+    if not path.exists():
+        return
+    text = re.sub(r"<!--.*?-->", "", path.read_text(), flags=re.DOTALL)
+    lines = [ln for ln in text.splitlines() if ln.strip() and not ln.startswith("#")]
+    if lines:
+        await posts.send("assistant", "director", "note", "Luckor i förståelsen som tidigare låg i open-questions.md:\n" + "\n".join(lines))
+    path.unlink()
+    await memory.commit_if_changed("open-questions.md flyttad till postgången")
+    log.info("moved open-questions.md to Director's inbox (%d lines)", len(lines))
 
 
 async def run() -> None:
@@ -58,13 +74,15 @@ async def run() -> None:
     db = Database(settings.database)
     await db.open()
 
-    gate = ClaudeGate(db, settings.workspace)
+    gate = ClaudeGate(db, settings.workspace)  # the background lane: roles queue here, one run at a time
+    chat_gate = ClaudeGate(db, settings.workspace, quota=gate.quota)  # the conversation lane: never waits for background work
     memory = MemoryRepo(settings.workspace / "memory")
     if not (memory.path / ".git").exists():
         raise SystemExit("workspace/memory saknas: kör ./deploy/init-memory.sh först")
     cal_configs, cal_options = load_calendar_configs()
     schedule = Schedule(settings, db, build_sources(cal_configs, settings.timezone), cal_options.get("window_days", 21))
-    bot = TelegramBot(settings, db, gate, memory, schedule)
+    bot = TelegramBot(settings, db, chat_gate, memory, schedule)
+    await move_open_questions(memory, Posts(db))
     outbox = Outbox(db, schedule, bot.send)
     await outbox.recover()  # deliveries interrupted by a crash or restart
     manager = Manager(settings, db, gate, memory)
@@ -125,19 +143,22 @@ async def run() -> None:
     web = WebReader(db, github=director.github)
     director.web = bot.chat.web = researcher.web = web
 
-    # Worker -> Director/Manager: a note marked act_now triggers that mind's pass soon instead of at night.
-    # Coalesced (one queued run per mind) and spaced (at most every 30 min), so a chatty day can't loop them.
+    # The internal mail wakes a role when a post from a chain that began with the owner asks for it (agent/posts.py).
+    # Coalesced (one queued run per role) and spaced (at most every 30 min), so a chatty day can't flood them.
     last_wake: dict[str, datetime] = {}
 
-    def wake(owner: str) -> None:
-        if owner in last_wake and datetime.now() - last_wake[owner] < timedelta(minutes=30):
-            return  # the pending notes are picked up by the next run anyway
-        last_wake[owner] = datetime.now()
-        job, args = (director.run, ["understand"]) if owner == "director" else (manager.run, [])
-        scheduler.add_job(job, "date", run_date=datetime.now() + timedelta(seconds=20), args=args, id=f"{owner}_now", replace_existing=True)
-        log.info("woke %s on request from the chat", owner)
+    def wake(role: str) -> None:
+        runs = {"director": (director.run, ["understand"]), "manager": (manager.run, [])}
+        if role not in runs:
+            return  # other roles read their inbox at their next run
+        if role in last_wake and datetime.now() - last_wake[role] < timedelta(minutes=30):
+            return  # the pending posts are picked up by the next run anyway
+        last_wake[role] = datetime.now()
+        job, args = runs[role]
+        scheduler.add_job(job, "date", run_date=datetime.now() + timedelta(seconds=20), args=args, id=f"{role}_now", replace_existing=True)
+        log.info("woke %s on the owner's behalf", role)
 
-    bot.chat.wake_director = wake
+    Posts.waker = wake
 
     async def process_new_events() -> None:
         if await triage.run():
