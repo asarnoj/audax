@@ -13,6 +13,7 @@ from telegram import InlineKeyboardButton, InlineKeyboardMarkup, Update
 from telegram.constants import ChatAction, ParseMode
 from telegram.error import NetworkError, RetryAfter, TimedOut
 
+from agent.plaintext import to_plain
 from agent.pursuits import POSITIVE_REACTIONS, Pursuits, candidates_of_message
 from telegram.ext import (
     Application,
@@ -102,6 +103,7 @@ class TelegramBot:
         Returns the messages.id rows (one per chunk)."""
         if self.settings.telegram_chat_id is None:
             return []
+        text = to_plain(text)  # Telegram shows plain text: no stray Markdown symbols
         ids = []
         for chunk in _chunks(text):
             msg = await self._send_retrying(chunk)

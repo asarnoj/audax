@@ -405,7 +405,7 @@ def _control_tools(controls: Controls, turn: TurnContext) -> list:
     async def how_i_work(args: dict[str, Any]) -> dict[str, Any]:
         from agent.self_description import describe
 
-        return _text(describe() + "\n\n## Right now: what you watch\n" + await controls.sources())
+        return _text(describe())  # what is watched right now: source_overview, when they ask
 
     agenda = controls.dispatcher.agenda
 
