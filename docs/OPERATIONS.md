@@ -19,7 +19,7 @@ Se det live:
 
 En enkel webbsida i samma process (`agent/site.py`, data i `agent/office.py`): vad varje roll gör just nu (live, med verktygsstegen i en pågående körning), händelserna (samtalet, posten mellan rollerna, körningarna), varje rolls skrivbord (arbetsminne, filer, inkorg, historik), en körnings steg, ärenden följda via id (#P, #S, #F, #B), arkivet (minnet och instansens inställningar) och alla tabeller. Samma data finns som JSON under `/api/` för det illustrerade kontoret senare. Sidan kan bara läsa.
 
-- Den lyssnar bara på `127.0.0.1:8400` (`site:` i settings.yaml). **Tailscale Serve** gör den nåbar på ägarens egna enheter i tailnetet, med HTTPS, och ingen annanstans: `sudo tailscale serve --bg 8400` en gång på Pi:n. Adressen är Pi:ns tailnet-namn.
+- Motorn lyssnar bara på `127.0.0.1:8400` (`site:` i settings.yaml). **nginx** på Pi:n gör den nåbar på Pi:ns Tailscale-adress, port 8400, och ingen annanstans (inte hemnätet): `/etc/nginx/sites-available/audax` med `listen <tailscale-ip>:8400;` och `proxy_pass http://127.0.0.1:8400;`. Öppna `http://<pi-namnet>:8400` på en enhet i tailnetet.
 - `.env` ligger utanför arkivet, och dolda filer (`.git`) visas inte.
 - Inga Claude-körningar når sidan: netguard vägrar Pi:n själv.
 
