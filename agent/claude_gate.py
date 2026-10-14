@@ -62,6 +62,7 @@ class ClaudeTask:
     cwd: Path | None = None  # defaults to the gate's workspace
     disallowed_tools: list[str] = field(default_factory=list)  # deny rules; win over allowed_tools
     effort: str | None = None  # low|medium|high|xhigh|max
+    trace: list[dict] = field(default_factory=list)  # filled live while the task runs (the office page shows it)
 
 
 @dataclass
@@ -116,7 +117,7 @@ async def sdk_runner(task: ClaudeTask, workspace: Path, on_rate_limit: OnRateLim
     )
 
     texts: list[str] = []
-    trace: list[dict] = []
+    trace = task.trace
     by_id: dict[str, dict] = {}
     context = 0
     result: ResultMessage | None = None
@@ -178,6 +179,9 @@ class QuotaState:
     heavy_paused_until: float = 0.0
     last_rate_limit: RateLimitInfo | None = None
 
+
+# The runs in progress, in every gate, for the office page (agent/office.py): id -> (task, started).
+RUNNING: dict[int, tuple[ClaudeTask, float]] = {}
 
 HEAVY_KINDS = {"research", "research_deep", "director_reflect", "researcher_plan"}
 WEEK_STOP = 0.9  # mechanical quota guard: above this share of the weekly window, all background work waits
@@ -281,11 +285,14 @@ class ClaudeGate:
             if (until := self.paused_until(task.priority)) is not None:
                 raise QuotaPaused(until)
             started = time.monotonic()
+            RUNNING[id(task)] = (task, time.time())
             try:
                 result = await self._runner(task, self.workspace, self._on_rate_limit)
             except Exception as e:  # CLI missing, process crash, etc.
                 log.exception("claude run failed (%s)", task.kind)
                 result = RunResult(text="", is_error=True, error=f"{type(e).__name__}: {e}")
+            finally:
+                RUNNING.pop(id(task), None)
             if result.duration_ms is None:
                 result.duration_ms = int((time.monotonic() - started) * 1000)
 

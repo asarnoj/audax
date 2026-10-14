@@ -1,6 +1,6 @@
 """IDs and lookup (docs/MODEL.md, "ID:n och uppslag"): structure instead of free text.
 
-Everything worth following up has a short ID: #P posts, #S pursuits, #F findings (outbox candidates) and, later, #B
+Everything worth following up has a short ID: #P posts, #S pursuits, #F findings (outbox candidates) and #B
 bookings. Messages link to the IDs they are about, so the Assistant looks things up ("what did I promise about
 Google?") instead of trying to remember. IDs are the kitchen's tools: they are for the office and the web page, not
 for the owner's chat.
@@ -12,7 +12,7 @@ import re
 
 from agent.db import Database
 
-PATTERN = re.compile(r"#?([PSF])(\d+)\b", re.I)
+PATTERN = re.compile(r"#?([PSFB])(\d+)\b", re.I)
 
 
 async def link(db: Database, message_ids: list[int], refs: set[str]) -> None:
@@ -45,6 +45,15 @@ async def describe(db: Database, ref: str) -> str | None:
             + (f"\nNext: {p['next_step']}" if p["next_step"] else "") + (f"\n{p['url']}" if p["url"] else "")
             + "\nHistory:\n" + "\n".join(f"- {r['created_at'][:10]} {r['status'] or ''} {r['note'] or ''} ({r['by']})" for r in log)
         )
+    if kind == "B":
+        b = await db.fetchone("SELECT * FROM bookings WHERE id = ?", (n,))
+        if b is None:
+            return None
+        return (
+            f"#B{n} · {b['kind']} · {b['status']} · due {b['due_at'][:16]} UTC" + (f" (latest {b['latest_at'][:16]})" if b["latest_at"] else "")
+            + f" · by {b['requested_by']}" + (f" · about {b['ref']}" if b["ref"] else "") + f"\n{b['title']}\n{b['body']}"
+            + (f"\n{b['reason']}" if b["reason"] else "")
+        )
     c = await db.fetchone("SELECT * FROM candidates WHERE id = ?", (n,))
     if c is None:
         return None
@@ -62,7 +71,7 @@ async def lookup(db: Database, query: str, limit: int = 12) -> str:
         return "\n\n".join(f for f in found if f) or "No such ID."
     words = [w for w in re.findall(r"\w+", query.casefold()) if len(w) > 2]
     if not words:
-        return "Give an ID (#P12, #S3, #F210) or a few words."
+        return "Give an ID (#P12, #S3, #F210, #B4) or a few words."
 
     def match(text: str | None) -> bool:
         return bool(text) and all(w in text.casefold() for w in words)

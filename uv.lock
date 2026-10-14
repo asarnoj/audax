@@ -76,6 +76,8 @@ dependencies = [
     { name = "python-telegram-bot" },
     { name = "pyyaml" },
     { name = "recurring-ical-events" },
+    { name = "starlette" },
+    { name = "uvicorn" },
     { name = "websockets" },
 ]
 
@@ -99,6 +101,8 @@ requires-dist = [
     { name = "python-telegram-bot", specifier = ">=21" },
     { name = "pyyaml", specifier = ">=6.0.3" },
     { name = "recurring-ical-events", specifier = ">=3.8.2" },
+    { name = "starlette", specifier = ">=1.7" },
+    { name = "uvicorn", specifier = ">=0.54" },
     { name = "websockets", specifier = ">=17.2" },
 ]
 

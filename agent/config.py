@@ -70,12 +70,20 @@ class Paths(BaseModel):
     database: Path = Path("data/agent.db")
 
 
+class Site(BaseModel):
+    # The office's web page (agent/site.py). Localhost only; Tailscale Serve makes it reachable on the owner's devices.
+    enabled: bool = True
+    host: str = "127.0.0.1"
+    port: int = 8400
+
+
 class Settings(BaseModel):
     owner: str = ""  # the person the agent is for; fills {owner} in prompts
     timezone: str = "Europe/Stockholm"
     quiet_hours: QuietHours
     models: Models = Models()
     paths: Paths = Paths()
+    site: Site = Site()
 
     telegram_token: str = ""
     telegram_chat_id: int | None = None

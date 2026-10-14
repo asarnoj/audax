@@ -36,6 +36,9 @@ from agent.research import Researcher, load_research
 from agent.research_plan import ResearchPlanner
 from agent.assistant_night import AssistantNight
 from agent.night import Night
+from agent import site
+from agent.config import INSTANCE
+from agent.office import Office
 from agent.schedule import Schedule, describe_change, utc_iso
 from agent.sources.calendar import build_sources, load_calendar_configs
 from agent.telegram_bot import TelegramBot
@@ -280,11 +283,20 @@ async def run() -> None:
     await ingest.start()
     await builder.on_startup()
     watcher.start()
+    web_site = None
+    if settings.site.enabled:
+        office = Office(db, memory.path, settings.timezone, status=gate.status)
+        app = site.build_app(db, office, {"minne": memory.path, "installningar": INSTANCE / "config"})
+        web_site = site.start(app, settings.site.host, settings.site.port)
+        log.info("office page on http://%s:%d", settings.site.host, settings.site.port)
     log.info("agent running")
     try:
         await stop.wait()
     finally:
         log.info("shutting down")
+        if web_site:
+            web_site[1].should_exit = True
+            await asyncio.gather(web_site[0], return_exceptions=True)
         await watcher.stop()
         await ingest.stop()
         scheduler.shutdown(wait=False)

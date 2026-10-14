@@ -16,6 +16,8 @@ dependencies = [
     "python-telegram-bot>=21",
     "pyyaml>=6.0.3",
     "recurring-ical-events>=3.8.2",
+    "starlette>=1.7",
+    "uvicorn>=0.54",
     "websockets>=17.2",
 ]
 
