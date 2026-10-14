@@ -307,7 +307,7 @@ function sunPatch(win, zr, L) {
 // --- drawing ------------------------------------------------------------------------------------------
 const canvas = document.getElementById("c"), ctx = canvas.getContext("2d");
 const layer = () => document.createElement("canvas");
-const B = layer(), M = layer(), T = layer();
+const B = layer(), M = layer(), T = layer(), A = layer();  // base, one light's mask, scratch, all lamps' light
 let dpr = 1, cssW = 1000, cssH = 1000 * WORLD.h / WORLD.w;
 
 // The drawing is redrawn from the geometry at the screen's own resolution: sharp on any screen and at
@@ -315,7 +315,7 @@ let dpr = 1, cssW = 1000, cssH = 1000 * WORLD.h / WORLD.w;
 function resize() {
   dpr = window.devicePixelRatio || 1;
   cssW = canvas.clientWidth || 1000; cssH = cssW * WORLD.h / WORLD.w;
-  for (const c of [canvas, B, M, T]) { c.width = Math.round(cssW * dpr); c.height = Math.round(cssH * dpr); }
+  for (const c of [canvas, B, M, T, A]) { c.width = Math.round(cssW * dpr); c.height = Math.round(cssH * dpr); }
   watchDensity();
 }
 let density = null;
@@ -326,7 +326,8 @@ function watchDensity() {
 }
 new ResizeObserver(resize).observe(canvas);
 const toWorld = (g) => { const k = cssW / WORLD.w * dpr; g.setTransform(k, 0, 0, k, -WORLD.x * k, -WORLD.y * k); };
-function path(g, poly) { g.beginPath(); poly.forEach(([x, y], i) => i ? g.lineTo(x, y) : g.moveTo(x, y)); g.closePath(); }
+function subpath(g, poly) { poly.forEach(([x, y], i) => i ? g.lineTo(x, y) : g.moveTo(x, y)); g.closePath(); }
+function path(g, poly) { g.beginPath(); subpath(g, poly); }
 
 function walls(g) {
   const W = ROOM.wall;
@@ -367,46 +368,77 @@ function buildMask(all, surfaces, light) {
     g.fillStyle = "#fff"; g.fillRect(WORLD.x, WORLD.y, WORLD.w, WORLD.h);
     path(g, shadow(BUILDING, 0, sunProject(light))); g.globalCompositeOperation = "destination-out"; g.fill(); g.globalCompositeOperation = "source-over";
   }
+  const area = light.kind === "lamp" ? light.area : null;  // a lamp reaches no further than this, even on the floor
+  const project = light.kind === "sun" ? sunProject(light) : lampProject(light);
+  // Surfaces lowest first. Each one first hides what lies below it (its footprint is cleared), then gets its own
+  // light. Every surface and every shadow is convex, so light patches and shadows are cut to the surface
+  // exactly in JavaScript and filled as plain polygons: no canvas clipping, which is slow on the GPU.
+  g.fillStyle = "#000";
   for (const s of surfaces) {
     const sp = s.top || s.poly, sb = bbox(sp);
-    g.save(); path(g, sp); g.clip();
-    g.clearRect(sb[0] - 1, sb[1] - 1, sb[2] - sb[0] + 2, sb[3] - sb[1] + 2);  // whatever lies below is hidden by this surface
+    if (area && !overlaps(sb, area)) continue;              // nothing below it is lit by this lamp either
+    g.globalCompositeOperation = "destination-out"; path(g, sp); g.fill();
+    g.globalCompositeOperation = "source-over";
     const zr = s.z1;
     let lit = false;
     if (light.kind === "sun") {
-      for (const w of windows) { const p = sunPatch(w, zr, light); if (p && overlaps(bbox(p), sb)) { path(g, p); g.fillStyle = "#fff"; g.fill(); lit = true; } }
+      g.beginPath();
+      for (const w of windows) {
+        const p = sunPatch(w, zr, light);
+        const q = p && overlaps(bbox(p), sb) ? clip(p, sp) : [];
+        if (q.length >= 3) { subpath(g, q); lit = true; }
+      }
+      if (lit) { g.fillStyle = "#fff"; g.fill(); g.fillStyle = "#000"; }
     } else if (zr < light.z - 2 && s.group !== light.group) {
       const R = light.reach(zr);
-      if (overlaps([light.x - R, light.y - R, light.x + R, light.y + R], sb)) { g.fillStyle = light.gradient(g, zr); g.fillRect(light.x - R, light.y - R, 2 * R, 2 * R); lit = true; }
+      if (overlaps([light.x - R, light.y - R, light.x + R, light.y + R], sb)) { path(g, sp); g.fillStyle = light.gradient(g, zr); g.fill(); g.fillStyle = "#000"; lit = true; }
     }
-    if (lit) {
-      g.globalCompositeOperation = "destination-out"; g.fillStyle = "#000";
-      const project = light.kind === "sun" ? sunProject(light) : lampProject(light);
-      for (const o of all) {
-        if (!o.occludes || o === s || o.group === light.group || o.z1 <= zr + 0.5) continue;
-        if (light.kind === "lamp" && o.z0 >= light.z) continue; // above the lamp: lit from below, no shadow downwards
-        const still = !o.moves && !s.moves, key = s.id + "|" + o.id;
-        let sh = still ? cache.get(key) : undefined;
-        if (sh === undefined) {
-          sh = shadow(o, zr, project, light.kind === "lamp" ? light.z - 1 : Infinity);
-          if (sh && (sh.length < 3 || !overlaps(bbox(sh), sb))) sh = null;
-          if (still) cache.set(key, sh);
-        }
-        if (sh) { path(g, sh); g.fill(); }
+    if (!lit) continue;
+    g.globalCompositeOperation = "destination-out"; g.beginPath();
+    let any = false;
+    for (const o of all) {
+      if (!o.occludes || o === s || o.group === light.group || o.z1 <= zr + 0.5) continue;
+      if (light.kind === "lamp" && o.z0 >= light.z) continue; // above the lamp: lit from below, no shadow downwards
+      const still = !o.moves && !s.moves, key = s.id + "|" + o.id;
+      let sh = still ? cache.get(key) : undefined;
+      if (sh === undefined) {
+        sh = shadow(o, zr, project, light.kind === "lamp" ? light.z - 1 : Infinity);
+        sh = sh && sh.length >= 3 && overlaps(bbox(sh), sb) ? clip(sh, sp) : null;
+        if (sh && sh.length < 3) sh = null;
+        if (still) cache.set(key, sh);
       }
-      g.globalCompositeOperation = "source-over";
+      if (sh) { subpath(g, sh); any = true; }
     }
-    g.restore();
+    if (any) g.fill();  // all of this surface's shadows in one fill
+    g.globalCompositeOperation = "source-over";
   }
 }
 
+// Pixel rectangle on the layers for a rectangle in the world, clamped to the canvas.
+function pixels([x0, y0, x1, y1]) {
+  const k = cssW / WORLD.w * dpr;
+  const px0 = clamp(Math.floor((x0 - WORLD.x) * k), 0, A.width), py0 = clamp(Math.floor((y0 - WORLD.y) * k), 0, A.height);
+  const px1 = clamp(Math.ceil((x1 - WORLD.x) * k), 0, A.width), py1 = clamp(Math.ceil((y1 - WORLD.y) * k), 0, A.height);
+  return [px0, py0, px1 - px0, py1 - py0];
+}
+
+// Add one lamp's mask to the lamps' shared light, only where that lamp reaches.
+function accumulate(area) {
+  const [x, y, w, h] = pixels(area);
+  if (w <= 0 || h <= 0) return;
+  const g = A.getContext("2d");
+  g.setTransform(1, 0, 0, 1, 0, 0); g.globalCompositeOperation = "lighter";
+  g.drawImage(M, x, y, w, h, x, y, w, h);
+  g.globalCompositeOperation = "source-over";
+}
+
 // Add one light to the picture: base × light colour × mask, added on top.
-function addLight(color, strength) {
+function addLight(color, strength, mask = M) {
   const g = T.getContext("2d");
   g.setTransform(1, 0, 0, 1, 0, 0); g.globalCompositeOperation = "source-over"; g.clearRect(0, 0, T.width, T.height);
   g.drawImage(B, 0, 0);
   g.globalCompositeOperation = "multiply"; g.fillStyle = css(color, strength); g.fillRect(0, 0, T.width, T.height);
-  g.globalCompositeOperation = "destination-in"; g.drawImage(M, 0, 0);
+  g.globalCompositeOperation = "destination-in"; g.drawImage(mask, 0, 0);
   ctx.globalCompositeOperation = "lighter"; ctx.drawImage(T, 0, 0); ctx.globalCompositeOperation = "source-over";
 }
 
@@ -417,9 +449,11 @@ const gradientCache = new Map();
 function lampLight(l, soft) {
   const rel = (h, r) => (h / Math.pow(h * h + r * r, 1.5)) * H_REF * H_REF;
   const radiusAt = (h, t) => Math.sqrt(Math.max(0, Math.pow(h * H_REF * H_REF / t, 2 / 3) - h * h));
+  // How far the light goes on a surface: the shade's cone, or where the weakest band ends if that is nearer.
+  const reach = (zr) => Math.min((l.z - zr) * Math.tan(CONE), radiusAt(l.z - zr, soft ? 0.01 : BANDS[BANDS.length - 1][0]) + 1);
   return {
-    kind: "lamp", name: l.group, key: "fixed", x: l.x, y: l.y, z: l.z, group: l.group,
-    reach: (zr) => (l.z - zr) * Math.tan(CONE),
+    kind: "lamp", name: l.group, key: "fixed", x: l.x, y: l.y, z: l.z, group: l.group, reach,
+    area: [l.x - reach(0), l.y - reach(0), l.x + reach(0), l.y + reach(0)],
     gradient: (g, zr) => {
       const id = `${l.group}|${zr}|${soft}`;
       if (!gradientCache.has(id)) gradientCache.set(id, makeGradient(g, zr));
@@ -490,7 +524,7 @@ function frame(nowT) {
   catch (e) { if (!failed) console.error(e); failed = true; }
 }
 
-function draw(nowT) {
+function draw(nowT, warmUp = false) {
   const dt = Math.min(0.05, (nowT - last) / 1000); last = nowT;
   if (state.live && nowT - lastSync > 1000) { syncNow(); lastSync = nowT; }
   else if (state.live) state.minutes += dt / 60;
@@ -508,9 +542,13 @@ function draw(nowT) {
   ctx.globalCompositeOperation = "source-over";
 
   if (L.sunStrength > 0.01) { buildMask(all, surfaces, L); addLight(L.sunColor, L.sunStrength); }
-  const lampsOn = $("lamps").value === "on" || ($("lamps").value === "auto" && L.dark);
+  const lampsOn = warmUp || $("lamps").value === "on" || ($("lamps").value === "auto" && L.dark);
   const warm = kelvin(2700);
-  if (lampsOn) for (const l of lamps) { buildMask(all, surfaces, lampLight(l, soft)); addLight(warm, 1.05); }
+  if (lampsOn) { // every lamp into one shared light, then onto the picture once
+    const g = A.getContext("2d"); g.setTransform(1, 0, 0, 1, 0, 0); g.clearRect(0, 0, A.width, A.height);
+    for (const l of lamps) { const light = lampLight(l, soft); buildMask(all, surfaces, light); accumulate(light.area); }
+    addLight(warm, 1.05, A);
+  }
 
   toWorld(ctx);
   if (lampsOn) for (const l of lamps) { path(ctx, circle(l.x, l.y, 12, 16)); ctx.fillStyle = css(warm, 1); ctx.fill(); } // a lit shade glows
@@ -528,6 +566,9 @@ function draw(nowT) {
     (L.el > 0 ? `ljusets färg ${Math.round(L.K / 100) * 100} K` : "solen är nere") + ` · lampor ${lampsOn ? "på" : "av"}`;
 }
 resize();
+// One unseen pass with the lamps on at load: their shadows get cached, their bands made and the GPU's blend
+// modes prepared now, instead of in one long frame the moment they switch on (the next frame paints over it).
+try { draw(performance.now(), true); } catch (e) { console.error(e); }
 requestAnimationFrame(frame);
 </script>
 </body>
