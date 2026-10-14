@@ -17,3 +17,5 @@ instance/
 workspace/CLAUDE.md
 # Local deploy target (Pi host)
 .deploy.env
+
+.DS_Store
