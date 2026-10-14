@@ -10,6 +10,7 @@ office comes later and reads the same data from /api/.
 - /arende/<id>      follow a case by its id (#P, #S, #F, #B), or search
 - /arkiv/           the file cabinet: memory and the instance config
 - /tabeller/        every database table
+- /prototyp/ljus    the lighting prototype for the illustrated office (web/ljus.html)
 """
 
 from __future__ import annotations
@@ -23,10 +24,11 @@ from pathlib import Path
 import uvicorn
 from starlette.applications import Starlette
 from starlette.requests import Request
-from starlette.responses import HTMLResponse, JSONResponse, RedirectResponse, Response
+from starlette.responses import FileResponse, HTMLResponse, JSONResponse, RedirectResponse, Response
 from starlette.routing import Route
 
 from agent import refs
+from agent.config import ROOT
 from agent.db import Database
 from agent.office import NAMES, ROLES, Office
 
@@ -126,7 +128,7 @@ def build_app(db: Database, office: Office, roots: dict[str, Path]) -> Starlette
     async def office_page(request: Request) -> Response:
         return page("Kontoret", f'<div id="nu">{now_html(await office.now())}</div>{live("nu", "/fragment/nu", 2)}'
                     f'<h2>Senaste händelser</h2><div id="tid">{timeline_html(await office.timeline(60))}</div>'
-                    f'{live("tid", "/fragment/tidslinje", 10)}')
+                    f'{live("tid", "/fragment/tidslinje", 10)}<p><a href="/prototyp/ljus">Ljusprototypen</a></p>')
 
     async def now_fragment(request: Request) -> Response:
         return HTMLResponse(now_html(await office.now()))
@@ -262,8 +264,12 @@ def build_app(db: Database, office: Office, roots: dict[str, Path]) -> Starlette
         c = await office.case(request.path_params["ref"])
         return JSONResponse(c) if c else JSONResponse({"error": "no such case"}, 404)
 
+    async def light_prototype(request: Request) -> Response:
+        return FileResponse(ROOT / "web" / "ljus.html")
+
     return Starlette(routes=[
         Route("/", office_page),
+        Route("/prototyp/ljus", light_prototype),
         Route("/fragment/nu", now_fragment),
         Route("/fragment/tidslinje", timeline_fragment),
         Route("/roll/{role}", role_page),

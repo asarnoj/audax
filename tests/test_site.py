@@ -70,7 +70,7 @@ async def test_the_pages_render_and_the_archive_stays_inside_its_folders(db, tmp
     app = build_app(db, Office(db, mem, "Europe/Stockholm"), {"minne": mem})
     client = TestClient(app)
     for url in ("/", "/fragment/nu", "/roll/director", "/arende/", "/arende/?q=sommar", "/arkiv/", "/arkiv/minne/", "/tabeller/",
-                "/tabeller/posts", "/api/nu"):
+                "/tabeller/posts", "/api/nu", "/prototyp/ljus"):
         assert client.get(url).status_code == 200, url
     director = client.get("/roll/director").text
     assert "Fokus: sommarjobb" in director and '<a href="/arende/S1">#S1</a>' in director
