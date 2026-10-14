@@ -8,8 +8,9 @@
 
 The start time comes from data: when the owner usually writes their last message of the evening, plus a margin,
 within quiet hours. A step that fails is tried again at the next check (every ten minutes) and is skipped after three
-attempts, so one failing step can't keep Manager from running. Progress is kept per night, so a restart continues
-where the sweep left off.
+attempts, so one failing step can't keep Manager from running. A quota pause isn't a failure: the sweep waits for it
+to lift (within quiet hours) without spending attempts. Progress is kept per night, so a restart continues where the
+sweep left off.
 """
 
 from __future__ import annotations
@@ -32,10 +33,11 @@ MAX_ATTEMPTS = 3
 
 
 class Night:
-    def __init__(self, settings: Settings, db: Database, steps: list[tuple[str, Step]]):
+    def __init__(self, settings: Settings, db: Database, steps: list[tuple[str, Step]], paused: Callable[[], bool] = lambda: False):
         self.settings = settings
         self.db = db
         self.steps = steps
+        self.paused = paused  # the background quota is paused: wait, don't count it as an attempt
         self.running = False
 
     def night_of(self, now: datetime) -> str:
@@ -103,13 +105,19 @@ class Night:
         for name, step in self.steps:
             if name in state["done"]:
                 continue
-            tries = state["attempts"].get(name, 0) + 1
-            state["attempts"][name] = tries
+            if self.paused():
+                log.info("night sweep waits at %s: the quota is paused", name)
+                return
             try:
                 ok = await step()
             except Exception:
                 log.exception("night step %s failed", name)
                 ok = False
+            if not ok and self.paused():
+                log.info("night step %s hit a quota pause; it runs when the pause lifts", name)
+                return
+            tries = state["attempts"].get(name, 0) + 1
+            state["attempts"][name] = tries
             if ok or tries >= MAX_ATTEMPTS:
                 state["done"].append(name)
                 if not ok:

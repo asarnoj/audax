@@ -13,7 +13,7 @@ from zoneinfo import ZoneInfo
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 
 from agent.builder import Builder
-from agent.claude_gate import ClaudeGate
+from agent.claude_gate import ClaudeGate, Priority
 from agent.controls import Controls
 from agent.config import assert_subscription_auth, ensure_instance, instance_config, load_settings
 from agent.director import Director
@@ -256,7 +256,11 @@ async def run() -> None:
     async def manager_step() -> bool:
         return await manager.run() is not None
 
-    night = Night(settings, db, [("assistant", assistant_step), ("director", director_step), ("researcher", researcher_step), ("manager", manager_step)])
+    night = Night(
+        settings, db,
+        [("assistant", assistant_step), ("director", director_step), ("researcher", researcher_step), ("manager", manager_step)],
+        paused=lambda: gate.paused_until(Priority.MANAGER) is not None,
+    )
 
     async def night_tick() -> None:
         await night.tick(datetime.now(ZoneInfo(settings.timezone)))

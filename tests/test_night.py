@@ -82,3 +82,27 @@ async def test_the_sweep_runs_in_order_after_the_owner_usually_sleeps_and_resume
     assert ran == ["assistant", "director", "director", "researcher", "manager"]  # continues where it left off
     await night.tick(datetime(2026, 10, 14, 2, 0, tzinfo=TZ))
     assert len(ran) == 5  # once a night
+
+
+async def test_a_quota_pause_makes_the_sweep_wait_instead_of_spending_attempts(db):
+    ran = []
+    quota = {"paused": True}
+
+    def step(name):
+        async def run():
+            ran.append(name)
+            return not quota["paused"]
+        return run
+
+    night = Night(load_settings(), db, [(n, step(n)) for n in ("assistant", "director", "researcher", "manager")],
+                  paused=lambda: quota["paused"])
+    for minute in range(0, 120, 10):  # two hours of checks while the quota is paused
+        await night.tick(datetime(2026, 10, 14, 2, 0, tzinfo=TZ) + timedelta(minutes=minute))
+    assert ran == []  # nothing tried, nothing skipped
+    assert (await db.kv_get("night.state") or {}).get("done", []) == []
+
+    quota["paused"] = False  # the pause lifts before morning
+    await night.tick(datetime(2026, 10, 14, 4, 0, tzinfo=TZ))
+    assert ran == ["assistant", "director", "researcher", "manager"]
+    state = await db.kv_get("night.state")
+    assert state["attempts"] == {"assistant": 1, "director": 1, "researcher": 1, "manager": 1}
