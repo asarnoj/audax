@@ -6,7 +6,7 @@ Kontorssidans huvudbild är kontoret ovanifrån: de fyra rollerna vid sina skriv
 
 ## Arbetsgången
 
-1. **Planskiss** (du): hela rummet ovanifrån i grå block, i Figma. Var står skrivborden, var är fönster, dörr, arkiv, schemat, hyllan. Inga detaljer.
+1. **Planskiss** (du): hela rummet ovanifrån i grå block, i Figma. Var står skrivborden, var är fönster, dörr, arkiv, telexen, planeringsbordet och hyllan. Inga detaljer.
 2. **Gråskiss i motorn** (jag): skissen blir en scen med höjder, ljus och den riktiga datan. Du ser hur rummet lever innan något är ritat på riktigt.
 3. **Höjder och profiler** (jag föreslår, du godkänner): för varje föremål en höjd och, där det behövs, en enkel profil från sidan. Det är de "osynliga vinklarna" som skuggorna räknas fram ur. Du ritar aldrig sidovyer.
 4. **Riktiga ritningar** (du): föremål för föremål, ovanifrån, efter namnreglerna nedan.
@@ -17,7 +17,7 @@ Kontorssidans huvudbild är kontoret ovanifrån: de fyra rollerna vid sina skriv
 
 - **Rakt ovanifrån, utan perspektiv.** Bara det som är vänt uppåt syns: bordsskivor, toppar, papper som ligger ned, huvuden och axlar.
 - **Det som sitter på väggar syns inte.** En tavla på väggen är ett streck sett uppifrån. Allt som ska gå att läsa måste ligga ned: på ett bord, en hylla med öppen ovansida, golvet. (Se "Beslut som är dina": schemat och hyllan.)
-- **Skala: 1 px = 1 cm.** Rummet i prototypen är 900 × 620 cm, alltså en Figma-ram på 900 × 620. Ett skrivbord är 160 × 80.
+- **Skala: 1 px = 1 cm.** Figma har bara pixlar, så en pixel får betyda en centimeter. Rummet i prototypen är 900 × 620 cm, alltså en ram på 900 × 620; ett skrivbord är 160 × 80. Decimaler går bra, och eftersom allt är vektorer spelar skalan ingen roll för skärpan.
 - **Platta färger.** Varje form har en färg. Ljus och skuggor läggs på av motorn; rita dem inte. Mönster, linjer och detaljer går bra, de räknas som en del av formens färg.
 - **Ljuset kommer från riktiga källor:** solen genom fönstren (den riktiga solen för Stockholm), skrivbordslampor, Assistentens skärm. Rita gärna fönster stora; de är rummets klocka.
 
@@ -32,6 +32,24 @@ Kontorssidans huvudbild är kontoret ovanifrån: de fyra rollerna vid sina skriv
 
 Allt detta ändrar formen så lite som möjligt. Det som är ditt uttryck (proportioner, konturer, ojämnheter) behålls.
 
+## Vem pratar med vem (mätt, vecka 7–14 okt)
+
+Layouten följer flödet: det som skickas oftest ska ha kortast väg.
+
+| Flöde | Per vecka | Mellan |
+|---|---|---|
+| Nytt från sinnena in till triage | ≈ 390 | inkommande → Director |
+| Triage slänger | ≈ 310 (80 %) | Director → papperskorgen |
+| Triage släpper vidare | ≈ 80 | Director → Manager |
+| Dispatchern sparar till senare | ≈ 65 | Manager → hyllan |
+| Dispatchern planerar eller skickar | ≈ 65 | Manager → schemat / Assistant |
+| Ägaren frågar efter sparat | ≈ 25 | hyllan → Assistant |
+| Samtalet | ≈ 110 svar | ägaren ↔ Assistant |
+| Sökuppdragens fynd | ≈ 25 | Researcher → inkommande |
+| Post mellan rollerna (order, frågor, rapporter) | några få, mest nattetid | alla |
+
+Det ger en kedja: **inkommande → Director → Manager → schema och hylla → Assistant → ägaren.** Researcher står vid början av kedjan (den matar in och sköter sinnena) och nära Director (order och rapporter). Arkivet används av alla, mest av Assistant och Director.
+
 ## Rummet
 
 | Föremål | Visar i systemet | Förslag på mått (cm), höjd | Att tänka på |
@@ -40,10 +58,10 @@ Allt detta ändrar formen så lite som möjligt. Det som är ditt uttryck (propo
 | Väggar | — | 25 tjocka, 270 höga | Bara ovansidan syns: en mörk ram. |
 | Fönster | dygnet, vädret senare | 140–180 breda, bröstning 85, överkant 225 | Glaset och karmen ovanifrån. De avgör var solen landar. |
 | Dörr | det som kommer utifrån; byggläget | 90 bred | Ett dörrblad som kan svänga (fästpunkt i gångjärnet). |
-| Inkommande | sinnena: nya händelser utifrån | korg vid dörren, 50 × 35, höjd 30 | Här landar allt nytt. Högen visar hur mycket som väntar på triage. |
+| Telexen (inkommande) | sinnena: flöden, sidor, API:er och websockets som bevakas mekaniskt, utan att någon söker | maskin med pappersremsa, 50 × 40, höjd 30 | Skriver ut av sig själv när något kommer in. Researcher ställer in den (vilka källor), Director läser det den skriver ut (triage). Remsan som hänger ut visar vad som väntar. |
 | Arkivskåpet | minnet (`memory/`) | 140 × 50, höjd 130 | Lådor som dras ut (syns ovanifrån när de är ute). En låda per roll: varje roll äger sina filer. |
-| Schemat | Managers schema: planerade fynd och bokningar (#B) | se beslut | Lappar som sätts upp, flyttas och tas ned. Läsbart ovanifrån. |
-| Hyllan | sparade fynd ("något nytt?") | se beslut | Mappar som läggs upp och plockas ned. |
+| Planeringsbordet | Managers schema: fynd med en planerad tid och bokningar (#B) | stort bord, cirka 160 × 90, höjd 75 | En tidslinje där lappar läggs, flyttas och plockas. Manager lägger fynd, Assistant lägger bokningar och löften och plockar det som ska ut. |
+| Hyllan | sparade fynd: värda att ha men inte värda att störa för | låg hylla med öppen ovansida, eller en del av planeringsbordet | Manager lägger dit, Assistant plockar när ägaren frågar "något nytt?" eller när det passar. Det som blir inaktuellt rensas bort. (Se beslut.) |
 | Papperskorgen | bortsorterat (fynd som släpps) | rund, ø 30, höjd 40 | Pappersbollar syns ovanifrån. |
 
 ## Skrivborden (ett per roll)
@@ -60,9 +78,11 @@ Ett skrivbord ritas en gång och varieras per roll med det som ligger på det.
 | Papper i arbete | det rollen gör just nu | A4 ≈ 21 × 30, platt |
 
 Per roll:
-- **Assistant**: datorn med skärm och tangentbord, rummets enda skärm. Kanalen ut till ägaren. Skärmen lyser (motorn gör ljuset).
+- **Assistant**: datorn med skärm och tangentbord, kanalen ut till ägaren. Skärmen lyser (motorn gör ljuset).
+
+Regeln för skärmar: **en skärm är en förbindelse ut ur kontoret.** Assistants går till ägaren, Researchers till webben. Allt annat är papper.
 - **Director**: kuvert, de lästa mejlen. Kanske en stämpel för triage (värt något / inte).
-- **Researcher**: kartorna, en per sökuppdrag. Kanske en karta som ligger utbredd på bordet eller ett eget kartbord. Och det som står för webben (se beslut).
+- **Researcher**: en dator, för sökuppdragen (Claude som söker och läser på webben). Och kartorna, en per sökuppdrag, kanske utbredda på bordet.
 - **Manager**: närmast schemat. Kanske en klocka eller en kalender på bordet.
 
 ## Figurerna
@@ -98,17 +118,18 @@ Det som händer i systemet blir korta följder av handlingar. Animationen ligger
 |---|---|
 | Ägaren skriver (Telegram) | Assistentens skärm lyser; Assistant sätter sig vid datorn och skriver |
 | Assistant svarar | skriver på tangentbordet |
-| Något nytt kommer in från ett sinne | ett papper glider ned i korgen vid dörren |
-| Triage (Director) | Director hämtar ur korgen, läser, stämplar; värt något → till Managers inkorg, annars papperskorgen |
+| Något nytt kommer in från ett sinne | telexen skriver ut en remsa |
+| Triage (Director) | Director river av remsan, läser, stämplar; värt något → till Managers inkorg, annars papperskorgen (det mesta) |
 | Dispatchern (Manager) | Manager läser fyndet och sätter det på schemat vid rätt tid, lägger det på hyllan, eller ger det direkt till Assistant |
 | Utskick vid planerad tid | Manager tar lappen från schemat och lämnar den till Assistant, som skriver |
 | "Något nytt?" | Assistant hämtar från hyllan |
+| Ett sparat fynd blir inaktuellt | det plockas bort från hyllan |
 | En post som får väcka mottagaren (ägarens ord) | avsändaren går genast fram och räcker den; mottagaren tittar upp och börjar |
 | Vanlig post | läggs i det egna utfacket och bärs över när figuren ändå reser sig |
 | En roll läser en minnesfil | går till arkivet, drar ut sin låda, tar en mapp |
 | En roll skriver i sin fil | mappen ligger på bordet; figuren skriver i den och ställer tillbaka den |
 | Arbetsminnet skrivs om | skriver i anteckningsboken |
-| Sökuppdrag (Researcher) | det som står för webben (se beslut); fynd läggs i korgen vid dörren |
+| Sökuppdrag (Researcher) | Researcher vid datorn; fynden läggs vid telexen, där triage tar dem som allt annat |
 | Researcher planerar | lutar sig över kartorna, ritar på dem |
 | Director läser mejl | öppnar kuvert vid bordet |
 | Bokning görs eller flyttas | Manager sätter upp eller flyttar en lapp på schemat |
@@ -121,13 +142,13 @@ Handlingarna figurerna behöver: sitta, resa sig, gå, vända sig, skriva för h
 ## Hela kontorets lägen
 
 - **Dygnet**: solen genom fönstren, färgen från gryning till kväll, blå timme, natt med lamporna (klart i prototypen).
-- **Rummet visar läget även när ingen rör sig**: högen i varje inkorg är antalet olästa poster, korgen vid dörren det som väntar på triage, lapparna på schemat de kommande bokningarna och fynden, mapparna på hyllan det sparade.
+- **Rummet visar läget även när ingen rör sig**: högen i varje inkorg är antalet olästa poster, remsan i telexen det som väntar på triage, lapparna på schemat de kommande bokningarna och fynden, mapparna på hyllan det sparade.
 
 ## Beslut som är dina
 
-1. **Vad gör Researcher när den söker på webben?** Tidningar, telefon, böcker, en kikare vid fönstret, eller går den ut genom dörren och kommer tillbaka med papper?
-2. **Var ligger schemat?** På väggen syns det inte uppifrån. Ett stort planeringsbord med en tidslinje, ett bord vid Managers plats, eller en tavla som ligger ned?
-3. **Hyllan**: en låg hylla med öppen ovansida, en vagn, eller ett bord med mappar?
+1. **Layouten**: kedjan ovan föreslår en ordning. Var dörren, fönstren och arkivet hamnar är ditt.
+2. **Planeringsbordet**: ett eget bord mellan Manager och Assistant, eller en del av Managers skrivbord?
+3. **Hyllan**: en egen hylla, eller en hög "när det passar" på planeringsbordet bredvid tidslinjen?
 4. **Natten**: sitter rollerna kvar och arbetar i lampljuset, går de hem mellan sina pass, eller sover de vid bordet?
 5. **Kvoten pausad**: släckt i taket och figurerna väntar, en skylt på dörren, eller något annat?
 6. **Byggläget**: en hantverkare som kommer in genom dörren när en ändring byggs, och går när du har tryckt "Driftsätt"?
@@ -147,7 +168,7 @@ Exportera som SVG; jag tar det därifrån.
 Det minsta som får kontoret att leva:
 1. Planskissen av hela rummet.
 2. Ett skrivbord, en stol, en lampa och en inkorg (används av alla fyra).
-3. Arkivskåpet, schemat och korgen vid dörren.
+3. Arkivskåpet, planeringsbordet och telexen.
 4. Papper och lapp.
 5. En figur (delarna), som först får vara alla fyra.
 
