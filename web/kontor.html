@@ -171,26 +171,41 @@ const DESK = {
   researcher: "#b5835a",   // an oak work table, long and plain: room for maps and papers
   manager: "#8fa19a",      // a sage-green steel desk, tight corners: order and timing
 };
-add({ id: "manager-desk", poly: roundRect(22, 22, 76, 190, 3), z0: 0, z1: 74, color: DESK.manager });
-add({ id: "director-desk", poly: roundRect(560, 142, 213, 78, 4), z0: 0, z1: 76, color: DESK.director });
-add({ id: "director-desk-side", poly: roundRect(698, 50, 75, 96, 4), z0: 0, z1: 76, color: DESK.director, group: "director-desk" });
-add({ id: "assistant-desk", poly: roundRect(101, 458, 153, 72, 14, 6), z0: 0, z1: 74, color: DESK.assistant });
-add({ id: "researcher-desk", poly: roundRect(656, 284, 92, 247, 2), z0: 0, z1: 75, color: DESK.researcher });
+// Furniture is built from its parts, like the real thing: a thin top on legs, so light passes underneath and the
+// shadow is the top's shape, moved away from the sun, with thin lines from the legs. (A solid block from the
+// floor up casts a heavy, wrong shadow.)
+function table(id, x, y, w, h, r, seg, top, color, group = id) {
+  add({ id, poly: roundRect(x, y, w, h, r, seg), z0: top - 3.5, z1: top, color, group });
+  const i = 6;
+  for (const [k, [lx, ly]] of [[x + i, y + i], [x + w - i, y + i], [x + w - i, y + h - i], [x + i, y + h - i]].entries()) {
+    add({ id: `${id}-leg-${k}`, poly: rect(lx - 2, ly - 2, 4, 4), z0: 0, z1: top - 3.5, color, group, receives: false });
+  }
+}
+table("manager-desk", 22, 22, 76, 190, 3, 4, 74, DESK.manager);
+table("director-desk", 560, 142, 213, 78, 4, 4, 76, DESK.director);
+table("director-desk-side", 698, 50, 75, 96, 4, 4, 76, DESK.director, "director-desk");
+table("assistant-desk", 101, 458, 153, 72, 14, 6, 74, DESK.assistant);
+table("researcher-desk", 656, 284, 92, 247, 2, 4, 75, DESK.researcher);
 const inboxes = {   // where papers are put, for the figure's errands (not drawn yet)
   manager: rect(50, 160, 34, 28), director: rect(570, 173, 28, 35), assistant: rect(117, 465, 28, 34), researcher: rect(674, 299, 34, 28),
 };
 
-// Chairs: a round seat and a curved back on the side away from the desk.
-const chairs = [
-  { role: "manager", x: 105, y: 71, back: rect(128, 51, 9, 40) },
-  { role: "director", x: 650, y: 122, back: ellipse(650, 96, 22, 5, 12) },
-  { role: "assistant", x: 199, y: 440, back: ellipse(199, 414, 22, 5, 12) },
-  { role: "researcher", x: 594, y: 450, back: ellipse(568, 450, 5, 22, 12) },
-];
-for (const c of chairs) {
-  add({ id: c.role + "-seat", poly: circle(c.x, c.y, 23, 16), z0: 0, z1: 47, color: C.chair });
-  add({ id: c.role + "-back", poly: c.back, z0: 47, z1: 90, color: C.chair });
+// Chairs: a thin round seat on a post, a five-spoke foot, and a thin curved back on the side away from the desk.
+function chair(role, x, y, back) {
+  const g = role + "-chair";
+  add({ id: role + "-seat", poly: circle(x, y, 22, 18), z0: 43, z1: 47, color: C.chair, group: g });
+  add({ id: role + "-post", poly: circle(x, y, 2.5, 8), z0: 5, z1: 43, color: C.chair, group: g, receives: false });
+  for (let k = 0; k < 5; k++) {
+    const a = 2 * Math.PI * k / 5 + 0.3, u = [Math.cos(a), Math.sin(a)], v = [-u[1], u[0]], w = 1.6, L = 26;
+    const spoke = [[x + v[0] * w, y + v[1] * w], [x + u[0] * L + v[0] * w, y + u[1] * L + v[1] * w], [x + u[0] * L - v[0] * w, y + u[1] * L - v[1] * w], [x - v[0] * w, y - v[1] * w]];
+    add({ id: `${role}-spoke-${k}`, poly: spoke, z0: 2, z1: 5, color: C.chair, group: g });
+  }
+  add({ id: role + "-back", poly: back, z0: 47, z1: 88, color: C.chair, group: g });
 }
+chair("manager", 105, 71, rect(127, 53, 4, 36));
+chair("director", 650, 122, ellipse(650, 98, 20, 2.5, 14));
+chair("assistant", 199, 440, ellipse(199, 416, 20, 2.5, 14));
+chair("researcher", 594, 450, ellipse(570, 450, 2.5, 20, 14));
 
 // Desk lamps: for now only their light, at night (the lamps themselves come with the things on the desks).
 const lamps = [];
