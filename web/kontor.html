@@ -5,35 +5,39 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Gråskiss · Audax</title>
 <style>
-  /* A prototype: grey boxes and plain controls. None of this is the design. */
-  body { margin: 0; background: #f8f8f7; color: #333; font: 14px/1.4 system-ui, sans-serif; }  /* set from the light, every frame */
-  main { max-width: 1100px; margin: 0 auto; padding: 12px 16px 32px; }
-  canvas { display: block; width: 100%; height: auto; }
-  .controls { display: flex; flex-wrap: wrap; gap: 8px 18px; align-items: center; margin: 10px 0; }
+  /* The office fills the window; the test settings sit in a small panel on top for now. */
+  html, body { margin: 0; height: 100%; overflow: hidden; background: #f8f8f7; font: 13px/1.4 system-ui, sans-serif; }
+  canvas { position: fixed; inset: 0; width: 100vw; height: 100vh; display: block; }
+  #panel { position: fixed; left: 12px; top: 12px; max-width: min(520px, calc(100vw - 24px)); padding: 8px 12px; border-radius: 8px;
+    background: rgba(255, 255, 255, 0.82); color: #333; box-shadow: 0 1px 4px rgba(0, 0, 0, 0.12); }
+  #panel.hidden .body { display: none; }
+  .controls { display: flex; flex-wrap: wrap; gap: 6px 14px; align-items: center; margin: 6px 0; }
   .controls label { display: flex; gap: 6px; align-items: center; }
-  input[type=range] { width: min(420px, 80vw); }
-  #info { color: #aaa; font-variant-numeric: tabular-nums; }
-  a { color: #9bc; }
+  #time { width: min(300px, 60vw); }
+  #info { color: #666; font-variant-numeric: tabular-nums; margin: 4px 0 0; }
+  a { color: #47a; }
 </style>
 </head>
 <body>
-<main>
-  <p><a href="/">← Kontoret</a> · Gråskiss av planlösningen: grå lådor, dagsljus från sidan, skrivbordslampor och en figur som lämnar ett papper från Director till Manager. Inget av det här är design.</p>
-  <canvas id="c"></canvas>
-  <div class="controls">
-    <label>Tid <input id="time" type="range" min="0" max="1439" step="1"></label>
-    <span id="clock"></span>
-    <button id="now">Nu</button>
-    <button id="play">Spela dygnet</button>
+<canvas id="c"></canvas>
+<div id="panel">
+  <div><a href="/">← Kontoret</a> · gråskiss · <button id="toggle">Dölj</button></div>
+  <div class="body">
+    <div class="controls">
+      <label>Tid <input id="time" type="range" min="0" max="1439" step="1"></label>
+      <span id="clock"></span>
+      <button id="now">Nu</button>
+      <button id="play">Spela dygnet</button>
+    </div>
+    <div class="controls">
+      <label>Datum <input id="date" type="date"></label>
+      <label>Moln <input id="clouds" type="range" min="0" max="100" value="0" style="width: 110px"></label>
+      <label>Lampor <select id="lamps"><option value="auto">när det är mörkt</option><option value="on">på</option><option value="off">av</option></select></label>
+      <label>Ljus <select id="mode"><option value="band">i band</option><option value="soft">mjukt</option></select></label>
+    </div>
+    <p id="info"></p>
   </div>
-  <div class="controls">
-    <label>Datum <input id="date" type="date"></label>
-    <label>Moln <input id="clouds" type="range" min="0" max="100" value="0" style="width: 140px"></label>
-    <label>Skrivbordslampor <select id="lamps"><option value="auto">när det är mörkt</option><option value="on">på</option><option value="off">av</option></select></label>
-    <label>Ljus <select id="mode"><option value="band">i band</option><option value="soft">mjukt</option></select></label>
-  </div>
-  <p id="info"></p>
-</main>
+</div>
 <script>
 "use strict";
 // ---------------------------------------------------------------------------------------------
@@ -44,8 +48,7 @@
 const DESK_BANDS = [[0.45, 1.0], [0.16, 0.62], [0.05, 0.34], [0.016, 0.16]]; // [share of the light under the lamp, brightness]
 const LAT = 59.33, LON = 18.07, TZ = "Europe/Stockholm";
 const ROOM = { w: 792, h: 544, wall: 20, height: 270 };  // the floor plan (Figma, 14 Oct): a 50 cm grid
-const MARGIN = 110;   // the floor's grid runs on past its edge, and the light with it
-const WORLD = { x: -ROOM.wall - MARGIN, y: -ROOM.wall - MARGIN, w: ROOM.w + 2 * (ROOM.wall + MARGIN), h: ROOM.h + 2 * (ROOM.wall + MARGIN) };
+const GROUND = 4000;  // the ground runs on well past any screen's edge, so light and shadows never stop short
 
 // --- geometry ---------------------------------------------------------------------------------
 const rect = (x, y, w, h) => [[x, y], [x + w, y], [x + w, y + h], [x, y + h]];
@@ -156,7 +159,7 @@ const flat = (id, poly, z, color, group) => add({ id, poly, z0: z - 0.4, z1: z, 
 // The ground the office stands on: the page's own colour, lit like everything else (the page background is
 // this, in the light of the moment, so the office melts into the page).
 const BG = "#f8f8f7";
-add({ id: "ground", poly: rect(WORLD.x, WORLD.y, WORLD.w, WORLD.h), z0: 0, z1: 0, color: BG, occludes: false });
+add({ id: "ground", poly: rect(-GROUND, -GROUND, ROOM.w + 2 * GROUND, ROOM.h + 2 * GROUND), z0: 0, z1: 0, color: BG, occludes: false });
 add({ id: "floor", poly: rect(0, 0, ROOM.w, ROOM.h), z0: 0, z1: 0, color: C.floor, occludes: false });
 
 // The floor's grid: 50 cm squares, red-brown at low opacity, running about 60 cm past the floor's edge.
@@ -206,48 +209,45 @@ const inboxes = {   // where papers are put, for the figure's errands (not drawn
   manager: rect(50, 160, 34, 28), director: rect(570, 173, 28, 35), assistant: rect(117, 465, 28, 34), researcher: rect(674, 299, 34, 28),
 };
 
-// Chairs: a thin round seat on a post, a five-spoke foot, and a thin back that follows the seat's curve, standing
-// on its edge all along (in a few straight pieces, each convex), on the side away from the desk.
-function backArc(x, y, facing, span = 120, r0 = 18.5, r1 = 22, pieces = 12) {
-  const a = (deg) => deg * Math.PI / 180, out = [], step = span / pieces;
-  for (let k = 0; k < pieces; k++) { // each piece overlaps the next a little, so no seam shows between them
-    const t0 = a(facing - span / 2 + step * k - (k ? 1 : 0)), t1 = a(facing - span / 2 + step * (k + 1));
-    out.push([[x + r0 * Math.cos(t0), y + r0 * Math.sin(t0)], [x + r1 * Math.cos(t0), y + r1 * Math.sin(t0)],
-      [x + r1 * Math.cos(t1), y + r1 * Math.sin(t1)], [x + r0 * Math.cos(t1), y + r0 * Math.sin(t1)]]);
-  }
-  return out;
-}
-function chair(role, x, y, backFacing) {
-  const g = role + "-chair";
-  add({ id: role + "-seat", poly: circle(x, y, 22, 18), z0: 43, z1: 47, color: C.chair, group: g });
-  add({ id: role + "-post", poly: circle(x, y, 2.5, 8), z0: 5, z1: 43, color: C.chair, group: g, receives: false });
+// Chairs: a rounded square seat on a post, a straight back along one edge of the seat, and five legs with
+// wheels that show past the seat.
+const WHEEL = "#4d4a46";
+function chair(role, x, y, back) {   // back: the side of the seat the back stands on (n, s, e, w)
+  const g = role + "-chair", S = 21;
+  add({ id: role + "-seat", poly: roundRect(x - S, y - S, 2 * S, 2 * S, 9), z0: 43, z1: 47, color: C.chair, group: g });
+  add({ id: role + "-post", poly: circle(x, y, 2.5, 8), z0: 7, z1: 43, color: C.chair, group: g, receives: false });
   for (let k = 0; k < 5; k++) {
-    const a = 2 * Math.PI * k / 5 + 0.3, u = [Math.cos(a), Math.sin(a)], v = [-u[1], u[0]], w = 1.6, L = 26;
-    const spoke = [[x + v[0] * w, y + v[1] * w], [x + u[0] * L + v[0] * w, y + u[1] * L + v[1] * w], [x + u[0] * L - v[0] * w, y + u[1] * L - v[1] * w], [x - v[0] * w, y - v[1] * w]];
-    add({ id: `${role}-spoke-${k}`, poly: spoke, z0: 2, z1: 5, color: C.chair, group: g });
+    const a = 2 * Math.PI * k / 5 + 0.63, u = [Math.cos(a), Math.sin(a)], v = [-u[1], u[0]], w = 1.5, L = 27;
+    const leg = [[x + v[0] * w, y + v[1] * w], [x + u[0] * L + v[0] * w, y + u[1] * L + v[1] * w], [x + u[0] * L - v[0] * w, y + u[1] * L - v[1] * w], [x - v[0] * w, y - v[1] * w]];
+    add({ id: `${role}-leg-${k}`, poly: leg, z0: 6, z1: 8, color: C.chair, group: g });
+    add({ id: `${role}-wheel-${k}`, poly: circle(x + u[0] * L, y + u[1] * L, 3.8, 12), z0: 0, z1: 7.5, color: WHEEL, group: g });
   }
-  for (const [k, piece] of backArc(x, y, backFacing).entries()) add({ id: `${role}-back-${k}`, poly: piece, z0: 47, z1: 88, color: C.chair, group: g });
+  const bar = { n: roundRect(x - S, y - S - 3, 2 * S, 6, 3), s: roundRect(x - S, y + S - 3, 2 * S, 6, 3),
+    w: roundRect(x - S - 3, y - S, 6, 2 * S, 3), e: roundRect(x + S - 3, y - S, 6, 2 * S, 3) }[back];
+  add({ id: role + "-back", poly: bar, z0: 47, z1: 90, color: C.chair, group: g });
 }
-chair("manager", 105, 71, 0);        // the back towards the room, east
-chair("director", 650, 122, -90);    // north
-chair("assistant", 199, 440, -90);   // north
-chair("researcher", 594, 450, 180);  // west
+chair("manager", 105, 71, "e");
+chair("director", 650, 122, "n");
+chair("assistant", 199, 440, "n");
+chair("researcher", 594, 450, "w");
 
 // Computers, for the two who go out on the internet (a screen is a line out of the office).
-// Researcher: an old beige desktop. A deep monitor that narrows to the back, facing the chair; the tower beside
-// it; a keyboard with its rows of keys in front, and a mouse.
+// Researcher: an old beige desktop. A CRT monitor (a flat front, a rounded housing tapering to the back) facing the
+// chair, the tower beside it, a keyboard with its rows of keys in front, and a mouse.
 const BEIGE = "#d9d0b9", BEIGE_DARK = "#bdb39b";
-add({ id: "researcher-monitor", poly: [[700, 431], [740, 439], [740, 463], [700, 471]], z0: 75, z1: 112, color: BEIGE });
-add({ id: "researcher-tower", poly: roundRect(706, 382, 22, 42, 2), z0: 75, z1: 118, color: BEIGE });
-add({ id: "researcher-keyboard", poly: roundRect(667, 428, 16, 46, 2), z0: 75, z1: 77.5, color: BEIGE });
-for (let r = 0; r < 4; r++) flat("researcher-keys-" + r, rect(669 + r * 3.3, 431, 2.2, 40), 77.6, BEIGE_DARK, "researcher-keyboard");
+add({ id: "researcher-monitor-back", poly: [[705, 433], [727, 436.5], [740, 443], [741.5, 451], [740, 459], [727, 465.5], [705, 469]], z0: 77, z1: 110, color: BEIGE, group: "researcher-monitor" });
+add({ id: "researcher-monitor", poly: roundRect(698, 429, 9, 44, 3), z0: 75, z1: 113, color: BEIGE });
+add({ id: "researcher-tower", poly: roundRect(705, 380, 22, 44, 3.5), z0: 75, z1: 118, color: BEIGE });
+add({ id: "researcher-keyboard", poly: roundRect(667, 428, 16, 46, 3), z0: 75, z1: 77.5, color: BEIGE });
+for (let r = 0; r < 4; r++) flat("researcher-keys-" + r, roundRect(669 + r * 3.3, 431, 2.2, 40, 1), 77.6, BEIGE_DARK, "researcher-keyboard");
 add({ id: "researcher-mouse", poly: ellipse(674, 484, 3.5, 5.5, 12), z0: 75, z1: 78.5, color: BEIGE });
-// Assistant: a laptop. The base with its keyboard and trackpad, the screen tipped back from the hinge.
+// Assistant: a laptop. The base with its keyboard and trackpad, a thin screen tipped back from the hinge.
 const SILVER = "#cfcfcc";
-add({ id: "assistant-laptop", poly: roundRect(180, 470, 38, 26, 2.5), z0: 74, z1: 75.6, color: SILVER });
-flat("assistant-laptop-keys", roundRect(184, 481, 30, 12, 1), 75.7, "#a3a3a0", "assistant-laptop");
-flat("assistant-laptop-pad", roundRect(193, 472.5, 12, 6.5, 1), 75.7, "#dcdcd9", "assistant-laptop");
-plate("assistant-laptop-screen", 180, 496, 38, 10, "s", 75.6, 97, "#bdbdba", false);
+add({ id: "assistant-laptop", poly: roundRect(180, 470, 38, 26, 3.5), z0: 74, z1: 75.6, color: SILVER });
+flat("assistant-laptop-keys", roundRect(184, 481, 30, 12, 1.5), 75.7, "#a3a3a0", "assistant-laptop");
+flat("assistant-laptop-pad", roundRect(193, 472.5, 12, 6.5, 1.5), 75.7, "#dcdcd9", "assistant-laptop");
+plate("assistant-laptop-screen", 180, 495.5, 38, 4.5, "s", 75.6, 98, "#bdbdba", false);
+objects[objects.length - 1].shape = roundRect(180, 495.5, 38, 4.5, [0, 0, 2, 2]);
 
 // Desk lamps: for now only their light, at night (the lamps themselves come with the things on the desks).
 const lamps = [];
@@ -259,11 +259,29 @@ for (const [role, lx, ly] of [["manager", 40, 40], ["director", 585, 160], ["ass
 add({ id: "bin", poly: circle(667, 41, 22, 18), z0: 0, z1: 40, color: C.bin });
 
 // The board (saved findings, as post-its) and the calendar: tilted towards the room.
+// Seen from above, anything lying on a tilted plate is foreshortened along the slope: a square post-it looks
+// like a short wide strip, and a frame's top and bottom look thinner than its sides. That is what tells the eye
+// it is tilted.
+function rotated(poly, deg) {
+  const [cx, cy] = poly.reduce((a, p) => [a[0] + p[0] / poly.length, a[1] + p[1] / poly.length], [0, 0]), t = deg * Math.PI / 180;
+  return poly.map(([x, y]) => [cx + (x - cx) * Math.cos(t) - (y - cy) * Math.sin(t), cy + (x - cx) * Math.sin(t) + (y - cy) * Math.cos(t)]);
+}
+function border(on, id, x, y, w, h, across, along, color) { // across: frame width seen across the slope; along: on it
+  on(id + "-f1", rect(x, y, w, along), color); on(id + "-f2", rect(x, y + h - along, w, along), color);
+  on(id + "-f3", rect(x, y + along, across, h - 2 * along), color); on(id + "-f4", rect(x + w - across, y + along, across, h - 2 * along), color);
+}
+const BOARD_FORESHORTEN = 54 / Math.hypot(54, 90);   // the board rises 90 cm over 54 cm
 const onBoard = plate("board", 245, 15, 151, 54, "n", 95, 185, C.board);
-for (const [x, y] of [[262, 26], [288, 40], [318, 28], [350, 44], [372, 25], [300, 52]]) onBoard("note-" + x, rect(x, y, 11, 11), C.note);
+border(onBoard, "board-frame", 245, 15, 151, 54, 3, 3 * BOARD_FORESHORTEN, "#8f846f");
+for (const [x, y, deg, c] of [[258, 24, -4, "#e8d36a"], [284, 40, 3, "#e8d36a"], [316, 22, 5, "#efb9a6"], [344, 41, -3, "#e8d36a"], [368, 25, 2, "#a9cfe0"], [298, 54, -6, "#e8d36a"]]) {
+  onBoard("note-" + x, rotated(roundRect(x, y, 13, 13 * BOARD_FORESHORTEN, 1), deg), c);   // 13 cm notes, foreshortened
+}
+const CAL_FORESHORTEN = 40 / Math.hypot(40, 95);    // the calendar rises 95 cm over 40 cm
 const onCalendar = plate("calendar", 25, 237, 40, 210, "w", 95, 190, C.calendar);
-for (let i = 1; i < 7; i++) onCalendar("cal-day-" + i, rect(27, 237 + i * 30, 36, 1.2), C.line);
-for (let j = 1; j < 5; j++) onCalendar("cal-week-" + j, rect(25 + j * 8, 239, 1.2, 206), C.line);
+border(onCalendar, "cal-frame", 25, 237, 40, 210, 3.5 * CAL_FORESHORTEN, 3.5, "#9b958b");
+onCalendar("cal-head", rect(25 + 3.5 * CAL_FORESHORTEN, 240.5, 8 * CAL_FORESHORTEN, 203), "#b3ada3");   // the weekday row, at the top edge
+for (let i = 1; i < 7; i++) onCalendar("cal-day-" + i, rect(25 + 11.5 * CAL_FORESHORTEN, 240.5 + i * 29, 40 - 15 * CAL_FORESHORTEN, 0.7), "#aaa49a");
+for (let j = 1; j < 5; j++) onCalendar("cal-week-" + j, rect(25 + (11.5 + j * 16) * CAL_FORESHORTEN, 240.5, 0.7, 203), "#aaa49a");
 
 // The archive: one drawer per role.
 add({ id: "archive", poly: rect(284, 482, 158, 54), z0: 0, z1: 95, color: C.cabinet });
@@ -432,13 +450,17 @@ function sunPatch(win, zr, L) {
 const canvas = document.getElementById("c"), ctx = canvas.getContext("2d");
 const layer = () => document.createElement("canvas");
 const B = layer(), M = layer(), T = layer(), A = layer();  // base, one light's mask, scratch, all lamps' light
-let dpr = 1, cssW = 1000, cssH = 1000 * WORLD.h / WORLD.w;
+let dpr = 1, cssW = 1000, cssH = 700;
 
-// The drawing is redrawn from the geometry at the screen's own resolution: sharp on any screen and at
-// any browser zoom. Size changes and moves to a screen with another pixel density redraw it.
+// The frame fills the window, with the room in the middle and at least PAD cm of floor around it on the
+// tightest side. Redrawn from the geometry at the screen's own resolution: sharp on any screen.
+const PAD = 70;
+let view = { k: 1, ox: 0, oy: 0 };   // CSS pixels per cm, and where the room's corner sits on screen
 function resize() {
   dpr = window.devicePixelRatio || 1;
-  cssW = canvas.clientWidth || 1000; cssH = cssW * WORLD.h / WORLD.w;
+  cssW = window.innerWidth || 1000; cssH = window.innerHeight || 700;
+  const k = Math.min(cssW / (ROOM.w + 2 * PAD), cssH / (ROOM.h + 2 * PAD));
+  view = { k, ox: (cssW - ROOM.w * k) / 2, oy: (cssH - ROOM.h * k) / 2 };
   for (const c of [canvas, B, M, T, A]) { c.width = Math.round(cssW * dpr); c.height = Math.round(cssH * dpr); }
   watchDensity();
 }
@@ -448,8 +470,8 @@ function watchDensity() {
   density = matchMedia(`(resolution: ${dpr}dppx)`);
   density.addEventListener("change", resize);
 }
-new ResizeObserver(resize).observe(canvas);
-const toWorld = (g) => { const k = cssW / WORLD.w * dpr; g.setTransform(k, 0, 0, k, -WORLD.x * k, -WORLD.y * k); };
+window.addEventListener("resize", resize);
+const toWorld = (g) => { const k = view.k * dpr; g.setTransform(k, 0, 0, k, view.ox * dpr, view.oy * dpr); };
 function subpath(g, poly) { poly.forEach(([x, y], i) => i ? g.lineTo(x, y) : g.moveTo(x, y)); g.closePath(); }
 function path(g, poly) { g.beginPath(); subpath(g, poly); }
 
@@ -464,12 +486,21 @@ function drawBase(all) {
   const g = B.getContext("2d");
   g.setTransform(1, 0, 0, 1, 0, 0); g.clearRect(0, 0, B.width, B.height); toWorld(g);
   for (const o of all) {
-    path(g, silhouette(o)); g.fillStyle = o.color; g.fill();
+    path(g, o.shape || silhouette(o)); g.fillStyle = o.color; g.fill();
     if (o.id === "floor") drawGrid(g);   // on the floor, under everything standing on it
   }
 }
 
 // A light mask: alpha = how much of this light reaches each visible surface.
+// How much sun a surface takes: a flat one FLAT_SUN, a tilted one more or less as it faces the sun or turns away
+// (Lambert's law). This is what makes a tilted board read as tilted.
+const FLAT_SUN = 0.8;
+function facing(P, L) {
+  const cosE = 1 / Math.sqrt(1 + L.tanE * L.tanE), sinE = L.tanE * cosE, len = Math.sqrt(P.B * P.B + P.C * P.C + 1);
+  const d = (-P.B * L.sx * cosE - P.C * L.sy * cosE + sinE) / len;
+  return clamp(FLAT_SUN * d / sinE, 0, 1);
+}
+
 const shadowCaches = new Map(); // per light: shadows between still things, kept until that light moves
 function buildMask(all, surfaces, light) {
   let entry = shadowCaches.get(light.name);
@@ -486,13 +517,15 @@ function buildMask(all, surfaces, light) {
   for (const s of surfaces) {
     const sp = receiver(s), sb = bbox(sp);
     if (area && !overlaps(sb, area)) continue;              // nothing below it is lit by this lamp either
+    // Clear this surface's footprint, then add its own light. Adding (not painting over) makes the edge exact:
+    // painting over would dim the anti-aliased edge twice and leave a faint dark seam between touching surfaces.
     g.globalCompositeOperation = "destination-out"; path(g, sp); g.fill();
-    g.globalCompositeOperation = "source-over";
+    g.globalCompositeOperation = "lighter";
     const zr = s.zr ?? (slanted(s) ? (s.z0 + s.z1) / 2 : s.z1);
     const R = { z: zr, plane: s.plane || null }, lowest = s.plane ? s.planeMin : zr;
     let lit = false;
     if (light.kind === "sun") { // daylight reaches every surface; only things in its way shade it
-      path(g, sp); g.fillStyle = "#fff"; g.fill(); g.fillStyle = "#000"; lit = true;
+      path(g, sp); g.fillStyle = `rgba(255,255,255,${(s.plane ? facing(s.plane, light) : FLAT_SUN).toFixed(3)})`; g.fill(); g.fillStyle = "#000"; lit = true;
     } else if (zr < light.z - 2 && s.group !== light.group) {
       const R = light.reach(zr);
       if (overlaps([light.x - R, light.y - R, light.x + R, light.y + R], sb)) { path(g, sp); g.fillStyle = light.gradient(g, zr); g.fill(); g.fillStyle = "#000"; lit = true; }
@@ -520,9 +553,9 @@ function buildMask(all, surfaces, light) {
 
 // Pixel rectangle on the layers for a rectangle in the world, clamped to the canvas.
 function pixels([x0, y0, x1, y1]) {
-  const k = cssW / WORLD.w * dpr;
-  const px0 = clamp(Math.floor((x0 - WORLD.x) * k), 0, A.width), py0 = clamp(Math.floor((y0 - WORLD.y) * k), 0, A.height);
-  const px1 = clamp(Math.ceil((x1 - WORLD.x) * k), 0, A.width), py1 = clamp(Math.ceil((y1 - WORLD.y) * k), 0, A.height);
+  const k = view.k * dpr, X = (x) => x * k + view.ox * dpr, Y = (y) => y * k + view.oy * dpr;
+  const px0 = clamp(Math.floor(X(x0)), 0, A.width), py0 = clamp(Math.floor(Y(y0)), 0, A.height);
+  const px1 = clamp(Math.ceil(X(x1)), 0, A.width), py1 = clamp(Math.ceil(Y(y1)), 0, A.height);
   return [px0, py0, px1 - px0, py1 - py0];
 }
 
@@ -599,6 +632,7 @@ syncNow();
 $("time").addEventListener("input", () => { state.live = false; setPlaying(false); state.minutes = +$("time").value; });
 $("date").addEventListener("input", () => { if (/^\d{4}-\d{2}-\d{2}$/.test($("date").value)) { state.live = false; state.date = $("date").value; } });
 $("now").addEventListener("click", () => { state.live = true; setPlaying(false); syncNow(); });
+$("toggle").addEventListener("click", () => { const p = $("panel"); p.classList.toggle("hidden"); $("toggle").textContent = p.classList.contains("hidden") ? "Visa" : "Dölj"; });
 $("play").addEventListener("click", () => { state.live = false; setPlaying(!state.playing); });
 
 // The sun's highest point on a date, for the stylised angle (found once per date).
@@ -627,7 +661,7 @@ function lighting(minutes) {
   return {
     kind: "sun", name: "sun", key: `${s.az.toFixed(2)}|${el.toFixed(2)}`,
     el: s.el, az: s.az, K, sx: Math.sin(d), sy: -Math.cos(d), tanE, sunColor: color,
-    sunStrength: 0.62 * day * (1 - 0.75 * cloud), ambient: mix(night, dayAmbient, day), dark: s.el < 0,
+    sunStrength: 0.62 / FLAT_SUN * day * (1 - 0.75 * cloud), ambient: mix(night, dayAmbient, day), dark: s.el < 0,
   };
 }
 
@@ -666,9 +700,9 @@ function draw(nowT, warmUp = false) {
   }
 
   // The page's background: the ground's colour in this light (ambient plus unshaded sun), so they meet seamlessly.
-  const sunOn = L.sunStrength > 0.01, lit = rgb(BG).map((v, i) => v * (L.ambient[i] + (sunOn ? L.sunColor[i] * L.sunStrength : 0)));
+  const sunOn = L.sunStrength > 0.01, lit = rgb(BG).map((v, i) => v * (L.ambient[i] + (sunOn ? L.sunColor[i] * L.sunStrength * FLAT_SUN : 0)));
   const pageBg = css(lit), dark = lit[0] * 0.3 + lit[1] * 0.59 + lit[2] * 0.11 < 0.45;
-  if (pageBg !== shownBg) { shownBg = pageBg; document.body.style.background = pageBg; document.body.style.color = dark ? "#ddd" : "#333"; }
+  if (pageBg !== shownBg) { shownBg = pageBg; document.body.style.background = pageBg; }
 
   toWorld(ctx);
   ctx.setTransform(1, 0, 0, 1, 0, 0);
