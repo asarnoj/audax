@@ -130,17 +130,25 @@ const ellipse = (cx, cy, rx, ry, n = 16) => Array.from({ length: n }, (_, i) => 
 
 // A tilted plate (the board, the calendar): low along one edge, high along the opposite one. As a prism from the
 // low edge to the high edge its shadow is the plate's; it takes light on its whole face, at its middle height.
-function plate(id, x, y, w, h, high, zLow, zHigh, color) {
+function tilted(x, y, w, h, high, zLow, zHigh) { // the plane of a plate rising towards its `high` edge
+  const n = { n: [0, (zLow - zHigh) / h, y], s: [0, (zHigh - zLow) / h, y + h], w: [(zLow - zHigh) / w, 0, x], e: [(zHigh - zLow) / w, 0, x + w] }[high];
+  const [B, C] = n, A = high === "n" ? zHigh - C * y : high === "s" ? zLow - C * y : high === "w" ? zHigh - B * x : zLow - B * x;
+  return { A, B, C };
+}
+function plate(id, x, y, w, h, high, zLow, zHigh, color, legs = true) {
   const strip = { n: rect(x, y, w, 3), s: rect(x, y + h - 3, w, 3), w: rect(x, y, 3, h), e: rect(x + w - 3, y, 3, h) };
   const opposite = { n: "s", s: "n", w: "e", e: "w" }[high];
-  // It stands on four legs, under the plate (added first, so they're drawn below it): short ones under the low
-  // edge, long ones under the high edge.
-  const corners = { n: [[x + 4, y + 4], [x + w - 4, y + 4]], s: [[x + 4, y + h - 4], [x + w - 4, y + h - 4]],
-    w: [[x + 4, y + 4], [x + 4, y + h - 4]], e: [[x + w - 4, y + 4], [x + w - 4, y + h - 4]] };
-  for (const [k, [lx, ly]] of corners[opposite].entries()) add({ id: `${id}-leg-low-${k}`, poly: circle(lx, ly, 2.5, 6), z0: 0, z1: zLow, color, group: id, receives: false });
-  for (const [k, [lx, ly]] of corners[high].entries()) add({ id: `${id}-leg-high-${k}`, poly: circle(lx, ly, 2.5, 6), z0: 0, z1: zHigh, color, group: id, receives: false });
-  add({ id, bottom: strip[opposite], top: strip[high], face: rect(x, y, w, h), z0: zLow, z1: zHigh, zr: (zLow + zHigh) / 2, color });
-  return (u, v) => (zLow + zHigh) / 2;  // the face's height for things on it (the middle, near enough)
+  const plane = tilted(x, y, w, h, high, zLow, zHigh), at = (px, py) => plane.A + plane.B * px + plane.C * py;
+  if (legs) { // four legs under the plate, each reaching up to its underside (added first, so drawn below it)
+    for (const [k, [lx, ly]] of [[x + 4, y + 4], [x + w - 4, y + 4], [x + w - 4, y + h - 4], [x + 4, y + h - 4]].entries()) {
+      add({ id: `${id}-leg-${k}`, poly: circle(lx, ly, 2.5, 6), z0: 0, z1: at(lx, ly) - 0.5, color, group: id, receives: false });
+    }
+  }
+  add({ id, bottom: strip[opposite], top: strip[high], face: rect(x, y, w, h), z0: zLow, z1: zHigh, zr: (zLow + zHigh) / 2,
+    plane, planeMin: zLow, color });
+  // Things lying on the plate (post-its, lines) take its plane too.
+  return (pid, poly, pcolor) => add({ id: pid, poly, z0: zLow, z1: zHigh + 0.1, zr: (zLow + zHigh) / 2 + 0.6,  // z1: drawn after the plate
+    plane: { A: plane.A + 0.6, B: plane.B, C: plane.C }, planeMin: zLow, color: pcolor, occludes: false, group: id });
 }
 const rgb = (hex) => [1, 3, 5].map(i => parseInt(hex.slice(i, i + 2), 16) / 255);
 const flat = (id, poly, z, color, group) => add({ id, poly, z0: z - 0.4, z1: z, color, occludes: false, group: group || id });
@@ -152,7 +160,10 @@ add({ id: "ground", poly: rect(WORLD.x, WORLD.y, WORLD.w, WORLD.h), z0: 0, z1: 0
 add({ id: "floor", poly: rect(0, 0, ROOM.w, ROOM.h), z0: 0, z1: 0, color: C.floor, occludes: false });
 
 // The floor's grid: 50 cm squares, red-brown at low opacity, running about 60 cm past the floor's edge.
-const GRID = { step: 49.5, x0: 21, y0: 48, over: 62, width: 3, color: "rgba(181, 115, 90, 0.30)" };
+const GRID = { step: 50, over: 62, width: 3, color: "rgba(181, 115, 90, 0.30)" };
+// Centred: as many lines as fit, with the same margin on both sides.
+GRID.x0 = (ROOM.w - (Math.floor(ROOM.w / GRID.step) - 1) * GRID.step) / 2;
+GRID.y0 = (ROOM.h - (Math.floor(ROOM.h / GRID.step) - 1) * GRID.step) / 2;
 function drawGrid(g) {
   g.fillStyle = GRID.color;
   for (let x = GRID.x0; x < ROOM.w; x += GRID.step) g.fillRect(x - GRID.width / 2, -GRID.over, GRID.width, ROOM.h + 2 * GRID.over);
@@ -160,9 +171,13 @@ function drawGrid(g) {
 }
 
 // Desks: shape and colour, one per person (nothing on them yet). Rounded corners are many-sided, still convex.
-function roundRect(x, y, w, h, r, seg = 4) {
-  const pts = [], corner = (cx, cy, a0) => { for (let i = 0; i <= seg; i++) { const a = a0 + (Math.PI / 2) * i / seg; pts.push([cx + r * Math.cos(a), cy + r * Math.sin(a)]); } };
-  corner(x + w - r, y + r, -Math.PI / 2); corner(x + w - r, y + h - r, 0); corner(x + r, y + h - r, Math.PI / 2); corner(x + r, y + r, Math.PI);
+function roundRect(x, y, w, h, r, seg = 4) { // r: one radius, or [top-left, top-right, bottom-right, bottom-left]
+  const [tl, tr, br, bl] = Array.isArray(r) ? r : [r, r, r, r], pts = [];
+  const corner = (cx, cy, rr, a0) => {
+    if (!rr) { pts.push([cx, cy]); return; }
+    for (let i = 0; i <= seg; i++) { const a = a0 + (Math.PI / 2) * i / seg; pts.push([cx + rr * Math.cos(a), cy + rr * Math.sin(a)]); }
+  };
+  corner(x + w - tr, y + tr, tr, -Math.PI / 2); corner(x + w - br, y + h - br, br, 0); corner(x + bl, y + h - bl, bl, Math.PI / 2); corner(x + tl, y + tl, tl, Math.PI);
   return pts;
 }
 const DESK = {
@@ -182,8 +197,9 @@ function table(id, x, y, w, h, r, seg, top, color, group = id) {
   }
 }
 table("manager-desk", 22, 22, 76, 190, 3, 4, 74, DESK.manager);
-table("director-desk", 560, 142, 213, 78, 4, 4, 76, DESK.director);
-table("director-desk-side", 698, 50, 75, 96, 4, 4, 76, DESK.director, "director-desk");
+// Director's L: two tops that overlap where they meet, with square corners there, so it reads as one top.
+table("director-desk", 560, 142, 213, 78, [4, 0, 4, 4], 4, 76, DESK.director);
+table("director-desk-side", 698, 50, 75, 100, [4, 4, 0, 0], 4, 76, DESK.director, "director-desk");
 table("assistant-desk", 101, 458, 153, 72, 14, 6, 74, DESK.assistant);
 table("researcher-desk", 656, 284, 92, 247, 2, 4, 75, DESK.researcher);
 const inboxes = {   // where papers are put, for the figure's errands (not drawn yet)
@@ -192,10 +208,10 @@ const inboxes = {   // where papers are put, for the figure's errands (not drawn
 
 // Chairs: a thin round seat on a post, a five-spoke foot, and a thin back that follows the seat's curve, standing
 // on its edge all along (in a few straight pieces, each convex), on the side away from the desk.
-function backArc(x, y, facing, span = 120, r0 = 18, r1 = 22, pieces = 5) {
-  const a = (deg) => deg * Math.PI / 180, out = [];
-  for (let k = 0; k < pieces; k++) {
-    const t0 = a(facing - span / 2 + span * k / pieces), t1 = a(facing - span / 2 + span * (k + 1) / pieces);
+function backArc(x, y, facing, span = 120, r0 = 18.5, r1 = 22, pieces = 12) {
+  const a = (deg) => deg * Math.PI / 180, out = [], step = span / pieces;
+  for (let k = 0; k < pieces; k++) { // each piece overlaps the next a little, so no seam shows between them
+    const t0 = a(facing - span / 2 + step * k - (k ? 1 : 0)), t1 = a(facing - span / 2 + step * (k + 1));
     out.push([[x + r0 * Math.cos(t0), y + r0 * Math.sin(t0)], [x + r1 * Math.cos(t0), y + r1 * Math.sin(t0)],
       [x + r1 * Math.cos(t1), y + r1 * Math.sin(t1)], [x + r0 * Math.cos(t1), y + r0 * Math.sin(t1)]]);
   }
@@ -218,15 +234,20 @@ chair("assistant", 199, 440, -90);   // north
 chair("researcher", 594, 450, 180);  // west
 
 // Computers, for the two who go out on the internet (a screen is a line out of the office).
-// Researcher: an old beige desktop, a deep monitor facing its chair, the tower beside it, a keyboard in front.
-const BEIGE = "#d8cfb8";
-add({ id: "researcher-monitor", poly: roundRect(700, 432, 38, 38, 3), z0: 75, z1: 112, color: BEIGE });
-add({ id: "researcher-tower", poly: roundRect(708, 382, 20, 42, 2), z0: 75, z1: 118, color: BEIGE });
-add({ id: "researcher-keyboard", poly: roundRect(668, 428, 16, 46, 2), z0: 75, z1: 78, color: "#cbc2aa" });
-// Assistant: a laptop, its screen tilted back from the hinge on the far side.
-add({ id: "assistant-laptop", poly: roundRect(182, 470, 34, 24, 2), z0: 74, z1: 76, color: "#c9c9c6" });
-add({ id: "assistant-laptop-screen", bottom: rect(182, 492.5, 34, 1.5), top: rect(182, 498.5, 34, 1.5), face: rect(182, 492.5, 34, 7.5),
-  z0: 76, z1: 98, zr: 87, color: "#b7b7b4" });
+// Researcher: an old beige desktop. A deep monitor that narrows to the back, facing the chair; the tower beside
+// it; a keyboard with its rows of keys in front, and a mouse.
+const BEIGE = "#d9d0b9", BEIGE_DARK = "#bdb39b";
+add({ id: "researcher-monitor", poly: [[700, 431], [740, 439], [740, 463], [700, 471]], z0: 75, z1: 112, color: BEIGE });
+add({ id: "researcher-tower", poly: roundRect(706, 382, 22, 42, 2), z0: 75, z1: 118, color: BEIGE });
+add({ id: "researcher-keyboard", poly: roundRect(667, 428, 16, 46, 2), z0: 75, z1: 77.5, color: BEIGE });
+for (let r = 0; r < 4; r++) flat("researcher-keys-" + r, rect(669 + r * 3.3, 431, 2.2, 40), 77.6, BEIGE_DARK, "researcher-keyboard");
+add({ id: "researcher-mouse", poly: ellipse(674, 484, 3.5, 5.5, 12), z0: 75, z1: 78.5, color: BEIGE });
+// Assistant: a laptop. The base with its keyboard and trackpad, the screen tipped back from the hinge.
+const SILVER = "#cfcfcc";
+add({ id: "assistant-laptop", poly: roundRect(180, 470, 38, 26, 2.5), z0: 74, z1: 75.6, color: SILVER });
+flat("assistant-laptop-keys", roundRect(184, 481, 30, 12, 1), 75.7, "#a3a3a0", "assistant-laptop");
+flat("assistant-laptop-pad", roundRect(193, 472.5, 12, 6.5, 1), 75.7, "#dcdcd9", "assistant-laptop");
+plate("assistant-laptop-screen", 180, 496, 38, 10, "s", 75.6, 97, "#bdbdba", false);
 
 // Desk lamps: for now only their light, at night (the lamps themselves come with the things on the desks).
 const lamps = [];
@@ -238,11 +259,11 @@ for (const [role, lx, ly] of [["manager", 40, 40], ["director", 585, 160], ["ass
 add({ id: "bin", poly: circle(667, 41, 22, 18), z0: 0, z1: 40, color: C.bin });
 
 // The board (saved findings, as post-its) and the calendar: tilted towards the room.
-const boardZ = plate("board", 245, 15, 151, 54, "n", 95, 185, C.board);
-for (const [x, y] of [[262, 26], [288, 40], [318, 28], [350, 44], [372, 25], [300, 52]]) flat("note-" + x, rect(x, y, 11, 11), boardZ() + 0.6, C.note, "board");
-const calZ = plate("calendar", 25, 237, 40, 210, "w", 95, 190, C.calendar);
-for (let i = 1; i < 7; i++) flat("cal-day-" + i, rect(27, 237 + i * 30, 36, 1.2), calZ() + 0.6, C.line, "calendar");
-for (let j = 1; j < 5; j++) flat("cal-week-" + j, rect(25 + j * 8, 239, 1.2, 206), calZ() + 0.6, C.line, "calendar");
+const onBoard = plate("board", 245, 15, 151, 54, "n", 95, 185, C.board);
+for (const [x, y] of [[262, 26], [288, 40], [318, 28], [350, 44], [372, 25], [300, 52]]) onBoard("note-" + x, rect(x, y, 11, 11), C.note);
+const onCalendar = plate("calendar", 25, 237, 40, 210, "w", 95, 190, C.calendar);
+for (let i = 1; i < 7; i++) onCalendar("cal-day-" + i, rect(27, 237 + i * 30, 36, 1.2), C.line);
+for (let j = 1; j < 5; j++) onCalendar("cal-week-" + j, rect(25 + j * 8, 239, 1.2, 206), C.line);
 
 // The archive: one drawer per role.
 add({ id: "archive", poly: rect(284, 482, 158, 54), z0: 0, z1: 95, color: C.cabinet });
@@ -361,22 +382,36 @@ function figureParts() {
 }
 
 // --- light ------------------------------------------------------------------------------------------
-// Where a corner of an occluder lands on the plane z = zr: along the sun's rays, or out from a lamp.
-const sunProject = (L) => (p, z, zr) => [p[0] - L.sx * (z - zr) / L.tanE, p[1] - L.sy * (z - zr) / L.tanE];
-const lampProject = (L) => (p, z, zr) => { const k = (L.z - zr) / Math.max(0.8, L.z - z); return [L.x + (p[0] - L.x) * k, L.y + (p[1] - L.y) * k]; };
+// A receiving surface: flat at height z, or tilted (the board, the calendar, a laptop's screen), a plane
+// z = A + B·x + C·y. Shadows land on the surface itself, at its real height at every point.
+const heightAt = (R, x, y) => R.plane ? R.plane.A + R.plane.B * x + R.plane.C * y : R.z;
 
-function shadow(o, zr, project, ztop = Infinity) {
-  const z1 = Math.min(o.z1, ztop);
-  if (z1 <= zr + 0.5) return null;
-  const zl = Math.max(o.z0, zr);
-  const t = o.z1 > o.z0 ? (zl - o.z0) / (o.z1 - o.z0) : 0;
-  const u = o.z1 > o.z0 ? (z1 - o.z0) / (o.z1 - o.z0) : 1;
-  const bottom = o.bottom || o.poly, top = o.top || o.poly;
-  const at = (k) => bottom.map((p, i) => [lerp(p[0], top[i][0], k), lerp(p[1], top[i][1], k)]);
-  const pts = [];
-  for (const p of at(t)) pts.push(project(p, zl, zr));
-  for (const p of at(u)) pts.push(project(p, z1, zr));
-  return hull(pts);
+// Where a corner of an occluder (at p, height z) lands on the receiver: along the sun's rays, or out from a lamp.
+const sunProject = (L) => (p, z, R) => {
+  let u = z - R.z;   // how far down the ray falls (flat receiver)
+  if (R.plane) u = (z - heightAt(R, p[0], p[1])) / Math.max(0.05, 1 - (R.plane.B * L.sx + R.plane.C * L.sy) / L.tanE);
+  return [p[0] - L.sx * u / L.tanE, p[1] - L.sy * u / L.tanE];
+};
+const lampProject = (L) => (p, z, R) => {
+  z = Math.min(z, L.z - 0.8);  // a corner level with the lamp throws its shadow far, not to infinity
+  let t = (L.z - R.z) / (L.z - z);
+  if (R.plane) t = (R.plane.A + R.plane.B * L.x + R.plane.C * L.y - L.z) / ((z - L.z) - R.plane.B * (p[0] - L.x) - R.plane.C * (p[1] - L.y));
+  return [L.x + (p[0] - L.x) * t, L.y + (p[1] - L.y) * t];
+};
+
+// The shadow of an occluder on a receiver: the hull of its corners, projected. Each upright edge counts only
+// from where it rises above the receiver (so a leg under a tilted board doesn't shade the board).
+function shadow(o, R, project, ztop = Infinity) {
+  const z1 = Math.min(o.z1, ztop), span = o.z1 - o.z0;
+  const bottom = o.bottom || o.poly, top = o.top || o.poly, pts = [];
+  for (let i = 0; i < bottom.length; i++) {
+    const at = (z) => { const k = span > 0 ? (z - o.z0) / span : 0; return [lerp(bottom[i][0], top[i][0], k), lerp(bottom[i][1], top[i][1], k)]; };
+    const high = at(z1);
+    if (z1 <= heightAt(R, high[0], high[1]) + 0.5) continue;      // this edge stays below the receiver
+    const low = at(o.z0), zl = Math.max(o.z0, heightAt(R, low[0], low[1]));
+    pts.push(project(at(zl), zl, R), project(high, z1, R));
+  }
+  return pts.length >= 3 ? hull(pts) : null;
 }
 
 // The patch of sun on the plane z = zr through one window: the opening seen through the wall's depth.
@@ -454,6 +489,7 @@ function buildMask(all, surfaces, light) {
     g.globalCompositeOperation = "destination-out"; path(g, sp); g.fill();
     g.globalCompositeOperation = "source-over";
     const zr = s.zr ?? (slanted(s) ? (s.z0 + s.z1) / 2 : s.z1);
+    const R = { z: zr, plane: s.plane || null }, lowest = s.plane ? s.planeMin : zr;
     let lit = false;
     if (light.kind === "sun") { // daylight reaches every surface; only things in its way shade it
       path(g, sp); g.fillStyle = "#fff"; g.fill(); g.fillStyle = "#000"; lit = true;
@@ -465,12 +501,12 @@ function buildMask(all, surfaces, light) {
     g.globalCompositeOperation = "destination-out"; g.beginPath();
     let any = false;
     for (const o of all) {
-      if (!o.occludes || o === s || o.group === light.group || o.z1 <= zr + 0.5) continue;
+      if (!o.occludes || o === s || o.group === light.group || o.z1 <= lowest + 0.5) continue;
       if (light.kind === "lamp" && o.z0 >= light.z) continue; // above the lamp: lit from below, no shadow downwards
       const still = !o.moves && !s.moves, key = s.id + "|" + o.id;
       let sh = still ? cache.get(key) : undefined;
       if (sh === undefined) {
-        sh = shadow(o, zr, project, light.kind === "lamp" ? light.z - 1 : Infinity);
+        sh = shadow(o, R, project, light.kind === "lamp" ? light.z - 1 : Infinity);
         sh = sh && sh.length >= 3 && overlaps(bbox(sh), sb) ? clip(sh, sp) : null;
         if (sh && sh.length < 3) sh = null;
         if (still) cache.set(key, sh);
