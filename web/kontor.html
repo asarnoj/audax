@@ -45,7 +45,7 @@
 // Every object is a prism: a convex footprint at z0 and (for limbs) another at z1. Its shadow on a
 // surface at height zr is the convex hull of its corners projected along the light onto that plane.
 // ---------------------------------------------------------------------------------------------
-const DESK_BANDS = [[0.45, 1.0], [0.16, 0.62], [0.05, 0.34], [0.016, 0.16]]; // [share of the light under the lamp, brightness]
+const DESK_BANDS = [[0.45, 1.0], [0.16, 0.62], [0.06, 0.34], [0.03, 0.16]]; // [share of the light under the lamp, brightness]
 const LAT = 59.33, LON = 18.07, TZ = "Europe/Stockholm";
 const ROOM = { w: 792, h: 544, wall: 20, height: 270 };  // the floor plan (Figma, 14 Oct): a 50 cm grid
 const GROUND = 4000;  // the ground runs on well past any screen's edge, so light and shadows never stop short
@@ -191,6 +191,20 @@ const DESK = {
   researcher: "#b5835a",   // an oak work table, long and plain: room for maps and papers
   manager: "#8fa19a",      // a sage-green steel desk, tight corners: order and timing
 };
+// Turn what was added since `from` a few degrees about (cx, cy): chairs, computers and small things stand a little
+// askew, as in a real room. Footprints, slanted parts, faces and tilted planes all turn together.
+function turn(from, cx, cy, deg) {
+  const t = deg * Math.PI / 180, c = Math.cos(t), s = Math.sin(t);
+  const r = (poly) => poly && poly.map(([x, y]) => [cx + (x - cx) * c - (y - cy) * s, cy + (x - cx) * s + (y - cy) * c]);
+  for (const o of objects.slice(from)) {
+    for (const k of ["poly", "bottom", "top", "face", "shape"]) if (o[k]) o[k] = r(o[k]);
+    if (o.plane) { // z = A + Bx + Cy, seen from the turned frame
+      const { A, B, C } = o.plane, B2 = B * c - C * s, C2 = B * s + C * c;
+      o.plane = { A: A + B * cx + C * cy - B2 * cx - C2 * cy, B: B2, C: C2 };
+    }
+  }
+}
+
 // Furniture is built from its parts, like the real thing: a thin top on legs, so light passes underneath and the
 // shadow is the top's shape, moved away from the sun, with thin lines from the legs. (A solid block from the
 // floor up casts a heavy, wrong shadow.)
@@ -238,34 +252,83 @@ function chair(role, x, y, back, o) {
 }
 // Manager: a grey-green steel office chair, square and tidy. Director: a big dark executive chair with a tall
 // back. Assistant: a light, round, friendly chair. Researcher: a plain wooden chair on four legs.
+let from = objects.length;
 chair("manager", 105, 71, "e", { size: 42, color: "#7f8f89", corner: 6, backTop: 92 });
+turn(from, 105, 71, 4); from = objects.length;
 chair("director", 650, 122, "n", { size: 50, color: "#3f3430", corner: 12, back: 7, backTop: 115, frame: "#5a524c" });
+turn(from, 650, 122, -7); from = objects.length;
 chair("assistant", 199, 440, "n", { size: 42, round: true, color: "#e6e1d8", backTop: 88, frame: "#a9a49b" });
+turn(from, 199, 440, 9); from = objects.length;
 chair("researcher", 594, 450, "w", { size: 40, color: "#a77a52", corner: 4, back: 4, backTop: 90, legs: 4 });
+turn(from, 594, 450, -4);
 
 // Computers, for the two who go out on the internet (a screen is a line out of the office).
 // Researcher: an old beige desktop. A CRT monitor (a flat front, a rounded housing tapering to the back) facing the
 // chair, the tower beside it, a keyboard with its rows of keys in front, and a mouse.
 const BEIGE = "#d9d0b9", BEIGE_DARK = "#bdb39b";
+from = objects.length;
 add({ id: "researcher-monitor-back", poly: [[705, 433], [740, 441], [740, 461], [705, 469]], z0: 77, z1: 110, color: BEIGE, group: "researcher-monitor" });
 add({ id: "researcher-monitor", poly: roundRect(698, 429, 9, 44, 3), z0: 75, z1: 113, color: BEIGE });
+turn(from, 720, 451, -3); from = objects.length;
 add({ id: "researcher-tower", poly: roundRect(705, 380, 22, 44, 3.5), z0: 75, z1: 118, color: BEIGE });
+turn(from, 716, 402, 2); from = objects.length;
 add({ id: "researcher-keyboard", poly: roundRect(667, 428, 16, 46, 3), z0: 75, z1: 77.5, color: BEIGE });
 for (let r = 0; r < 4; r++) flat("researcher-keys-" + r, roundRect(669 + r * 3.3, 431, 2.2, 40, 1), 77.6, BEIGE_DARK, "researcher-keyboard");
-add({ id: "researcher-mouse", poly: ellipse(674, 484, 3.5, 5.5, 12), z0: 75, z1: 78.5, color: BEIGE });
+turn(from, 675, 451, 5); from = objects.length;
+add({ id: "researcher-mouse", poly: ellipse(674, 486, 3.5, 5.5, 12), z0: 75, z1: 78.5, color: BEIGE });
+turn(from, 674, 486, 14);
 // Assistant: a laptop. The base with its keyboard and trackpad, a thin screen tipped back from the hinge.
 const SILVER = "#cfcfcc";
+from = objects.length;
 add({ id: "assistant-laptop", poly: roundRect(180, 470, 38, 26, 3.5), z0: 74, z1: 75.6, color: SILVER });
 flat("assistant-laptop-keys", roundRect(184, 481, 30, 12, 1.5), 75.7, "#a3a3a0", "assistant-laptop");
 flat("assistant-laptop-pad", roundRect(193, 472.5, 12, 6.5, 1.5), 75.7, "#dcdcd9", "assistant-laptop");
 plate("assistant-laptop-screen", 180, 495.5, 38, 4.5, "s", 75.6, 98, "#bdbdba", false);
 objects[objects.length - 1].shape = roundRect(180, 495.5, 38, 4.5, [0, 0, 2, 2]);
+turn(from, 199, 484, -6);
 
-// Desk lamps: for now only their light, at night (the lamps themselves come with the things on the desks).
+// Desk lamps, one for each person, to match their desks. Each gives its light from under its shade (x, y, z).
 const lamps = [];
-for (const [role, lx, ly] of [["manager", 40, 40], ["director", 585, 160], ["assistant", 236, 476], ["researcher", 730, 510]]) {
-  lamps.push({ role, x: lx, y: ly, z: 113, group: role + "-lamp", href: 113 - 75, cone: 74, bands: DESK_BANDS });
+function lamp(role, desk, at, parts) {
+  const g = role + "-lamp";
+  for (const p of parts) add(Object.assign({ group: g, color: p.color }, p, { id: `${g}-${p.id}` }));
+  lamps.push({ role, x: at[0], y: at[1], z: at[2], group: g, href: at[2] - desk, cone: 58, bands: DESK_BANDS });  // a shade aims the light down
 }
+const BRASS = "#b39256", BRASS_DARK = "#8f7443";
+// Researcher: a simple Strindberg lamp, a round foot and a wide round brass shade.
+lamp("researcher", 75, [728, 508, 112], [
+  { id: "foot", poly: circle(728, 508, 8, 16), z0: 75, z1: 77, color: BRASS_DARK },
+  { id: "stem", poly: circle(728, 508, 1.3, 8), z0: 77, z1: 114, color: BRASS_DARK },
+  { id: "shade", poly: circle(728, 508, 17, 24), z0: 112, z1: 121, color: BRASS },
+  { id: "top", poly: circle(728, 508, 2.2, 10), z0: 121, z1: 123, color: BRASS_DARK },
+]);
+// Manager: a grey-green architect's lamp: a foot at the back of the desk, two arms, a cone shade out over it.
+lamp("manager", 74, [66, 52, 116], [
+  { id: "foot", poly: circle(36, 34, 7, 14), z0: 74, z1: 77, color: "#6f7f78" },
+  { id: "arm1", bottom: circle(36, 34, 1.1, 6), top: circle(46, 54, 1.1, 6), z0: 77, z1: 128, color: "#6f7f78" },
+  { id: "arm2", bottom: circle(46, 54, 1.1, 6), top: circle(62, 50, 1.1, 6), z0: 120, z1: 128, color: "#6f7f78" },
+  { id: "shade", poly: circle(66, 52, 8.5, 16), z0: 114, z1: 126, color: "#7f8f89" },
+]);
+// Director: a banker's lamp, a long green glass shade on a brass foot.
+lamp("director", 76, [586, 168, 110], [
+  { id: "foot", poly: ellipse(586, 171, 8, 6, 14), z0: 76, z1: 78, color: BRASS },
+  { id: "stem", poly: circle(586, 171, 1.3, 8), z0: 78, z1: 108, color: BRASS_DARK },
+  { id: "shade", poly: roundRect(572, 163, 28, 10, 5), z0: 106, z1: 114, color: "#3f6b4f" },
+]);
+// Assistant: a small, soft, cream mushroom lamp.
+lamp("assistant", 74, [236, 476, 106], [
+  { id: "foot", poly: circle(236, 476, 6, 14), z0: 74, z1: 76, color: "#e9e1d2" },
+  { id: "stem", poly: circle(236, 476, 2.2, 10), z0: 76, z1: 104, color: "#e9e1d2" },
+  { id: "shade", poly: circle(236, 476, 12, 20), z0: 104, z1: 112, color: "#f1ebdf" },
+]);
+
+// The telex on the side of Director's desk: a plain machine, a roll of paper at its back, and a strip of paper
+// coming out onto the desk.
+from = objects.length;
+add({ id: "telex", poly: roundRect(708, 62, 52, 36, 5), z0: 76, z1: 94, color: "#8f9488" });
+add({ id: "telex-roll", poly: roundRect(714, 55, 40, 8, 4), z0: 90, z1: 101, color: "#efe9dc", group: "telex" });
+flat("telex-paper", rect(726, 98, 15, 34), 76.3, "#f2ede2", "telex");
+turn(from, 734, 90, -3);
 
 // The waste bin beside Director.
 add({ id: "bin", poly: circle(667, 41, 22, 18), z0: 0, z1: 40, color: C.bin });
