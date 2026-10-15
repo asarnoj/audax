@@ -305,9 +305,24 @@ const onCalendar = plate("calendar", CAL.x, CAL.y, CAL.w, CAL.h, "w", CAL.low, C
   }
 }
 
-// The archive: one drawer per role.
-add({ id: "archive", poly: rect(284, 482, 158, 54), z0: 0, z1: 95, color: C.cabinet });
-for (let i = 0; i < 4; i++) flat("drawer-" + i, rect(289 + i * 38.5, 487, 34, 44), 95.6, C.drawer, "archive");
+// The archive: a low cabinet with four open drawers, one per role, full of yellow hanging folders standing in rows.
+// From above you see the folders' top edges and their small labels sticking up. The folders only shade each
+// other and the drawers (their shadows outside the cabinet are lost in its own).
+{
+  const X = 284, Y = 482, W = 158, H = 54, wall = 3, rim = 92;
+  const inW = (W - 5 * wall) / 4, inH = H - 2 * wall;
+  add({ id: "archive", poly: rect(X, Y, W, H), z0: 0, z1: rim, color: C.cabinet });
+  const yellows = ["#e8c25e", "#efcd6d", "#e3b955", "#ecc865"];
+  for (let d = 0; d < 4; d++) {
+    const x0 = X + wall + d * (inW + wall);
+    add({ id: `drawer-${d}`, poly: rect(x0, Y + wall, inW, inH), z0: rim, z1: rim + 0.1, color: "#7d7262", group: "archive", occludes: false });
+    for (let k = 0; k < 8; k++) { // a hanging folder's top edge is a couple of cm wide, seen from above
+      const y = Y + wall + 2 + k * 5.6, top = rim + 4 + (k * 7 % 3), pos = [2, inW / 2 - 5, inW - 12][(k + d) % 3];
+      add({ id: `folder-${d}-${k}`, poly: rect(x0 + 1.5, y, inW - 3, 2.6), z0: rim - 20, z1: top, color: yellows[(k + d) % 4], group: "archive", shadeOnly: "archive" });
+      add({ id: `label-${d}-${k}`, poly: rect(x0 + 1.5 + pos, y - 0.3, 10, 3.2), z0: top, z1: top + 3, color: "#f7f3ea", group: "archive", shadeOnly: "archive" });
+    }
+  }
+}
 
 const windows = [];   // no windows: the light is the office's own
 
@@ -484,7 +499,7 @@ function resize() {
   const k = Math.min(cssW / (ROOM.w + 2 * PAD), cssH / (ROOM.h + 2 * PAD));
   view = { k, ox: (cssW - ROOM.w * k) / 2, oy: (cssH - ROOM.h * k) / 2 };
   for (const c of [canvas, B, M, T, A]) { c.width = Math.round(cssW * dpr); c.height = Math.round(cssH * dpr); }
-  lampsCold = true;   // new layers: warm the lamps' pass again (see draw)
+  lampLayerKey = null;   // new layers: the lamps' light is made again (see draw)
   watchDensity();
 }
 let density = null;
@@ -564,6 +579,7 @@ function buildMask(all, surfaces, light) {
     for (const o of all) {
       if (!o.occludes || o === s || o.group === light.group || o.z1 <= lowest + 0.5) continue;
       if (s.plane && o.group === s.group) continue;  // a board's own frame and legs don't shade its face
+      if (o.shadeOnly && s.group !== o.shadeOnly) continue;  // small things that only shade their own furniture
       if (light.kind === "lamp" && o.z0 >= light.z) continue; // above the lamp: lit from below, no shadow downwards
       const still = !o.moves && !s.moves, key = s.id + "|" + o.id;
       let sh = still ? cache.get(key) : undefined;
@@ -695,14 +711,21 @@ function lighting(minutes) {
 }
 
 let last = performance.now(), lastSync = 0, failed = false;
-let shownBg = null, lampsCold = true;
+let shownBg = null, lampLayerKey = null;
+
+// All desk lamps' light, against the still room only, into one layer (A).
+function buildLampLayer(soft) {
+  const still = objects.slice().sort((a, b) => a.z1 - b.z1), surfaces = still.filter(o => o.receives !== false);
+  const g = A.getContext("2d"); g.setTransform(1, 0, 0, 1, 0, 0); g.clearRect(0, 0, A.width, A.height);
+  for (const l of lamps) { const light = lampLight(l, soft); buildMask(still, surfaces, light); accumulate(light.area); }
+}
 function frame(nowT) {
   requestAnimationFrame(frame);   // first, so one bad frame can't stop the animation
   try { draw(nowT); failed = false; }
   catch (e) { if (!failed) console.error(e); failed = true; }
 }
 
-function draw(nowT, warmUp = false) {
+function draw(nowT) {
   const dt = Math.min(0.05, (nowT - last) / 1000); last = nowT;
   if (state.live && nowT - lastSync > 1000) { syncNow(); lastSync = nowT; }
   else if (state.live) state.minutes += dt / 60;
@@ -722,14 +745,12 @@ function draw(nowT, warmUp = false) {
   if (L.sunStrength > 0.01) { buildMask(all, surfaces, L); addLight(L.sunColor, L.sunStrength); }
   const lampsOn = $("lamps").value === "on" || ($("lamps").value === "auto" && L.dark);
   const warm = kelvin(2700);
-  // The lamps' pass also runs, unseen (added at strength 0), at load and after every resize: their shadows get
-  // cached and the browser sets up its layers on the graphics card then, not in one long frame when they switch on.
-  if (lampsOn || warmUp || lampsCold) { // every desk lamp into one shared light, then onto the picture once
-    const g = A.getContext("2d"); g.setTransform(1, 0, 0, 1, 0, 0); g.clearRect(0, 0, A.width, A.height);
-    for (const l of lamps) { const light = lampLight(l, soft); buildMask(all, surfaces, light); accumulate(light.area); }
-    addLight(warm, lampsOn ? 1.05 : 0, A);
-    lampsCold = false;
-  }
+  // The lamps and what they light stand still, so their light is worked out once, kept as a picture, and only
+  // laid over the room while they're on. It's made ahead (at load, after a resize or a change of style), so
+  // switching them on costs nothing. The walking figure takes the lamp light of where it stands.
+  const lampKey = `${A.width}x${A.height}|${soft}`;
+  if (lampKey !== lampLayerKey) { buildLampLayer(soft); lampLayerKey = lampKey; }
+  if (lampsOn) addLight(warm, 1.05, A);
 
   // The page's background: the ground's colour in this light (ambient plus unshaded sun), so they meet seamlessly.
   const sunOn = L.sunStrength > 0.01, lit = rgb(BG).map((v, i) => v * (L.ambient[i] + (sunOn ? L.sunColor[i] * L.sunStrength * FLAT_SUN : 0)));
