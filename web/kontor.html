@@ -6,9 +6,9 @@
 <title>Gråskiss · Audax</title>
 <style>
   /* A prototype: grey boxes and plain controls. None of this is the design. */
-  body { margin: 0; background: #1c1c1c; color: #ddd; font: 14px/1.4 system-ui, sans-serif; }
+  body { margin: 0; background: #f8f8f7; color: #333; font: 14px/1.4 system-ui, sans-serif; }  /* set from the light, every frame */
   main { max-width: 1100px; margin: 0 auto; padding: 12px 16px 32px; }
-  canvas { display: block; width: 100%; height: auto; background: #111; }
+  canvas { display: block; width: 100%; height: auto; }
   .controls { display: flex; flex-wrap: wrap; gap: 8px 18px; align-items: center; margin: 10px 0; }
   .controls label { display: flex; gap: 6px; align-items: center; }
   input[type=range] { width: min(420px, 80vw); }
@@ -28,6 +28,7 @@
   </div>
   <div class="controls">
     <label>Datum <input id="date" type="date"></label>
+    <label>Moln <input id="clouds" type="range" min="0" max="100" value="0" style="width: 140px"></label>
     <label>Skrivbordslampor <select id="lamps"><option value="auto">när det är mörkt</option><option value="on">på</option><option value="off">av</option></select></label>
     <label>Ljus <select id="mode"><option value="band">i band</option><option value="soft">mjukt</option></select></label>
   </div>
@@ -43,7 +44,7 @@
 const DESK_BANDS = [[0.45, 1.0], [0.16, 0.62], [0.05, 0.34], [0.016, 0.16]]; // [share of the light under the lamp, brightness]
 const LAT = 59.33, LON = 18.07, TZ = "Europe/Stockholm";
 const ROOM = { w: 792, h: 544, wall: 20, height: 270 };  // the floor plan (Figma, 14 Oct): a 50 cm grid
-const MARGIN = 30;
+const MARGIN = 110;   // the floor's grid runs on past its edge, and the light with it
 const WORLD = { x: -ROOM.wall - MARGIN, y: -ROOM.wall - MARGIN, w: ROOM.w + 2 * (ROOM.wall + MARGIN), h: ROOM.h + 2 * (ROOM.wall + MARGIN) };
 
 // --- geometry ---------------------------------------------------------------------------------
@@ -118,7 +119,7 @@ const mix = (a, b, t) => a.map((v, i) => lerp(v, b[i], t));
 const css = (c, k = 1) => `rgb(${c.map(v => Math.round(clamp(v * k, 0, 1) * 255)).join(",")})`;
 
 // --- the room (the floor plan, measured from the sketch) ------------------------------------------------
-const C = { floor: "#d6d1c7", wall: "#3b3a38", desk: "#b3aca0", chair: "#8a857d", tray: "#e9e5dd", lamp: "#77736c", shade: "#e4ded2",
+const C = { floor: "#f5edc6", wall: "#3b3a38", desk: "#b3aca0", chair: "#8a857d", tray: "#e9e5dd", lamp: "#77736c", shade: "#e4ded2",
   screen: "#4b4a48", keys: "#7c7973", board: "#a59a86", note: "#d9c46a", calendar: "#c9c3b8", line: "#6f6a62", cabinet: "#9c968c",
   drawer: "#aaa499", telex: "#8f8a82", paper: "#efece6", bin: "#8d8a84",
   body: "#6e6a64", head: "#56524d", limb: "#625e58", shoe: "#46433f" };
@@ -141,9 +142,22 @@ function plate(id, x, y, w, h, high, zLow, zHigh, color) {
   add({ id, bottom: strip[opposite], top: strip[high], face: rect(x, y, w, h), z0: zLow, z1: zHigh, zr: (zLow + zHigh) / 2, color });
   return (u, v) => (zLow + zHigh) / 2;  // the face's height for things on it (the middle, near enough)
 }
+const rgb = (hex) => [1, 3, 5].map(i => parseInt(hex.slice(i, i + 2), 16) / 255);
 const flat = (id, poly, z, color, group) => add({ id, poly, z0: z - 0.4, z1: z, color, occludes: false, group: group || id });
 
+// The ground the office stands on: the page's own colour, lit like everything else (the page background is
+// this, in the light of the moment, so the office melts into the page).
+const BG = "#f8f8f7";
+add({ id: "ground", poly: rect(WORLD.x, WORLD.y, WORLD.w, WORLD.h), z0: 0, z1: 0, color: BG, occludes: false });
 add({ id: "floor", poly: rect(0, 0, ROOM.w, ROOM.h), z0: 0, z1: 0, color: C.floor, occludes: false });
+
+// The floor's grid: 50 cm squares, red-brown at low opacity, running about 60 cm past the floor's edge.
+const GRID = { step: 49.5, x0: 21, y0: 48, over: 62, width: 3, color: "rgba(181, 115, 90, 0.30)" };
+function drawGrid(g) {
+  g.fillStyle = GRID.color;
+  for (let x = GRID.x0; x < ROOM.w; x += GRID.step) g.fillRect(x - GRID.width / 2, -GRID.over, GRID.width, ROOM.h + 2 * GRID.over);
+  for (let y = GRID.y0; y < ROOM.h; y += GRID.step) g.fillRect(-GRID.over, y - GRID.width / 2, ROOM.w + 2 * GRID.over, GRID.width);
+}
 
 // Desks and inboxes (the white squares in the sketch are the inboxes).
 add({ id: "manager-desk", poly: rect(22, 22, 76, 190), z0: 0, z1: 75, color: C.desk });
@@ -349,7 +363,7 @@ function sunPatch(win, zr, L) {
 // --- drawing ------------------------------------------------------------------------------------------
 const canvas = document.getElementById("c"), ctx = canvas.getContext("2d");
 const layer = () => document.createElement("canvas");
-const B = layer(), M = layer(), T = layer(), A = layer();  // base, one light's mask, scratch, all lamps' light
+const B = layer(), M = layer(), T = layer(), A = layer(), S = layer();  // base, one light's mask, scratch, all lamps' light, soft shadow
 let dpr = 1, cssW = 1000, cssH = 1000 * WORLD.h / WORLD.w;
 
 // The drawing is redrawn from the geometry at the screen's own resolution: sharp on any screen and at
@@ -357,7 +371,7 @@ let dpr = 1, cssW = 1000, cssH = 1000 * WORLD.h / WORLD.w;
 function resize() {
   dpr = window.devicePixelRatio || 1;
   cssW = canvas.clientWidth || 1000; cssH = cssW * WORLD.h / WORLD.w;
-  for (const c of [canvas, B, M, T, A]) { c.width = Math.round(cssW * dpr); c.height = Math.round(cssH * dpr); }
+  for (const c of [canvas, B, M, T, A, S]) { c.width = Math.round(cssW * dpr); c.height = Math.round(cssH * dpr); }
   watchDensity();
 }
 let density = null;
@@ -371,13 +385,6 @@ const toWorld = (g) => { const k = cssW / WORLD.w * dpr; g.setTransform(k, 0, 0,
 function subpath(g, poly) { poly.forEach(([x, y], i) => i ? g.lineTo(x, y) : g.moveTo(x, y)); g.closePath(); }
 function path(g, poly) { g.beginPath(); subpath(g, poly); }
 
-function walls(g) {
-  const W = ROOM.wall;
-  g.fillStyle = C.wall;
-  g.fillRect(-W, -W, ROOM.w + 2 * W, W); g.fillRect(-W, ROOM.h, ROOM.w + 2 * W, W);
-  g.fillRect(-W, 0, W, ROOM.h); g.fillRect(ROOM.w, 0, W, ROOM.h);
-}
-
 function silhouette(o) { return o.bottom ? hull(o.bottom.concat(o.top)) : o.poly; }
 
 // What of a thing takes light, seen from above. A slanted part (an arm, a leg) shows its whole length, so all of
@@ -388,21 +395,31 @@ function receiver(o) { return o.face || (slanted(o) ? silhouette(o) : o.top || o
 function drawBase(all) {
   const g = B.getContext("2d");
   g.setTransform(1, 0, 0, 1, 0, 0); g.clearRect(0, 0, B.width, B.height); toWorld(g);
-  g.fillStyle = "#1c1c1c"; g.fillRect(WORLD.x, WORLD.y, WORLD.w, WORLD.h);
-  for (const o of all) { path(g, silhouette(o)); g.fillStyle = o.color; g.fill(); }
-  walls(g);
+  for (const o of all) {
+    path(g, silhouette(o)); g.fillStyle = o.color; g.fill();
+    if (o.id === "floor") drawGrid(g);   // on the floor, under everything standing on it
+  }
 }
 
 // A light mask: alpha = how much of this light reaches each visible surface.
-const shadowCaches = new Map(); // per light: shadows between still things, kept until that light moves
+const shadowCaches = new Map(); // per light (and per direction of a soft one): shadows between still things, kept until it moves
+function cacheFor(L) {
+  let entry = shadowCaches.get(L.name);
+  if (!entry || entry.key !== L.key) shadowCaches.set(L.name, entry = { key: L.key, map: new Map() });
+  return entry.map;
+}
+
+// A light mask: alpha = how much of this light reaches each visible surface. A soft light (daylight under
+// clouds) comes from several directions around the sun; each casts its shadows at an equal share, so the
+// edge of a shadow fades, and fades wider the further it falls from what casts it, as in real overcast light.
 function buildMask(all, surfaces, light) {
-  let entry = shadowCaches.get(light.name);
-  if (!entry || entry.key !== light.key) shadowCaches.set(light.name, entry = { key: light.key, map: new Map() });
-  const cache = entry.map;
-  const g = M.getContext("2d");
+  const rays = light.samples || [light];
+  const soft = rays.length > 1;
+  const caches = rays.map(cacheFor), projects = rays.map(L => L.kind === "sun" ? sunProject(L) : lampProject(L));
+  const g = M.getContext("2d"), sg = S.getContext("2d");
   g.setTransform(1, 0, 0, 1, 0, 0); g.clearRect(0, 0, M.width, M.height); toWorld(g);
+  if (soft) { sg.setTransform(1, 0, 0, 1, 0, 0); sg.clearRect(0, 0, S.width, S.height); toWorld(sg); }
   const area = light.kind === "lamp" ? light.area : null;  // a lamp reaches no further than this, even on the floor
-  const project = light.kind === "sun" ? sunProject(light) : lampProject(light);
   // Surfaces lowest first. Each one first hides what lies below it (its footprint is cleared), then gets its own
   // light. Every surface and every shadow is convex, so light patches and shadows are cut to the surface
   // exactly in JavaScript and filled as plain polygons: no canvas clipping, which is slow on the GPU.
@@ -412,6 +429,7 @@ function buildMask(all, surfaces, light) {
     if (area && !overlaps(sb, area)) continue;              // nothing below it is lit by this lamp either
     g.globalCompositeOperation = "destination-out"; path(g, sp); g.fill();
     g.globalCompositeOperation = "source-over";
+    if (soft) { sg.globalCompositeOperation = "destination-out"; sg.globalAlpha = 1; path(sg, sp); sg.fillStyle = "#000"; sg.fill(); }
     const zr = s.zr ?? (slanted(s) ? (s.z0 + s.z1) / 2 : s.z1);
     let lit = false;
     if (light.kind === "sun") { // daylight reaches every surface; only things in its way shade it
@@ -421,23 +439,38 @@ function buildMask(all, surfaces, light) {
       if (overlaps([light.x - R, light.y - R, light.x + R, light.y + R], sb)) { path(g, sp); g.fillStyle = light.gradient(g, zr); g.fill(); g.fillStyle = "#000"; lit = true; }
     }
     if (!lit) continue;
-    g.globalCompositeOperation = "destination-out"; g.beginPath();
-    let any = false;
-    for (const o of all) {
-      if (!o.occludes || o === s || o.group === light.group || o.z1 <= zr + 0.5) continue;
-      if (light.kind === "lamp" && o.z0 >= light.z) continue; // above the lamp: lit from below, no shadow downwards
-      const still = !o.moves && !s.moves, key = s.id + "|" + o.id;
-      let sh = still ? cache.get(key) : undefined;
-      if (sh === undefined) {
-        sh = shadow(o, zr, project, light.kind === "lamp" ? light.z - 1 : Infinity);
-        sh = sh && sh.length >= 3 && overlaps(bbox(sh), sb) ? clip(sh, sp) : null;
-        if (sh && sh.length < 3) sh = null;
-        if (still) cache.set(key, sh);
+    // Sharp light: cut its shadows straight out of the mask. Soft light: add each direction's shadows, at its
+    // share, to the shadow layer (one fill per direction, so overlapping shadows count once).
+    const out = soft ? sg : g;
+    out.globalCompositeOperation = soft ? "lighter" : "destination-out";
+    out.globalAlpha = 1 / rays.length;
+    if (!soft) out.globalAlpha = 1;
+    for (let j = 0; j < rays.length; j++) {
+      const L = rays[j], cache = caches[j];
+      out.beginPath();
+      let any = false;
+      for (const o of all) {
+        if (!o.occludes || o === s || o.group === light.group || o.z1 <= zr + 0.5) continue;
+        if (light.kind === "lamp" && o.z0 >= light.z) continue; // above the lamp: lit from below, no shadow downwards
+        const still = !o.moves && !s.moves, key = s.id + "|" + o.id;
+        let sh = still ? cache.get(key) : undefined;
+        if (sh === undefined) {
+          sh = shadow(o, zr, projects[j], light.kind === "lamp" ? light.z - 1 : Infinity);
+          sh = sh && sh.length >= 3 && overlaps(bbox(sh), sb) ? clip(sh, sp) : null;
+          if (sh && sh.length < 3) sh = null;
+          if (still) cache.set(key, sh);
+        }
+        if (sh) { subpath(out, sh); any = true; }
       }
-      if (sh) { subpath(g, sh); any = true; }
+      if (any) { out.fillStyle = soft ? "#fff" : "#000"; out.fill(); }
     }
-    if (any) g.fill();  // all of this surface's shadows in one fill
-    g.globalCompositeOperation = "source-over";
+    out.globalCompositeOperation = "source-over"; out.globalAlpha = 1; g.fillStyle = "#000";
+  }
+  if (soft) { // the averaged shadows, taken out of the light, smoothed a little where the browser can
+    g.setTransform(1, 0, 0, 1, 0, 0); g.globalCompositeOperation = "destination-out";
+    if (light.blur && "filter" in g) g.filter = `blur(${(light.blur * dpr).toFixed(1)}px)`;
+    g.drawImage(S, 0, 0);
+    g.filter = "none"; g.globalCompositeOperation = "source-over";
   }
 }
 
@@ -541,15 +574,32 @@ function lighting(minutes) {
   const day = smooth(clamp((s.el + 4) / 6, 0, 1));            // dusk to day, around sunrise and sunset
   const K = 2100 + 3400 * smooth(clamp((el - 10) / 30, 0, 1));
   const sunColor = kelvin(K);
-  const night = [0.12, 0.13, 0.20], dayAmbient = mix([0.40, 0.40, 0.42], sunColor.map(v => v * 0.45), 0.3 * (1 - progress));
+  // Clouds: less direct sun, more even light from the sky, a cooler colour, and softer shadows (the light comes
+  // from a wider patch of sky: several directions around the sun).
+  const cloud = +$("clouds").value / 100;
+  const color = mix(sunColor, kelvin(6500), 0.6 * cloud);
+  const night = [0.12, 0.13, 0.20];
+  const dayAmbient = mix(mix([0.40, 0.40, 0.42], sunColor.map(v => v * 0.45), 0.3 * (1 - progress)), [0.80, 0.81, 0.83], 0.75 * cloud);
+  const ray = (daz, del) => {
+    const e = clamp(el + del, 6, 80), dd = d + daz * Math.PI / 180;
+    return { kind: "sun", sx: Math.sin(dd), sy: -Math.cos(dd), tanE: Math.tan(e * Math.PI / 180) };
+  };
+  // The directions fill a disc around the sun evenly (a sunflower spiral); the height varies less than the
+  // bearing, or low sun would smear shadows into long streaks.
+  const spread = 14 * cloud, n = cloud > 0.02 ? 5 + Math.round(7 * cloud) : 1;
+  const samples = n === 1 ? null : Array.from({ length: n }, (_, j) => {
+    const r = spread * Math.sqrt((j + 0.5) / n), a = j * 2.39996;
+    return Object.assign(ray(r * Math.cos(a), 0.35 * r * Math.sin(a)), { name: `sun-${j}`, key: `${s.az.toFixed(2)}|${el.toFixed(2)}|${n}|${spread.toFixed(1)}` });
+  });
   return {
-    kind: "sun", name: "sun", key: `${s.az.toFixed(2)}|${el.toFixed(2)}`,
-    el: s.el, az: s.az, K, sx: Math.sin(d), sy: -Math.cos(d), tanE, sunColor,
-    sunStrength: 0.62 * day, ambient: mix(night, dayAmbient, day), dark: s.el < 0,
+    kind: "sun", name: "sun", key: `${s.az.toFixed(2)}|${el.toFixed(2)}`, samples,
+    el: s.el, az: s.az, K, sx: Math.sin(d), sy: -Math.cos(d), tanE, sunColor: color,
+    sunStrength: 0.62 * day * (1 - 0.65 * cloud), ambient: mix(night, dayAmbient, day), dark: s.el < 0, blur: 5 * cloud,
   };
 }
 
 let last = performance.now(), lastSync = 0, failed = false;
+let shownBg = null;
 function frame(nowT) {
   requestAnimationFrame(frame);   // first, so one bad frame can't stop the animation
   try { draw(nowT); failed = false; }
@@ -581,6 +631,11 @@ function draw(nowT, warmUp = false) {
     for (const l of lamps) { const light = lampLight(l, soft); buildMask(all, surfaces, light); accumulate(light.area); }
     addLight(warm, 1.05, A);
   }
+
+  // The page's background: the ground's colour in this light (ambient plus unshaded sun), so they meet seamlessly.
+  const sunOn = L.sunStrength > 0.01, lit = rgb(BG).map((v, i) => v * (L.ambient[i] + (sunOn ? L.sunColor[i] * L.sunStrength : 0)));
+  const pageBg = css(lit), dark = lit[0] * 0.3 + lit[1] * 0.59 + lit[2] * 0.11 < 0.45;
+  if (pageBg !== shownBg) { shownBg = pageBg; document.body.style.background = pageBg; document.body.style.color = dark ? "#ddd" : "#333"; }
 
   toWorld(ctx);
   if (lampsOn) for (const l of lamps) { path(ctx, circle(l.x, l.y, 12, 16)); ctx.fillStyle = css(warm, 1); ctx.fill(); } // a lit shade glows

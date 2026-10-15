@@ -40,6 +40,8 @@ Allt detta ändrar formen så lite som möjligt. Det som är ditt uttryck (propo
 - **Researcher** nere till höger, under Director.
 - **Arkivet** längst ned i mitten: fyra lådor, en per roll.
 - **Inga fönster och ingen dörr.** På dagen kommer ett **naturligt ljus från sidan** över hela rummet: riktningen följer den riktiga solen (norr uppåt i bild: från höger på morgonen, nedifrån mitt på dagen, från vänster på kvällen), vinkeln är stiliserad (låg i gryning och skymning, ungefär 50° mitt på dagen, året runt) och färgen varm i början och slutet av dagen. Bara möblerna skuggar. På natten lyser skrivbordslamporna.
+- **Golvet**: ljusgult, med rödbruna rutstreck (50 cm) i låg opacitet som löper en bit ut över golvets kant. Inga väggar: kontoret smälter ut i sidan, och **sidans bakgrund är marken i rummets ljus** (varm på morgonen, neutral mitt på dagen, grå när det är mulet, mörk på natten).
+- **Moln**: ett reglage för hur mulet det är. Mindre direkt sol, mer jämnt himmelsljus, svalare färg och mjuka skuggor (ljuset kommer från flera riktningar runt solen, så kanten suddas mer ju längre från föremålet skuggan faller). Kan senare styras av det riktiga vädret.
 - **Board och kalendern lutar** mot rummet, så att man ser några post-its och dagarnas streck. Det räcker att se vad möbeln är; innehållet visas när man klickar på den.
 
 ## Vem pratar med vem (mätt, vecka 7–14 okt)
