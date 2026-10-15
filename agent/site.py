@@ -11,6 +11,7 @@ office comes later and reads the same data from /api/.
 - /arkiv/           the file cabinet: memory and the instance config
 - /tabeller/        every database table
 - /prototyp/ljus    the lighting prototype for the illustrated office (web/ljus.html)
+- /prototyp/kontor  the greybox of the owner's floor plan (web/kontor.html)
 """
 
 from __future__ import annotations
@@ -128,7 +129,7 @@ def build_app(db: Database, office: Office, roots: dict[str, Path]) -> Starlette
     async def office_page(request: Request) -> Response:
         return page("Kontoret", f'<div id="nu">{now_html(await office.now())}</div>{live("nu", "/fragment/nu", 2)}'
                     f'<h2>Senaste händelser</h2><div id="tid">{timeline_html(await office.timeline(60))}</div>'
-                    f'{live("tid", "/fragment/tidslinje", 10)}<p><a href="/prototyp/ljus">Ljusprototypen</a></p>')
+                    f'{live("tid", "/fragment/tidslinje", 10)}<p><a href="/prototyp/kontor">Gråskissen</a> · <a href="/prototyp/ljus">Ljusprototypen</a></p>')
 
     async def now_fragment(request: Request) -> Response:
         return HTMLResponse(now_html(await office.now()))
@@ -267,9 +268,13 @@ def build_app(db: Database, office: Office, roots: dict[str, Path]) -> Starlette
     async def light_prototype(request: Request) -> Response:
         return FileResponse(ROOT / "web" / "ljus.html")
 
+    async def office_greybox(request: Request) -> Response:
+        return FileResponse(ROOT / "web" / "kontor.html")
+
     return Starlette(routes=[
         Route("/", office_page),
         Route("/prototyp/ljus", light_prototype),
+        Route("/prototyp/kontor", office_greybox),
         Route("/fragment/nu", now_fragment),
         Route("/fragment/tidslinje", timeline_fragment),
         Route("/roll/{role}", role_page),

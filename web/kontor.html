@@ -1,0 +1,585 @@
+<!doctype html>
+<html lang="sv">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Gråskiss · Audax</title>
+<style>
+  /* A prototype: grey boxes and plain controls. None of this is the design. */
+  body { margin: 0; background: #1c1c1c; color: #ddd; font: 14px/1.4 system-ui, sans-serif; }
+  main { max-width: 1100px; margin: 0 auto; padding: 12px 16px 32px; }
+  canvas { display: block; width: 100%; height: auto; background: #111; }
+  .controls { display: flex; flex-wrap: wrap; gap: 8px 18px; align-items: center; margin: 10px 0; }
+  .controls label { display: flex; gap: 6px; align-items: center; }
+  input[type=range] { width: min(420px, 80vw); }
+  #info { color: #aaa; font-variant-numeric: tabular-nums; }
+  a { color: #9bc; }
+</style>
+</head>
+<body>
+<main>
+  <p><a href="/">← Kontoret</a> · Gråskiss av planlösningen: grå lådor, en taklampa, skrivbordslampor och en figur som lämnar ett papper från Director till Manager. Inget av det här är design.</p>
+  <canvas id="c"></canvas>
+  <div class="controls">
+    <label>Tid <input id="time" type="range" min="0" max="1439" step="1"></label>
+    <span id="clock"></span>
+    <button id="now">Nu</button>
+    <button id="play">Spela dygnet</button>
+  </div>
+  <div class="controls">
+    <label>Datum <input id="date" type="date"></label>
+    <label>Taklampan <select id="ceiling"><option value="auto">på dagtid</option><option value="on">på</option><option value="off">av</option></select></label>
+    <label>Skrivbordslampor <select id="lamps"><option value="auto">när taklampan är släckt</option><option value="on">på</option><option value="off">av</option></select></label>
+    <label>Ljus <select id="mode"><option value="band">i band</option><option value="soft">mjukt</option></select></label>
+  </div>
+  <p id="info"></p>
+</main>
+<script>
+"use strict";
+// ---------------------------------------------------------------------------------------------
+// Units are centimetres. The room is seen from straight above: x right, y down, z up.
+// Every object is a prism: a convex footprint at z0 and (for limbs) another at z1. Its shadow on a
+// surface at height zr is the convex hull of its corners projected along the light onto that plane.
+// ---------------------------------------------------------------------------------------------
+const DESK_BANDS = [[0.45, 1.0], [0.16, 0.62], [0.05, 0.34], [0.016, 0.16]]; // [share of the light under the lamp, brightness]
+const CEILING_BANDS = [[0.7, 1.0], [0.42, 0.82], [0.2, 0.66], [0.02, 0.5]];
+const LAT = 59.33, LON = 18.07, TZ = "Europe/Stockholm";
+const ROOM = { w: 792, h: 544, wall: 20, height: 270 };  // the floor plan (Figma, 14 Oct): a 50 cm grid
+const MARGIN = 30;
+const WORLD = { x: -ROOM.wall - MARGIN, y: -ROOM.wall - MARGIN, w: ROOM.w + 2 * (ROOM.wall + MARGIN), h: ROOM.h + 2 * (ROOM.wall + MARGIN) };
+
+// --- geometry ---------------------------------------------------------------------------------
+const rect = (x, y, w, h) => [[x, y], [x + w, y], [x + w, y + h], [x, y + h]];
+const circle = (cx, cy, r, n = 16) => Array.from({ length: n }, (_, i) => [cx + r * Math.cos(2 * Math.PI * i / n), cy + r * Math.sin(2 * Math.PI * i / n)]);
+const lerp = (a, b, t) => a + (b - a) * t;
+const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
+const smooth = t => t * t * (3 - 2 * t);
+
+function hull(points) { // monotone chain, counter-clockwise
+  const p = points.slice().sort((a, b) => a[0] - b[0] || a[1] - b[1]);
+  if (p.length < 3) return p;
+  const cross = (o, a, b) => (a[0] - o[0]) * (b[1] - o[1]) - (a[1] - o[1]) * (b[0] - o[0]);
+  const lower = [], upper = [];
+  for (const q of p) { while (lower.length >= 2 && cross(lower[lower.length - 2], lower[lower.length - 1], q) <= 0) lower.pop(); lower.push(q); }
+  for (let i = p.length - 1; i >= 0; i--) { const q = p[i]; while (upper.length >= 2 && cross(upper[upper.length - 2], upper[upper.length - 1], q) <= 0) upper.pop(); upper.push(q); }
+  return lower.slice(0, -1).concat(upper.slice(0, -1));
+}
+
+function area(poly) { let a = 0; for (let i = 0; i < poly.length; i++) { const [x1, y1] = poly[i], [x2, y2] = poly[(i + 1) % poly.length]; a += x1 * y2 - x2 * y1; } return a / 2; }
+
+function clip(subject, clipper) { // Sutherland–Hodgman: convex ∩ convex
+  if (area(clipper) < 0) clipper = clipper.slice().reverse();
+  let out = subject;
+  for (let i = 0; i < clipper.length && out.length; i++) {
+    const a = clipper[i], b = clipper[(i + 1) % clipper.length];
+    const inside = p => (b[0] - a[0]) * (p[1] - a[1]) - (b[1] - a[1]) * (p[0] - a[0]) >= 0;
+    const meet = (p, q) => { const d1 = (b[0] - a[0]) * (p[1] - a[1]) - (b[1] - a[1]) * (p[0] - a[0]), d2 = (b[0] - a[0]) * (q[1] - a[1]) - (b[1] - a[1]) * (q[0] - a[0]); const t = d1 / (d1 - d2); return [p[0] + (q[0] - p[0]) * t, p[1] + (q[1] - p[1]) * t]; };
+    const input = out; out = [];
+    for (let j = 0; j < input.length; j++) {
+      const p = input[j], q = input[(j + 1) % input.length];
+      if (inside(q)) { if (!inside(p)) out.push(meet(p, q)); out.push(q); } else if (inside(p)) out.push(meet(p, q));
+    }
+  }
+  return out;
+}
+
+function bbox(poly) { let x0 = Infinity, y0 = Infinity, x1 = -Infinity, y1 = -Infinity; for (const [x, y] of poly) { x0 = Math.min(x0, x); y0 = Math.min(y0, y); x1 = Math.max(x1, x); y1 = Math.max(y1, y); } return [x0, y0, x1, y1]; }
+const overlaps = (a, b) => a[0] <= b[2] && b[0] <= a[2] && a[1] <= b[3] && b[1] <= a[3];
+
+// --- the sun (NOAA's low-precision formulas, good to a fraction of a degree) ----------------------
+function sun(date) {
+  const rad = Math.PI / 180, n = date.getTime() / 86400000 + 2440587.5 - 2451545.0;
+  const L = (280.460 + 0.9856474 * n) % 360, g = ((357.528 + 0.9856003 * n) % 360) * rad;
+  const lambda = (L + 1.915 * Math.sin(g) + 0.020 * Math.sin(2 * g)) * rad, eps = (23.439 - 0.0000004 * n) * rad;
+  const ra = Math.atan2(Math.cos(eps) * Math.sin(lambda), Math.cos(lambda)), dec = Math.asin(Math.sin(eps) * Math.sin(lambda));
+  const gmst = (18.697374558 + 24.06570982441908 * n) % 24, H = (gmst * 15 + LON) * rad - ra, phi = LAT * rad;
+  const el = Math.asin(Math.sin(phi) * Math.sin(dec) + Math.cos(phi) * Math.cos(dec) * Math.cos(H));
+  const az = Math.atan2(-Math.sin(H), Math.tan(dec) * Math.cos(phi) - Math.sin(phi) * Math.cos(H));
+  return { el: el / rad, az: (az / rad + 360) % 360 };
+}
+
+const LOCAL = new Intl.DateTimeFormat("en-GB", { timeZone: TZ, hourCycle: "h23", year: "numeric", month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit", second: "2-digit" });
+function localParts(date) { return Object.fromEntries(LOCAL.formatToParts(date).map(p => [p.type, p.value])); }
+
+function stockholm(dateStr, minutes) { // local wall time in Stockholm (minutes may have a fraction) → the instant
+  const [Y, M, D] = dateStr.split("-").map(Number);
+  const guess = Date.UTC(Y, M - 1, D) + minutes * 60000;
+  const p = localParts(new Date(guess));
+  const shown = Date.UTC(+p.year, +p.month - 1, +p.day, +p.hour, +p.minute, +p.second);
+  return new Date(guess - (shown - guess));
+}
+
+function kelvin(k) { // Tanner Helland's approximation, 0..1
+  const t = k / 100;
+  const r = t <= 66 ? 255 : 329.698727446 * Math.pow(t - 60, -0.1332047592);
+  const g = t <= 66 ? 99.4708025861 * Math.log(t) - 161.1195681661 : 288.1221695283 * Math.pow(t - 60, -0.0755148492);
+  const b = t >= 66 ? 255 : t <= 19 ? 0 : 138.5177312231 * Math.log(t - 10) - 305.0447927307;
+  return [r, g, b].map(v => clamp(v, 0, 255) / 255);
+}
+const mix = (a, b, t) => a.map((v, i) => lerp(v, b[i], t));
+const css = (c, k = 1) => `rgb(${c.map(v => Math.round(clamp(v * k, 0, 1) * 255)).join(",")})`;
+
+// --- the room (the floor plan, measured from the sketch) ------------------------------------------------
+const C = { floor: "#d6d1c7", wall: "#3b3a38", desk: "#b3aca0", chair: "#8a857d", tray: "#e9e5dd", lamp: "#77736c", shade: "#e4ded2",
+  screen: "#4b4a48", keys: "#7c7973", board: "#a59a86", note: "#d9c46a", calendar: "#c9c3b8", line: "#6f6a62", cabinet: "#9c968c",
+  drawer: "#aaa499", telex: "#8f8a82", paper: "#efece6", bin: "#8d8a84",
+  body: "#6e6a64", head: "#56524d", limb: "#625e58", shoe: "#46433f" };
+
+const objects = [];   // static: { id, poly, z0, z1, color, top?, face?, group, occludes, receives }
+const add = (o) => { objects.push(Object.assign({ occludes: true, receives: true, group: o.id }, o)); };
+const ellipse = (cx, cy, rx, ry, n = 16) => Array.from({ length: n }, (_, i) => [cx + rx * Math.cos(2 * Math.PI * i / n), cy + ry * Math.sin(2 * Math.PI * i / n)]);
+
+// A tilted plate (the board, the calendar): low along one edge, high along the opposite one. As a prism from the
+// low edge to the high edge its shadow is the plate's; it takes light on its whole face, at its middle height.
+function plate(id, x, y, w, h, high, zLow, zHigh, color) {
+  const strip = { n: rect(x, y, w, 3), s: rect(x, y + h - 3, w, 3), w: rect(x, y, 3, h), e: rect(x + w - 3, y, 3, h) };
+  const opposite = { n: "s", s: "n", w: "e", e: "w" }[high];
+  add({ id, bottom: strip[opposite], top: strip[high], face: rect(x, y, w, h), z0: zLow, z1: zHigh, zr: (zLow + zHigh) / 2, color });
+  return (u, v) => (zLow + zHigh) / 2;  // the face's height for things on it (the middle, near enough)
+}
+const flat = (id, poly, z, color, group) => add({ id, poly, z0: z - 0.4, z1: z, color, occludes: false, group: group || id });
+
+add({ id: "floor", poly: rect(0, 0, ROOM.w, ROOM.h), z0: 0, z1: 0, color: C.floor, occludes: false });
+
+// Desks and inboxes (the white squares in the sketch are the inboxes).
+add({ id: "manager-desk", poly: rect(22, 22, 76, 190), z0: 0, z1: 75, color: C.desk });
+add({ id: "director-desk", poly: rect(560, 142, 213, 78), z0: 0, z1: 75, color: C.desk });
+add({ id: "director-desk-side", poly: rect(698, 50, 75, 92), z0: 0, z1: 75, color: C.desk });
+add({ id: "assistant-desk", poly: rect(101, 458, 153, 72), z0: 0, z1: 75, color: C.desk });
+add({ id: "researcher-desk", poly: rect(656, 284, 92, 247), z0: 0, z1: 75, color: C.desk });
+const inboxes = {
+  manager: rect(50, 160, 34, 28), director: rect(570, 173, 28, 35), assistant: rect(117, 465, 28, 34), researcher: rect(674, 299, 34, 28),
+};
+for (const [role, poly] of Object.entries(inboxes)) add({ id: role + "-inbox", poly, z0: 75, z1: 83, color: C.tray });
+
+// Chairs: a round seat and a curved back on the side away from the desk.
+const chairs = [
+  { role: "manager", x: 105, y: 71, back: rect(128, 51, 9, 40) },
+  { role: "director", x: 650, y: 122, back: ellipse(650, 96, 22, 5, 12) },
+  { role: "assistant", x: 199, y: 440, back: ellipse(199, 414, 22, 5, 12) },
+  { role: "researcher", x: 594, y: 450, back: ellipse(568, 450, 5, 22, 12) },
+];
+for (const c of chairs) {
+  add({ id: c.role + "-seat", poly: circle(c.x, c.y, 23, 16), z0: 0, z1: 47, color: C.chair });
+  add({ id: c.role + "-back", poly: c.back, z0: 47, z1: 90, color: C.chair });
+}
+
+// Desk lamps.
+const lamps = [];
+for (const [role, lx, ly] of [["manager", 40, 40], ["director", 585, 160], ["assistant", 236, 476], ["researcher", 730, 510]]) {
+  add({ id: role + "-lampbase", poly: circle(lx, ly, 9, 12), z0: 75, z1: 78, color: C.lamp, group: role + "-lamp" });
+  add({ id: role + "-lamppole", poly: circle(lx, ly, 1.6, 6), z0: 78, z1: 112, color: C.lamp, group: role + "-lamp" });
+  add({ id: role + "-shade", poly: circle(lx, ly, 12, 16), z0: 112, z1: 126, color: C.shade, group: role + "-lamp" });
+  lamps.push({ role, x: lx, y: ly, z: 113, group: role + "-lamp", href: 113 - 75, cone: 74, bands: DESK_BANDS });
+}
+
+// The two screens: lines out of the office (the Assistant's to the owner, Researcher's to the web).
+add({ id: "assistant-screen", poly: rect(175, 515, 60, 7), z0: 82, z1: 124, color: C.screen });
+add({ id: "assistant-stand", poly: rect(197, 510, 16, 12), z0: 75, z1: 82, color: C.screen });
+flat("assistant-keys", rect(180, 478, 50, 15), 77, C.keys);
+add({ id: "researcher-screen", poly: rect(735, 370, 7, 60), z0: 82, z1: 124, color: C.screen });
+add({ id: "researcher-stand", poly: rect(730, 392, 12, 16), z0: 75, z1: 82, color: C.screen });
+flat("researcher-keys", rect(690, 375, 15, 50), 77, C.keys);
+
+// The telex on Director's desk, its paper coming out, and the waste bin beside Director.
+add({ id: "telex", poly: rect(708, 74, 55, 45), z0: 75, z1: 100, color: C.telex });
+flat("telex-paper", rect(726, 119, 18, 20), 75.6, C.paper);
+add({ id: "bin", poly: circle(667, 41, 22, 18), z0: 0, z1: 40, color: C.bin });
+
+// The board (saved findings, as post-its) and the calendar: tilted towards the room.
+const boardZ = plate("board", 245, 15, 151, 54, "n", 95, 185, C.board);
+for (const [x, y] of [[262, 26], [288, 40], [318, 28], [350, 44], [372, 25], [300, 52]]) flat("note-" + x, rect(x, y, 11, 11), boardZ() + 0.6, C.note, "board");
+const calZ = plate("calendar", 25, 237, 40, 210, "w", 95, 190, C.calendar);
+for (let i = 1; i < 7; i++) flat("cal-day-" + i, rect(27, 237 + i * 30, 36, 1.2), calZ() + 0.6, C.line, "calendar");
+for (let j = 1; j < 5; j++) flat("cal-week-" + j, rect(25 + j * 8, 239, 1.2, 206), calZ() + 0.6, C.line, "calendar");
+
+// The archive: one drawer per role.
+add({ id: "archive", poly: rect(284, 482, 158, 54), z0: 0, z1: 95, color: C.cabinet });
+for (let i = 0; i < 4; i++) flat("drawer-" + i, rect(289 + i * 38.5, 487, 34, 44), 95.6, C.drawer, "archive");
+
+const windows = [];   // no windows: the light is the office's own
+
+// A lamp in the ceiling, over the middle of the room: the light of the working day.
+const CEILING = { role: "ceiling", x: ROOM.w / 2, y: ROOM.h / 2, z: 255, group: "ceiling", href: 255, cone: 85, bands: CEILING_BANDS };
+
+// --- the figure (one grey person walking an errand loop) --------------------------------------------
+const route = [
+  { p: [600, 104], pause: 2.5, face: Math.PI / 2 },               // at Director's desk
+  { p: [300, 112] },
+  { p: [160, 190] },
+  { p: [126, 196], pause: 2.0, face: Math.PI, reach: true },      // Manager's inbox
+  { p: [160, 190] },
+  { p: [300, 112] },
+];
+const walker = { seg: 0, along: 0, pos: route[0].p.slice(), heading: -Math.PI / 2, wait: route[0].pause, turning: false, phase: 0, speed: 0, reachT: 0, gait: 0 };
+const VMAX = 115, STRIDE = 62;
+
+function segLen(i) { const a = route[i].p, b = route[(i + 1) % route.length].p; return Math.max(1e-6, Math.hypot(b[0] - a[0], b[1] - a[1])); }
+function angleTo(a, b) { let d = b - a; while (d > Math.PI) d -= 2 * Math.PI; while (d < -Math.PI) d += 2 * Math.PI; return d; }
+
+// Distance left until the next stop (for slowing down), summed over pass-through points.
+function distToStop() {
+  let d = segLen(walker.seg) - walker.along, i = (walker.seg + 1) % route.length;
+  while (!route[i].pause) { d += segLen(i); i = (i + 1) % route.length; }
+  return d;
+}
+function distFromStop() {
+  let d = walker.along, i = walker.seg;
+  while (!route[i].pause) { i = (i - 1 + route.length) % route.length; d += segLen(i); }
+  return d;
+}
+
+function stepWalker(dt) {
+  const w = walker, here = route[w.seg];
+  // How much of a walking gait the body shows: follows the speed with a short lag, so the feet settle
+  // under the body over a few tenths of a second when it stops, and the first step grows out of standing.
+  w.gait = lerp(w.gait, clamp(w.speed / 60, 0, 1), Math.min(1, dt * 7));
+  if (w.wait > 0) {
+    w.wait -= dt; w.speed = 0;
+    if (here.face !== undefined) w.heading += angleTo(w.heading, here.face) * Math.min(1, dt * 6);
+    w.reachT = here.reach ? Math.sin(Math.PI * clamp(1 - w.wait / here.pause, 0, 1)) : 0;
+    if (w.wait <= 0) w.turning = true;
+    return;
+  }
+  const a = route[w.seg].p, b = route[(w.seg + 1) % route.length].p;
+  const dir = Math.atan2(b[1] - a[1], b[0] - a[0]);
+  if (w.turning) { // turn towards the way out before walking
+    const d = angleTo(w.heading, dir); w.heading += d * Math.min(1, dt * 7);
+    if (Math.abs(d) < 0.25) w.turning = false;
+    return;
+  }
+  // speed: ease in from a stop and out towards the next one
+  const target = VMAX * clamp(Math.min(distFromStop() / 55, distToStop() / 70) + 0.15, 0.15, 1);
+  w.speed = lerp(w.speed, target, Math.min(1, dt * 5));
+  const ds = w.speed * dt;
+  w.along += ds;
+  w.heading += angleTo(w.heading, dir) * Math.min(1, dt * 8);
+  const amp = clamp(w.speed / 60, 0, 1), S = 20 + (STRIDE - 20) * amp;
+  w.phase = (w.phase + ds / (2 * S)) % 1;
+  w.stride = S;
+  if (w.along >= segLen(w.seg)) {
+    w.along -= segLen(w.seg); w.seg = (w.seg + 1) % route.length;
+    const r = route[w.seg];
+    if (r.pause) { w.along = 0; w.pos = r.p.slice(); w.wait = r.pause; return; }
+  }
+  const s = route[w.seg].p, e = route[(w.seg + 1) % route.length].p, t = w.along / segLen(w.seg);
+  w.pos = [lerp(s[0], e[0], t), lerp(s[1], e[1], t)];
+}
+
+// One foot over a stride cycle, relative to the body: planted during stance (moves back exactly as fast
+// as the body moves forward, so it never slides), then swings forward with an ease.
+function footOffset(phase, S) {
+  if (phase < 0.5) return S / 2 - (phase / 0.5) * S;
+  return -S / 2 + S * smooth((phase - 0.5) / 0.5);
+}
+
+function figureParts() {
+  const w = walker, [x, y] = w.pos, h = w.heading;
+  const f = [Math.cos(h), Math.sin(h)], s = [-Math.sin(h), Math.cos(h)];
+  const at = (side, fwd) => [x + s[0] * side + f[0] * fwd, y + s[1] * side + f[1] * fwd];
+  const moving = w.gait, S = w.stride || STRIDE;
+  const offL = footOffset(w.phase, S) * moving, offR = footOffset((w.phase + 0.5) % 1, S) * moving;
+  const twist = 0.10 * (offL / STRIDE);
+  const bob = 1 + 0.014 * moving * (1 - Math.cos(4 * Math.PI * w.phase)) / 2;
+  const reach = 20 * w.reachT;
+  const ell = (cx, cy, a, b, rot, n = 18) => Array.from({ length: n }, (_, i) => {
+    const t = 2 * Math.PI * i / n, ca = Math.cos(rot), sa = Math.sin(rot);
+    const u = a * Math.cos(t), v = b * Math.sin(t); // u along the shoulders, v forwards
+    const su = [s[0] * ca - f[0] * sa, s[1] * ca - f[1] * sa], fv = [f[0] * ca + s[0] * sa, f[1] * ca + s[1] * sa];
+    return [cx + su[0] * u + fv[0] * v, cy + su[1] * u + fv[1] * v];
+  });
+  const parts = [];
+  const limb = (id, bottom, top, z0, z1, color) => parts.push({ id, bottom, top, z0, z1, color, group: "figure", moves: true });
+  for (const [side, off, name] of [[-10, offL, "l"], [10, offR, "r"]]) {
+    const foot = at(side, off + 4), hip = at(side * 0.9, off * 0.25);
+    limb("shoe-" + name, ell(foot[0], foot[1], 5.5, 13, 0, 10), ell(foot[0], foot[1], 5.5, 13, 0, 10), 0, 9, C.shoe);
+    limb("leg-" + name, circle(foot[0], foot[1], 6.5, 8), circle(hip[0], hip[1], 8, 8), 9, 88, C.limb);
+  }
+  for (const [side, footOff, name] of [[-24, offR, "l"], [24, offL, "r"]]) { // each arm swings with the opposite foot
+    const swing = 0.55 * footOff + reach;
+    const shoulder = at(side, 0), hand = at(side * 1.08, swing);
+    limb("arm-" + name, circle(hand[0], hand[1], 5, 8), circle(shoulder[0], shoulder[1], 6, 8), 82, 140, C.limb);
+  }
+  const torso = ell(x, y, 25 * bob, 14 * bob, twist);
+  limb("torso", torso, torso, 88, 146, C.body);
+  const hc = at(0, 2), head = ell(hc[0], hc[1], 10.5 * bob, 11.5 * bob, 0, 16);
+  limb("head", head, head, 146, 172, C.head);
+  return parts;
+}
+
+// --- light ------------------------------------------------------------------------------------------
+// Where a corner of an occluder lands on the plane z = zr: along the sun's rays, or out from a lamp.
+const sunProject = (L) => (p, z, zr) => [p[0] - L.sx * (z - zr) / L.tanE, p[1] - L.sy * (z - zr) / L.tanE];
+const lampProject = (L) => (p, z, zr) => { const k = (L.z - zr) / Math.max(0.8, L.z - z); return [L.x + (p[0] - L.x) * k, L.y + (p[1] - L.y) * k]; };
+
+function shadow(o, zr, project, ztop = Infinity) {
+  const z1 = Math.min(o.z1, ztop);
+  if (z1 <= zr + 0.5) return null;
+  const zl = Math.max(o.z0, zr);
+  const t = o.z1 > o.z0 ? (zl - o.z0) / (o.z1 - o.z0) : 0;
+  const u = o.z1 > o.z0 ? (z1 - o.z0) / (o.z1 - o.z0) : 1;
+  const bottom = o.bottom || o.poly, top = o.top || o.poly;
+  const at = (k) => bottom.map((p, i) => [lerp(p[0], top[i][0], k), lerp(p[1], top[i][1], k)]);
+  const pts = [];
+  for (const p of at(t)) pts.push(project(p, zl, zr));
+  for (const p of at(u)) pts.push(project(p, z1, zr));
+  return hull(pts);
+}
+
+// The patch of sun on the plane z = zr through one window: the opening seen through the wall's depth.
+function sunPatch(win, zr, L) {
+  if (L.el <= 0.3 || L.sx * win.n[0] + L.sy * win.n[1] <= 0) return null;
+  const lo = Math.max(win.sill, zr), hi = win.top;
+  if (hi <= lo + 1) return null;
+  const proj = sunProject(L);
+  const opening = (off) => {
+    const a = [win.a[0] + win.n[0] * off, win.a[1] + win.n[1] * off], b = [win.b[0] + win.n[0] * off, win.b[1] + win.n[1] * off];
+    return [proj(a, lo, zr), proj(b, lo, zr), proj(b, hi, zr), proj(a, hi, zr)];
+  };
+  const p = clip(hull(opening(0)), hull(opening(ROOM.wall)));
+  return p.length >= 3 ? p : null;
+}
+
+// --- drawing ------------------------------------------------------------------------------------------
+const canvas = document.getElementById("c"), ctx = canvas.getContext("2d");
+const layer = () => document.createElement("canvas");
+const B = layer(), M = layer(), T = layer(), A = layer();  // base, one light's mask, scratch, all lamps' light
+let dpr = 1, cssW = 1000, cssH = 1000 * WORLD.h / WORLD.w;
+
+// The drawing is redrawn from the geometry at the screen's own resolution: sharp on any screen and at
+// any browser zoom. Size changes and moves to a screen with another pixel density redraw it.
+function resize() {
+  dpr = window.devicePixelRatio || 1;
+  cssW = canvas.clientWidth || 1000; cssH = cssW * WORLD.h / WORLD.w;
+  for (const c of [canvas, B, M, T, A]) { c.width = Math.round(cssW * dpr); c.height = Math.round(cssH * dpr); }
+  watchDensity();
+}
+let density = null;
+function watchDensity() {
+  if (density) density.removeEventListener("change", resize);
+  density = matchMedia(`(resolution: ${dpr}dppx)`);
+  density.addEventListener("change", resize);
+}
+new ResizeObserver(resize).observe(canvas);
+const toWorld = (g) => { const k = cssW / WORLD.w * dpr; g.setTransform(k, 0, 0, k, -WORLD.x * k, -WORLD.y * k); };
+function subpath(g, poly) { poly.forEach(([x, y], i) => i ? g.lineTo(x, y) : g.moveTo(x, y)); g.closePath(); }
+function path(g, poly) { g.beginPath(); subpath(g, poly); }
+
+function walls(g) {
+  const W = ROOM.wall;
+  g.fillStyle = C.wall;
+  g.fillRect(-W, -W, ROOM.w + 2 * W, W); g.fillRect(-W, ROOM.h, ROOM.w + 2 * W, W);
+  g.fillRect(-W, 0, W, ROOM.h); g.fillRect(ROOM.w, 0, W, ROOM.h);
+}
+
+function silhouette(o) { return o.bottom ? hull(o.bottom.concat(o.top)) : o.poly; }
+
+function drawBase(all) {
+  const g = B.getContext("2d");
+  g.setTransform(1, 0, 0, 1, 0, 0); g.clearRect(0, 0, B.width, B.height); toWorld(g);
+  g.fillStyle = "#1c1c1c"; g.fillRect(WORLD.x, WORLD.y, WORLD.w, WORLD.h);
+  for (const o of all) { path(g, silhouette(o)); g.fillStyle = o.color; g.fill(); }
+  walls(g);
+}
+
+// A light mask: alpha = how much of this light reaches each visible surface.
+const shadowCaches = new Map(); // per light: shadows between still things, kept until that light moves
+function buildMask(all, surfaces, light) {
+  let entry = shadowCaches.get(light.name);
+  if (!entry || entry.key !== light.key) shadowCaches.set(light.name, entry = { key: light.key, map: new Map() });
+  const cache = entry.map;
+  const g = M.getContext("2d");
+  g.setTransform(1, 0, 0, 1, 0, 0); g.clearRect(0, 0, M.width, M.height); toWorld(g);
+  if (light.kind === "sun") { // outdoors is in full sun; indoors only through the windows
+    g.fillStyle = "#fff"; g.fillRect(WORLD.x, WORLD.y, WORLD.w, WORLD.h);
+    path(g, shadow(BUILDING, 0, sunProject(light))); g.globalCompositeOperation = "destination-out"; g.fill(); g.globalCompositeOperation = "source-over";
+  }
+  const area = light.kind === "lamp" ? light.area : null;  // a lamp reaches no further than this, even on the floor
+  const project = light.kind === "sun" ? sunProject(light) : lampProject(light);
+  // Surfaces lowest first. Each one first hides what lies below it (its footprint is cleared), then gets its own
+  // light. Every surface and every shadow is convex, so light patches and shadows are cut to the surface
+  // exactly in JavaScript and filled as plain polygons: no canvas clipping, which is slow on the GPU.
+  g.fillStyle = "#000";
+  for (const s of surfaces) {
+    const sp = s.face || s.top || s.poly, sb = bbox(sp);
+    if (area && !overlaps(sb, area)) continue;              // nothing below it is lit by this lamp either
+    g.globalCompositeOperation = "destination-out"; path(g, sp); g.fill();
+    g.globalCompositeOperation = "source-over";
+    const zr = s.zr ?? s.z1;
+    let lit = false;
+    if (light.kind === "sun") {
+      g.beginPath();
+      for (const w of windows) {
+        const p = sunPatch(w, zr, light);
+        const q = p && overlaps(bbox(p), sb) ? clip(p, sp) : [];
+        if (q.length >= 3) { subpath(g, q); lit = true; }
+      }
+      if (lit) { g.fillStyle = "#fff"; g.fill(); g.fillStyle = "#000"; }
+    } else if (zr < light.z - 2 && s.group !== light.group) {
+      const R = light.reach(zr);
+      if (overlaps([light.x - R, light.y - R, light.x + R, light.y + R], sb)) { path(g, sp); g.fillStyle = light.gradient(g, zr); g.fill(); g.fillStyle = "#000"; lit = true; }
+    }
+    if (!lit) continue;
+    g.globalCompositeOperation = "destination-out"; g.beginPath();
+    let any = false;
+    for (const o of all) {
+      if (!o.occludes || o === s || o.group === light.group || o.z1 <= zr + 0.5) continue;
+      if (light.kind === "lamp" && o.z0 >= light.z) continue; // above the lamp: lit from below, no shadow downwards
+      const still = !o.moves && !s.moves, key = s.id + "|" + o.id;
+      let sh = still ? cache.get(key) : undefined;
+      if (sh === undefined) {
+        sh = shadow(o, zr, project, light.kind === "lamp" ? light.z - 1 : Infinity);
+        sh = sh && sh.length >= 3 && overlaps(bbox(sh), sb) ? clip(sh, sp) : null;
+        if (sh && sh.length < 3) sh = null;
+        if (still) cache.set(key, sh);
+      }
+      if (sh) { subpath(g, sh); any = true; }
+    }
+    if (any) g.fill();  // all of this surface's shadows in one fill
+    g.globalCompositeOperation = "source-over";
+  }
+}
+
+// Pixel rectangle on the layers for a rectangle in the world, clamped to the canvas.
+function pixels([x0, y0, x1, y1]) {
+  const k = cssW / WORLD.w * dpr;
+  const px0 = clamp(Math.floor((x0 - WORLD.x) * k), 0, A.width), py0 = clamp(Math.floor((y0 - WORLD.y) * k), 0, A.height);
+  const px1 = clamp(Math.ceil((x1 - WORLD.x) * k), 0, A.width), py1 = clamp(Math.ceil((y1 - WORLD.y) * k), 0, A.height);
+  return [px0, py0, px1 - px0, py1 - py0];
+}
+
+// Add one lamp's mask to the lamps' shared light, only where that lamp reaches.
+function accumulate(area) {
+  const [x, y, w, h] = pixels(area);
+  if (w <= 0 || h <= 0) return;
+  const g = A.getContext("2d");
+  g.setTransform(1, 0, 0, 1, 0, 0); g.globalCompositeOperation = "lighter";
+  g.drawImage(M, x, y, w, h, x, y, w, h);
+  g.globalCompositeOperation = "source-over";
+}
+
+// Add one light to the picture: base × light colour × mask, added on top.
+function addLight(color, strength, mask = M) {
+  const g = T.getContext("2d");
+  g.setTransform(1, 0, 0, 1, 0, 0); g.globalCompositeOperation = "source-over"; g.clearRect(0, 0, T.width, T.height);
+  g.drawImage(B, 0, 0);
+  g.globalCompositeOperation = "multiply"; g.fillStyle = css(color, strength); g.fillRect(0, 0, T.width, T.height);
+  g.globalCompositeOperation = "destination-in"; g.drawImage(mask, 0, 0);
+  ctx.globalCompositeOperation = "lighter"; ctx.drawImage(T, 0, 0); ctx.globalCompositeOperation = "source-over";
+}
+
+// --- a lamp: light falls off with distance and angle (∝ h / d³), cut off by the shade ----------------------
+// Brightness 1 is the light straight under the lamp at its reference height (a desk lamp: the desk; the ceiling
+// lamp: the floor); each band is a flat ring where the light falls below a share of that.
+const gradientCache = new Map();
+function lampLight(l, soft) {
+  const H = l.href, CONE = l.cone * Math.PI / 180, BANDS = l.bands;
+  const rel = (h, r) => (h / Math.pow(h * h + r * r, 1.5)) * H * H;
+  const radiusAt = (h, t) => Math.sqrt(Math.max(0, Math.pow(h * H * H / t, 2 / 3) - h * h));
+  const reach = (zr) => Math.min((l.z - zr) * Math.tan(CONE), radiusAt(l.z - zr, soft ? 0.01 : BANDS[BANDS.length - 1][0]) + 1);
+  return {
+    kind: "lamp", name: l.group, key: "fixed", x: l.x, y: l.y, z: l.z, group: l.group, reach,
+    area: [l.x - reach(0), l.y - reach(0), l.x + reach(0), l.y + reach(0)],
+    gradient: (g, zr) => {
+      const id = `${l.group}|${zr}|${soft}`;
+      if (!gradientCache.has(id)) gradientCache.set(id, makeGradient(g, zr));
+      return gradientCache.get(id);
+    },
+  };
+  function makeGradient(g, zr) {
+    const h = l.z - zr, R = reach(zr), grad = g.createRadialGradient(l.x, l.y, 0, l.x, l.y, R);
+    const a = (v) => `rgba(255,255,255,${clamp(v, 0, 1).toFixed(3)})`;
+    if (soft) {
+      for (let i = 0; i <= 24; i++) { const r = R * i / 24, edge = 1 - smooth(clamp((r / R - 0.85) / 0.15, 0, 1)); grad.addColorStop(i / 24, a(Math.min(1, rel(h, r)) * edge)); }
+      return grad;
+    }
+    let start = 0;
+    for (const [t, v] of BANDS) {
+      if (rel(h, 0) < t) continue;                 // this band never reaches this surface
+      const r = Math.min(1, radiusAt(h, t) / R);
+      if (r <= start) continue;
+      grad.addColorStop(start, a(v)); grad.addColorStop(r, a(v));
+      start = r;
+      if (r >= 1) break;
+    }
+    if (start < 1) { grad.addColorStop(Math.min(1, start + 0.0005), a(0)); grad.addColorStop(1, a(0)); }
+    return grad;
+  }
+}
+
+// --- the controls and the loop --------------------------------------------------------------------------
+const $ = (id) => document.getElementById(id);
+const state = { live: true, playing: false, minutes: 0, date: "" };
+function syncNow() { // the clock follows real time, to the second
+  const p = localParts(new Date());
+  state.date = `${p.year}-${p.month}-${p.day}`; state.minutes = +p.hour * 60 + +p.minute + +p.second / 60;
+  if ($("date").value !== state.date) $("date").value = state.date;
+  $("time").value = Math.floor(state.minutes);
+}
+function setPlaying(on) { state.playing = on; $("play").textContent = on ? "Stoppa" : "Spela dygnet"; }
+syncNow();
+$("time").addEventListener("input", () => { state.live = false; setPlaying(false); state.minutes = +$("time").value; });
+$("date").addEventListener("input", () => { if (/^\d{4}-\d{2}-\d{2}$/.test($("date").value)) { state.live = false; state.date = $("date").value; } });
+$("now").addEventListener("click", () => { state.live = true; setPlaying(false); syncNow(); });
+$("play").addEventListener("click", () => { state.live = false; setPlaying(!state.playing); });
+
+function lighting(minutes) {
+  const s = sun(stockholm(state.date, minutes));
+  const mode = $("ceiling").value;
+  const ceiling = mode === "on" || (mode === "auto" && s.el > -4);   // on from dawn to dusk
+  return {
+    el: s.el, ceiling,
+    ambient: ceiling ? [0.30, 0.30, 0.32] : [0.12, 0.13, 0.20],       // light bounced off walls and ceiling
+    ceilingColor: kelvin(3800), ceilingStrength: 0.62,
+  };
+}
+
+let last = performance.now(), lastSync = 0, failed = false;
+function frame(nowT) {
+  requestAnimationFrame(frame);   // first, so one bad frame can't stop the animation
+  try { draw(nowT); failed = false; }
+  catch (e) { if (!failed) console.error(e); failed = true; }
+}
+
+function draw(nowT, warmUp = false) {
+  const dt = Math.min(0.05, (nowT - last) / 1000); last = nowT;
+  if (state.live && nowT - lastSync > 1000) { syncNow(); lastSync = nowT; }
+  else if (state.live) state.minutes += dt / 60;
+  if (state.playing) { state.minutes = (state.minutes + dt * 1440 / 40) % 1440; $("time").value = Math.floor(state.minutes); }
+  stepWalker(dt);
+
+  const L = lighting(state.minutes), soft = $("mode").value === "soft";
+  const all = objects.concat(figureParts()).sort((a, b) => a.z1 - b.z1);
+  const surfaces = all.filter(o => o.receives !== false);
+
+  drawBase(all);
+  ctx.setTransform(1, 0, 0, 1, 0, 0); ctx.globalCompositeOperation = "source-over";
+  ctx.drawImage(B, 0, 0);
+  ctx.globalCompositeOperation = "multiply"; ctx.fillStyle = css(L.ambient); ctx.fillRect(0, 0, canvas.width, canvas.height);
+  ctx.globalCompositeOperation = "source-over";
+
+  if (L.ceiling) { buildMask(all, surfaces, lampLight(CEILING, soft)); addLight(L.ceilingColor, L.ceilingStrength); }
+  const lampsOn = warmUp || $("lamps").value === "on" || ($("lamps").value === "auto" && !L.ceiling);
+  const warm = kelvin(2700);
+  if (lampsOn) { // every desk lamp into one shared light, then onto the picture once
+    const g = A.getContext("2d"); g.setTransform(1, 0, 0, 1, 0, 0); g.clearRect(0, 0, A.width, A.height);
+    for (const l of lamps) { const light = lampLight(l, soft); buildMask(all, surfaces, light); accumulate(light.area); }
+    addLight(warm, 1.05, A);
+  }
+
+  toWorld(ctx);
+  if (lampsOn) for (const l of lamps) { path(ctx, circle(l.x, l.y, 12, 16)); ctx.fillStyle = css(warm, 1); ctx.fill(); } // a lit shade glows
+  ctx.setTransform(1, 0, 0, 1, 0, 0);
+
+  const hh = String(Math.floor(state.minutes / 60)).padStart(2, "0"), mm = String(Math.floor(state.minutes % 60)).padStart(2, "0");
+  $("clock").textContent = `${hh}:${mm}${state.live ? " (nu)" : ""}`;
+  $("info").textContent = `${state.date} ${hh}:${mm} · taklampan ${L.ceiling ? "på" : "av"} · skrivbordslampor ${lampsOn ? "på" : "av"}`;
+}
+resize();
+// One unseen pass with the lamps on at load: their shadows get cached, their bands made and the GPU's blend
+// modes prepared now, instead of in one long frame the moment they switch on (the next frame paints over it).
+try { draw(performance.now(), true); } catch (e) { console.error(e); }
+requestAnimationFrame(frame);
+</script>
+</body>
+</html>
