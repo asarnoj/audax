@@ -273,17 +273,17 @@ def build_app(db: Database, office: Office, roots: dict[str, Path]) -> Starlette
         return FileResponse(ROOT / "web" / "kontor.html")
 
     # The illustrated office, live: the state of right now, then a stream of what happens (agent/kontor.py).
-    live = Live(db, office.memory, office.tz.key)
+    feed = Live(db, office.memory, office.tz.key)
 
     async def kontor_state(request: Request) -> Response:
-        return JSONResponse(await live.state())
+        return JSONResponse(await feed.state())
 
     async def kontor_stream(request: Request) -> Response:
         async def events():
-            cursor = await live.cursor()   # from now on: the page already has the state of right now
+            cursor = await feed.cursor()   # from now on: the page already has the state of right now
             quiet = 0
             while not await request.is_disconnected():
-                happened = await live.changes(cursor)
+                happened = await feed.changes(cursor)
                 for h in happened:
                     yield sse(h)
                 quiet = 0 if happened else quiet + 1
@@ -294,7 +294,7 @@ def build_app(db: Database, office: Office, roots: dict[str, Path]) -> Starlette
         return StreamingResponse(events(), media_type="text/event-stream", headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"})
 
     async def kontor_object(request: Request) -> Response:
-        d = await live.detail(request.path_params["name"])
+        d = await feed.detail(request.path_params["name"])
         return JSONResponse(d) if d else JSONResponse({"error": "no such thing"}, 404)
 
     return Starlette(routes=[
