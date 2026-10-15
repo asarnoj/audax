@@ -142,9 +142,11 @@ function plate(id, x, y, w, h, high, zLow, zHigh, color, legs = true) {
   const strip = { n: rect(x, y, w, 3), s: rect(x, y + h - 3, w, 3), w: rect(x, y, 3, h), e: rect(x + w - 3, y, 3, h) };
   const opposite = { n: "s", s: "n", w: "e", e: "w" }[high];
   const plane = tilted(x, y, w, h, high, zLow, zHigh), at = (px, py) => plane.A + plane.B * px + plane.C * py;
-  if (legs) { // four legs under the plate, each reaching up to its underside (added first, so drawn below it)
+  if (legs) { // four legs from under the plate's corners, splaying out like an easel's so their feet show
+    const cx = x + w / 2, cy = y + h / 2, out = 10;
     for (const [k, [lx, ly]] of [[x + 4, y + 4], [x + w - 4, y + 4], [x + w - 4, y + h - 4], [x + 4, y + h - 4]].entries()) {
-      add({ id: `${id}-leg-${k}`, poly: circle(lx, ly, 2.5, 6), z0: 0, z1: at(lx, ly) - 0.5, color, group: id, receives: false });
+      const d = Math.hypot(lx - cx, ly - cy), fx = lx + (lx - cx) / d * out, fy = ly + (ly - cy) / d * out;
+      add({ id: `${id}-leg-${k}`, bottom: circle(fx, fy, 2.2, 8), top: circle(lx, ly, 2.2, 8), z0: 0, z1: at(lx, ly) - 0.5, color, group: id });
     }
   }
   add({ id, bottom: strip[opposite], top: strip[high], face: rect(x, y, w, h), z0: zLow, z1: zHigh, zr: (zLow + zHigh) / 2,
@@ -482,6 +484,7 @@ function resize() {
   const k = Math.min(cssW / (ROOM.w + 2 * PAD), cssH / (ROOM.h + 2 * PAD));
   view = { k, ox: (cssW - ROOM.w * k) / 2, oy: (cssH - ROOM.h * k) / 2 };
   for (const c of [canvas, B, M, T, A]) { c.width = Math.round(cssW * dpr); c.height = Math.round(cssH * dpr); }
+  lampsCold = true;   // new layers: warm the lamps' pass again (see draw)
   watchDensity();
 }
 let density = null;
@@ -670,10 +673,10 @@ function highest(date) {
 
 function lighting(minutes) {
   const s = sun(stockholm(state.date, minutes));
-  // Real sunrise, sunset and direction; a stylised height, so the shadows read the same all year: low at dawn
-  // and dusk, about 50° at midday (Stockholm's real sun is 7–53° at noon over the year).
+  // Real sunrise, sunset and direction; a stylised height, so the shadows read the same all year: about 32° at
+  // dawn and dusk, 60° at midday (Stockholm's real sun is 7–53° at noon over the year).
   const progress = clamp(s.el / Math.max(1, highest(state.date)), 0, 1);
-  const el = 10 + 40 * smooth(progress);
+  const el = 32 + 28 * progress;   // as if the horizon were higher: shadows about 1.6 × an object's height at most
   const d = (s.az - UP) * Math.PI / 180, tanE = Math.tan(el * Math.PI / 180);
   const day = smooth(clamp((s.el + 4) / 6, 0, 1));            // dusk to day, around sunrise and sunset
   const K = 2100 + 3400 * smooth(clamp((el - 10) / 30, 0, 1));
@@ -692,7 +695,7 @@ function lighting(minutes) {
 }
 
 let last = performance.now(), lastSync = 0, failed = false;
-let shownBg = null;
+let shownBg = null, lampsCold = true;
 function frame(nowT) {
   requestAnimationFrame(frame);   // first, so one bad frame can't stop the animation
   try { draw(nowT); failed = false; }
@@ -717,12 +720,15 @@ function draw(nowT, warmUp = false) {
   ctx.globalCompositeOperation = "source-over";
 
   if (L.sunStrength > 0.01) { buildMask(all, surfaces, L); addLight(L.sunColor, L.sunStrength); }
-  const lampsOn = warmUp || $("lamps").value === "on" || ($("lamps").value === "auto" && L.dark);
+  const lampsOn = $("lamps").value === "on" || ($("lamps").value === "auto" && L.dark);
   const warm = kelvin(2700);
-  if (lampsOn) { // every desk lamp into one shared light, then onto the picture once
+  // The lamps' pass also runs, unseen (added at strength 0), at load and after every resize: their shadows get
+  // cached and the browser sets up its layers on the graphics card then, not in one long frame when they switch on.
+  if (lampsOn || warmUp || lampsCold) { // every desk lamp into one shared light, then onto the picture once
     const g = A.getContext("2d"); g.setTransform(1, 0, 0, 1, 0, 0); g.clearRect(0, 0, A.width, A.height);
     for (const l of lamps) { const light = lampLight(l, soft); buildMask(all, surfaces, light); accumulate(light.area); }
-    addLight(warm, 1.05, A);
+    addLight(warm, lampsOn ? 1.05 : 0, A);
+    lampsCold = false;
   }
 
   // The page's background: the ground's colour in this light (ambient plus unshaded sun), so they meet seamlessly.
@@ -739,9 +745,6 @@ function draw(nowT, warmUp = false) {
     ` · skrivbordslampor ${lampsOn ? "på" : "av"}`;
 }
 resize();
-// One unseen pass with the lamps on at load: their shadows get cached, their bands made and the GPU's blend
-// modes prepared now, instead of in one long frame the moment they switch on (the next frame paints over it).
-try { draw(performance.now(), true); } catch (e) { console.error(e); }
 requestAnimationFrame(frame);
 </script>
 </body>
