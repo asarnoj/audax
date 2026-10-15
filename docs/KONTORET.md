@@ -58,7 +58,7 @@ Det ger en kedja: **inkommande → Director → Manager → schema och hylla →
 | Väggar | — | 25 tjocka, 270 höga | Bara ovansidan syns: en mörk ram. |
 | Fönster | dygnet, vädret senare | 140–180 breda, bröstning 85, överkant 225 | Glaset och karmen ovanifrån. De avgör var solen landar. |
 | Dörr | det som kommer utifrån; byggläget | 90 bred | Ett dörrblad som kan svänga (fästpunkt i gångjärnet). |
-| Telexen (inkommande) | sinnena: flöden, sidor, API:er och websockets som bevakas mekaniskt, utan att någon söker | maskin med pappersremsa, 50 × 40, höjd 30 | Skriver ut av sig själv när något kommer in. Researcher ställer in den (vilka källor), Director läser det den skriver ut (triage). Remsan som hänger ut visar vad som väntar. |
+| Telexen (inkommande) | sinnena: flöden, sidor, API:er och websockets som bevakas mekaniskt, utan att någon söker | maskin med pappersremsa, 50 × 40, höjd 30 | Skriver ut av sig själv när något kommer in, rakt ned i Directors inkorg; står därför intill Directors bord. Researcher ställer in den, men det syns bara som att Researcher arbetar vid sin dator. |
 | Arkivskåpet | minnet (`memory/`) | 140 × 50, höjd 130 | Lådor som dras ut (syns ovanifrån när de är ute). En låda per roll: varje roll äger sina filer. |
 | Planeringsbordet | Managers schema: fynd med en planerad tid och bokningar (#B) | stort bord, cirka 160 × 90, höjd 75 | En tidslinje där lappar läggs, flyttas och plockas. Manager lägger fynd, Assistant lägger bokningar och löften och plockar det som ska ut. |
 | Hyllan | sparade fynd: värda att ha men inte värda att störa för | låg hylla med öppen ovansida, eller en del av planeringsbordet | Manager lägger dit, Assistant plockar när ägaren frågar "något nytt?" eller när det passar. Det som blir inaktuellt rensas bort. (Se beslut.) |
@@ -112,32 +112,37 @@ Bra att veta: ju enklare delar, desto bättre rör de sig. Rytmen i gången (fö
 
 ## Från systemet till kontoret
 
-Det som händer i systemet blir korta följder av handlingar. Animationen ligger några sekunder efter verkligheten och väntar aldrig ut den: ett svar till ägaren går iväg direkt, figuren hinner ikapp.
+Animationerna hålls enkla. Det som berättar något är **när rollerna sätter igång varandra**: då läggs ett papper i mottagarens inkorg. Allt annat är att sitta och arbeta.
 
-| I systemet | I kontoret |
-|---|---|
-| Ägaren skriver (Telegram) | Assistentens skärm lyser; Assistant sätter sig vid datorn och skriver |
-| Assistant svarar | skriver på tangentbordet |
-| Något nytt kommer in från ett sinne | telexen skriver ut en remsa |
-| Triage (Director) | Director river av remsan, läser, stämplar; värt något → till Managers inkorg, annars papperskorgen (det mesta) |
-| Dispatchern (Manager) | Manager läser fyndet och sätter det på schemat vid rätt tid, lägger det på hyllan, eller ger det direkt till Assistant |
-| Utskick vid planerad tid | Manager tar lappen från schemat och lämnar den till Assistant, som skriver |
-| "Något nytt?" | Assistant hämtar från hyllan |
-| Ett sparat fynd blir inaktuellt | det plockas bort från hyllan |
-| En post som får väcka mottagaren (ägarens ord) | avsändaren går genast fram och räcker den; mottagaren tittar upp och börjar |
-| Vanlig post | läggs i det egna utfacket och bärs över när figuren ändå reser sig |
-| En roll läser en minnesfil | går till arkivet, drar ut sin låda, tar en mapp |
-| En roll skriver i sin fil | mappen ligger på bordet; figuren skriver i den och ställer tillbaka den |
-| Arbetsminnet skrivs om | skriver i anteckningsboken |
-| Sökuppdrag (Researcher) | Researcher vid datorn; fynden läggs vid telexen, där triage tar dem som allt annat |
-| Researcher planerar | lutar sig över kartorna, ritar på dem |
-| Director läser mejl | öppnar kuvert vid bordet |
-| Bokning görs eller flyttas | Manager sätter upp eller flyttar en lapp på schemat |
-| Nattkörningen | lamporna tänds en i taget i nattkörningens ordning: Assistant, Director, Researcher, Manager |
-| Kvoten pausad | se beslut |
-| Byggläget bygger en ändring | se beslut |
+**1. Att arbeta** (en roll har en körning igång): figuren sitter vid sitt bord. Assistant och Researcher vid datorn, Director och Manager med papper. Det täcker allt som inte är en överlämning: att läsa källor, webben och mejlen, att söka, att ställa in telexen, att läsa i arkivet. Inget av det animeras för sig.
 
-Handlingarna figurerna behöver: sitta, resa sig, gå, vända sig, skriva för hand, skriva på tangentbord (Assistant), läsa, tänka (luta sig bakåt), räcka fram, lägga ned, plocka upp, dra ut och skjuta in en låda, sätta upp och ta ned en lapp, stämpla, kasta. Varje handling är rörelser av delarna ovan; inget av det kräver egna bilder.
+**2. Överlämningar** (det som syns): ett papper till någon annans inkorg, eller till ett av de gemensamma ställena.
+
+| Från → till | Vad | Per vecka |
+|---|---|---|
+| Telexen → Directors inkorg | nytt från sinnena och sökuppdragen (av sig själv, ingen går) | ≈ 390 |
+| Director → papperskorgen | triage: inte värt något (skrynklas och kastas från stolen) | ≈ 310 |
+| Director → Managers inkorg | triage: värt något | ≈ 80 |
+| Manager → schemat | ett fynd planeras till en tid | ≈ 50 |
+| Manager → hyllan | ett fynd sparas till senare | ≈ 65 |
+| Manager → Assistants inkorg | ett fynd ska ut nu | ≈ 15 |
+| Manager → papperskorgen | ett fynd släpps | ≈ 20 |
+| Schemat → Assistant | det är dags: Assistant plockar lappen och skriver till dig | |
+| Hyllan → Assistant | du frågar "något nytt?" | ≈ 25 |
+| Assistant → schemat | en påminnelse eller ett löfte bokas | |
+| Vilken roll som helst → någon annans inkorg | post: anteckning, fråga, order, återkoppling, rapport, svar | få |
+
+När mottagaren börjar sin körning tar den upp sina papper ur inkorgen; högen visar alltid hur mycket som väntar.
+
+**3. Arkivet**: varje roll sparar sina ändringar i minnet en gång, när körningen är klar (samtalet ändrar mitt i rundan, nattens körningar efteråt, men allt sparas i ett svep på slutet, med vilka filer som ändrades). Det blir en egen handling i rollens kö: när figuren är ledig går den till arkivet, drar ut sin egen låda och lägger in eller tar ut. En tur per körning, hur många filer det än gällde. Läsningarna i arkivet syns inte; de sker hela tiden.
+
+**Kön och takten**
+- Varje figur har en kö. Ett papper som ska lämnas lämnas när figuren är klar med det den gör, i tur och ordning.
+- **En tur per mottagare och körning**: tre fynd till Manager från samma triage blir en bunt, inte tre promenader. Sex papper i papperskorgen blir ett kast med en hög.
+- Animationen ligger några sekunder efter verkligheten och väntar aldrig ut den. Ett svar till dig går iväg direkt; figuren hinner ikapp.
+- Blir kön för lång går figuren fortare, eller slår ihop det som ska till samma ställe.
+
+**Handlingarna figurerna behöver**: sitta och arbeta (dator eller papper), resa sig, gå, lägga i en inkorg, ta upp ur sin inkorg, skrynkla och kasta, lägga på schemat och hyllan, plocka därifrån, dra ut och skjuta in sin låda.
 
 ## Hela kontorets lägen
 
