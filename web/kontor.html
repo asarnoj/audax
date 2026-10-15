@@ -132,12 +132,13 @@ const ellipse = (cx, cy, rx, ry, n = 16) => Array.from({ length: n }, (_, i) => 
 function plate(id, x, y, w, h, high, zLow, zHigh, color) {
   const strip = { n: rect(x, y, w, 3), s: rect(x, y + h - 3, w, 3), w: rect(x, y, 3, h), e: rect(x + w - 3, y, 3, h) };
   const opposite = { n: "s", s: "n", w: "e", e: "w" }[high];
-  add({ id, bottom: strip[opposite], top: strip[high], face: rect(x, y, w, h), z0: zLow, z1: zHigh, zr: (zLow + zHigh) / 2, color });
-  // It stands on four legs: short ones under the low edge, long ones under the high edge.
+  // It stands on four legs, under the plate (added first, so they're drawn below it): short ones under the low
+  // edge, long ones under the high edge.
   const corners = { n: [[x + 4, y + 4], [x + w - 4, y + 4]], s: [[x + 4, y + h - 4], [x + w - 4, y + h - 4]],
     w: [[x + 4, y + 4], [x + 4, y + h - 4]], e: [[x + w - 4, y + 4], [x + w - 4, y + h - 4]] };
   for (const [k, [lx, ly]] of corners[opposite].entries()) add({ id: `${id}-leg-low-${k}`, poly: circle(lx, ly, 2.5, 6), z0: 0, z1: zLow, color, group: id, receives: false });
   for (const [k, [lx, ly]] of corners[high].entries()) add({ id: `${id}-leg-high-${k}`, poly: circle(lx, ly, 2.5, 6), z0: 0, z1: zHigh, color, group: id, receives: false });
+  add({ id, bottom: strip[opposite], top: strip[high], face: rect(x, y, w, h), z0: zLow, z1: zHigh, zr: (zLow + zHigh) / 2, color });
   return (u, v) => (zLow + zHigh) / 2;  // the face's height for things on it (the middle, near enough)
 }
 const flat = (id, poly, z, color, group) => add({ id, poly, z0: z - 0.4, z1: z, color, occludes: false, group: group || id });
@@ -203,9 +204,9 @@ for (let i = 0; i < 4; i++) flat("drawer-" + i, rect(289 + i * 38.5, 487, 34, 44
 const windows = [];   // no windows: the light is the office's own
 
 // Daylight from the side, over the whole room (no windows, no roof in the way: walls cast no shadow).
-// Its direction is the real sun's, with south at the top of the picture: from the left in the morning, from
-// above at midday, from the right in the evening.
-const UP = 180;
+// Its direction is the real sun's, with north at the top of the picture: from the right in the morning, from
+// below at midday, from the left in the evening.
+const UP = 0;
 
 // --- the figure (one grey person walking an errand loop) --------------------------------------------
 const route = [
@@ -379,6 +380,11 @@ function walls(g) {
 
 function silhouette(o) { return o.bottom ? hull(o.bottom.concat(o.top)) : o.poly; }
 
+// What of a thing takes light, seen from above. A slanted part (an arm, a leg) shows its whole length, so all of
+// its silhouette takes light, at its middle height; anything else shows its top.
+const slanted = (o) => o.bottom && o.bottom !== o.top;
+function receiver(o) { return o.face || (slanted(o) ? silhouette(o) : o.top || o.poly); }
+
 function drawBase(all) {
   const g = B.getContext("2d");
   g.setTransform(1, 0, 0, 1, 0, 0); g.clearRect(0, 0, B.width, B.height); toWorld(g);
@@ -402,11 +408,11 @@ function buildMask(all, surfaces, light) {
   // exactly in JavaScript and filled as plain polygons: no canvas clipping, which is slow on the GPU.
   g.fillStyle = "#000";
   for (const s of surfaces) {
-    const sp = s.face || s.top || s.poly, sb = bbox(sp);
+    const sp = receiver(s), sb = bbox(sp);
     if (area && !overlaps(sb, area)) continue;              // nothing below it is lit by this lamp either
     g.globalCompositeOperation = "destination-out"; path(g, sp); g.fill();
     g.globalCompositeOperation = "source-over";
-    const zr = s.zr ?? s.z1;
+    const zr = s.zr ?? (slanted(s) ? (s.z0 + s.z1) / 2 : s.z1);
     let lit = false;
     if (light.kind === "sun") { // daylight reaches every surface; only things in its way shade it
       path(g, sp); g.fillStyle = "#fff"; g.fill(); g.fillStyle = "#000"; lit = true;
