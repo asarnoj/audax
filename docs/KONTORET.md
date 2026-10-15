@@ -1,6 +1,6 @@
 # Kontoret: ritprotokoll
 
-Status: utkast 2026-10-15 · hör till [MODEL.md](MODEL.md) · gråskissen: `/prototyp/kontor` ([web/kontor.html](../web/kontor.html)) · ljusprototypen: `/prototyp/ljus`
+Status: utkast 2026-10-16, kopplat till systemet · hör till [MODEL.md](MODEL.md) · gråskissen: `/prototyp/kontor` ([web/kontor.html](../web/kontor.html)) · ljusprototypen: `/prototyp/ljus`
 
 Kontorssidans huvudbild är kontoret ovanifrån: de fyra rollerna vid sina skrivbord, och allt de gör i realtid. Här står allt som behöver ritas, varför det finns (vilken del av systemet det visar), och hur arbetet delas: **ägaren ritar, Claude räknar, städar och animerar.**
 
@@ -58,6 +58,18 @@ Allt detta ändrar formen så lite som möjligt. Det som är ditt uttryck (propo
 - **Lutande ytor** (board, kalendern, laptopskärmen) tar emot skuggor på sitt eget plan, med rätt höjd i varje punkt, och får mer eller mindre sol efter hur de vetter mot den. Det som ligger på dem är förkortat i lutningens riktning (post-its blir breda remsor, ramens över- och underkant tunnare än sidorna); det är det som gör att ögat ser lutningen.
 - **Ramen** fyller hela fönstret, rummet i mitten; marken och skuggorna fortsätter ut till kanterna. Testinställningarna ligger i en liten panel som kan döljas.
 - **Board och kalendern lutar** mot rummet, så att man ser några post-its och dagarnas streck. Det räcker att se vad möbeln är; innehållet visas när man klickar på den.
+
+## Kopplat till systemet (16 okt)
+
+Kontoret visar läget just nu och följer sedan det som händer, i realtid. Ingen tillbakaspolning.
+
+- **Data**: `agent/kontor.py` läser det kontoret redan sparar (nya händelser från sinnena, triage- och dispatcherbeslut, post, meddelanden, bokningar, plock från board, sparningar i minnet, pågående körningar). `/api/kontor/lage` ger läget, `/api/kontor/strom` en ström av händelser (server-sent events, genom nginx utan buffring), `/api/kontor/objekt/<namn>` innehållet bakom ett klick.
+- **I vila** sitter alla vid sina bord och rör händerna lite. **Arbetar** de (en körning pågår) skriver Assistant och Researcher på tangentbordet och Director och Manager arbetar med papper.
+- **Inkorgarna** visar allt som väntar på rollen: Director nya fynd som inte gått igenom triage (skrivaren skriver ut dem dit), Manager fynd som triage släppt fram men dispatchern inte beslutat om, Assistant frågor till ägaren, plus post till var och en. Board visar sparade fynd, kalendern det planerade på rätt dag, papperskorgen det som slängts i dag.
+- **Ärenden**: varje roll har en kö. Triage som släpper fram ett fynd: Director bär det till Managers inkorg; slänger: Director kastar från stolen. Dispatchern: Manager bär fyndet till kalendern, board, Assistants inkorg eller papperskorgen. Post: avsändaren bär den till mottagarens inkorg. Leverans från kalendern: Assistant hämtar lappen. "Något nytt?": Assistant hämtar från board. Bokning: lappen sätts upp i kalendern. Sparning i minnet: en tur till den egna lådan i arkivet. Director som går ut på nätet: lånar Researchers dator tills körningen är klar. Två likadana ärenden i rad blir en tur; en lång kö gör att figuren går fortare.
+- **Gångvägar**: punkter mellan möblerna och kortaste vägen mellan dem.
+- **Klick**: en vit kontur som följer formen när man hovrar över ett skrivbord, arkivet, papperskorgen, kalendern eller board; ett klick öppnar ett fönster med innehåll och historik (arbetsminne, senaste arbetet och post för ett skrivbord; filerna i varje låda; det slängda; det planerade och dina pass; det sparade).
+- **Kvar**: hur en pausad kvot syns (väntar till felhanteringen).
 
 ## Vem pratar med vem (mätt, vecka 7–14 okt)
 
