@@ -209,33 +209,43 @@ const inboxes = {   // where papers are put, for the figure's errands (not drawn
   manager: rect(50, 160, 34, 28), director: rect(570, 173, 28, 35), assistant: rect(117, 465, 28, 34), researcher: rect(674, 299, 34, 28),
 };
 
-// Chairs: a rounded square seat on a post, a straight back along one edge of the seat, and five legs with
-// wheels that show past the seat.
+// Chairs, one for each person, kept simple: a seat, a back that stands on the seat's edge, and what it stands
+// on (a post with five legs on wheels, or four plain legs).
 const WHEEL = "#4d4a46";
-function chair(role, x, y, back) {   // back: the side of the seat the back stands on (n, s, e, w)
-  const g = role + "-chair", S = 21;
-  add({ id: role + "-seat", poly: roundRect(x - S, y - S, 2 * S, 2 * S, 9), z0: 43, z1: 47, color: C.chair, group: g });
-  add({ id: role + "-post", poly: circle(x, y, 2.5, 8), z0: 7, z1: 43, color: C.chair, group: g, receives: false });
-  for (let k = 0; k < 5; k++) {
-    const a = 2 * Math.PI * k / 5 + 0.63, u = [Math.cos(a), Math.sin(a)], v = [-u[1], u[0]], w = 1.5, L = 27;
+function chair(role, x, y, back, o) {
+  const g = role + "-chair", S = o.size / 2, c = o.color;
+  // The seat: round or rounded square. The back: a bar on the side away from the desk, as wide as the seat's
+  // edge there (on a round seat, a chord), so it stands on the seat all along.
+  const round = o.round, bw = round ? S * 1.4 : 2 * S, inset = round ? Math.sqrt(S * S - (bw / 2) ** 2) : S;
+  add({ id: role + "-seat", poly: round ? circle(x, y, S, 24) : roundRect(x - S, y - S, 2 * S, 2 * S, o.corner ?? 8), z0: 43, z1: 47, color: c, group: g });
+  const t = o.back ?? 5, at = { n: [x - bw / 2, y - inset - t / 2, bw, t], s: [x - bw / 2, y + inset - t / 2, bw, t], w: [x - inset - t / 2, y - bw / 2, t, bw], e: [x + inset - t / 2, y - bw / 2, t, bw] }[back];
+  add({ id: role + "-back", poly: roundRect(...at, t / 2), z0: 47, z1: o.backTop, color: o.backColor || c, group: g });
+  if (o.legs === 4) { // four plain legs under the corners
+    for (const [k, [lx, ly]] of [[x - S + 3, y - S + 3], [x + S - 3, y - S + 3], [x + S - 3, y + S - 3], [x - S + 3, y + S - 3]].entries()) {
+      add({ id: `${role}-leg-${k}`, poly: rect(lx - 1.6, ly - 1.6, 3.2, 3.2), z0: 0, z1: 43, color: c, group: g, receives: false });
+    }
+    return;
+  }
+  add({ id: role + "-post", poly: circle(x, y, 2.5, 8), z0: 7, z1: 43, color: o.frame || c, group: g, receives: false });
+  for (let k = 0; k < 5; k++) { // five legs on wheels, reaching out past the seat
+    const a = 2 * Math.PI * k / 5 + 0.63, u = [Math.cos(a), Math.sin(a)], v = [-u[1], u[0]], w = 1.5, L = S + 6;
     const leg = [[x + v[0] * w, y + v[1] * w], [x + u[0] * L + v[0] * w, y + u[1] * L + v[1] * w], [x + u[0] * L - v[0] * w, y + u[1] * L - v[1] * w], [x - v[0] * w, y - v[1] * w]];
-    add({ id: `${role}-leg-${k}`, poly: leg, z0: 6, z1: 8, color: C.chair, group: g });
+    add({ id: `${role}-leg-${k}`, poly: leg, z0: 6, z1: 8, color: o.frame || c, group: g });
     add({ id: `${role}-wheel-${k}`, poly: circle(x + u[0] * L, y + u[1] * L, 3.8, 12), z0: 0, z1: 7.5, color: WHEEL, group: g });
   }
-  const bar = { n: roundRect(x - S, y - S - 3, 2 * S, 6, 3), s: roundRect(x - S, y + S - 3, 2 * S, 6, 3),
-    w: roundRect(x - S - 3, y - S, 6, 2 * S, 3), e: roundRect(x + S - 3, y - S, 6, 2 * S, 3) }[back];
-  add({ id: role + "-back", poly: bar, z0: 47, z1: 90, color: C.chair, group: g });
 }
-chair("manager", 105, 71, "e");
-chair("director", 650, 122, "n");
-chair("assistant", 199, 440, "n");
-chair("researcher", 594, 450, "w");
+// Manager: a grey-green steel office chair, square and tidy. Director: a big dark executive chair with a tall
+// back. Assistant: a light, round, friendly chair. Researcher: a plain wooden chair on four legs.
+chair("manager", 105, 71, "e", { size: 42, color: "#7f8f89", corner: 6, backTop: 92 });
+chair("director", 650, 122, "n", { size: 50, color: "#3f3430", corner: 12, back: 7, backTop: 115, frame: "#5a524c" });
+chair("assistant", 199, 440, "n", { size: 42, round: true, color: "#e6e1d8", backTop: 88, frame: "#a9a49b" });
+chair("researcher", 594, 450, "w", { size: 40, color: "#a77a52", corner: 4, back: 4, backTop: 90, legs: 4 });
 
 // Computers, for the two who go out on the internet (a screen is a line out of the office).
 // Researcher: an old beige desktop. A CRT monitor (a flat front, a rounded housing tapering to the back) facing the
 // chair, the tower beside it, a keyboard with its rows of keys in front, and a mouse.
 const BEIGE = "#d9d0b9", BEIGE_DARK = "#bdb39b";
-add({ id: "researcher-monitor-back", poly: [[705, 433], [727, 436.5], [740, 443], [741.5, 451], [740, 459], [727, 465.5], [705, 469]], z0: 77, z1: 110, color: BEIGE, group: "researcher-monitor" });
+add({ id: "researcher-monitor-back", poly: [[705, 433], [740, 441], [740, 461], [705, 469]], z0: 77, z1: 110, color: BEIGE, group: "researcher-monitor" });
 add({ id: "researcher-monitor", poly: roundRect(698, 429, 9, 44, 3), z0: 75, z1: 113, color: BEIGE });
 add({ id: "researcher-tower", poly: roundRect(705, 380, 22, 44, 3.5), z0: 75, z1: 118, color: BEIGE });
 add({ id: "researcher-keyboard", poly: roundRect(667, 428, 16, 46, 3), z0: 75, z1: 77.5, color: BEIGE });
@@ -274,14 +284,24 @@ const BOARD_FORESHORTEN = 54 / Math.hypot(54, 90);   // the board rises 90 cm ov
 const onBoard = plate("board", 245, 15, 151, 54, "n", 95, 185, C.board);
 border(onBoard, "board-frame", 245, 15, 151, 54, 3, 3 * BOARD_FORESHORTEN, "#8f846f");
 for (const [x, y, deg, c] of [[258, 24, -4, "#e8d36a"], [284, 40, 3, "#e8d36a"], [316, 22, 5, "#efb9a6"], [344, 41, -3, "#e8d36a"], [368, 25, 2, "#a9cfe0"], [298, 54, -6, "#e8d36a"]]) {
-  onBoard("note-" + x, rotated(roundRect(x, y, 13, 13 * BOARD_FORESHORTEN, 1), deg), c);   // 13 cm notes, foreshortened
+  onBoard("note-" + x, rotated(rect(x, y, 13, 13 * BOARD_FORESHORTEN), deg), c);   // 13 cm notes, foreshortened
 }
-const CAL_FORESHORTEN = 40 / Math.hypot(40, 95);    // the calendar rises 95 cm over 40 cm
-const onCalendar = plate("calendar", 25, 237, 40, 210, "w", 95, 190, C.calendar);
-border(onCalendar, "cal-frame", 25, 237, 40, 210, 3.5 * CAL_FORESHORTEN, 3.5, "#9b958b");
-onCalendar("cal-head", rect(25 + 3.5 * CAL_FORESHORTEN, 240.5, 8 * CAL_FORESHORTEN, 203), "#b3ada3");   // the weekday row, at the top edge
-for (let i = 1; i < 7; i++) onCalendar("cal-day-" + i, rect(25 + 11.5 * CAL_FORESHORTEN, 240.5 + i * 29, 40 - 15 * CAL_FORESHORTEN, 0.7), "#aaa49a");
-for (let j = 1; j < 5; j++) onCalendar("cal-week-" + j, rect(25 + (11.5 + j * 16) * CAL_FORESHORTEN, 240.5, 0.7, 203), "#aaa49a");
+// The calendar: a month planner, light paper in a thin frame. Seven days along its length, five weeks across its
+// slope (foreshortened), the weekday row along the high edge, and a few days with something on them.
+const CAL = { x: 22, y: 237, w: 46, h: 210, low: 95, high: 150 };
+const CAL_FORESHORTEN = CAL.w / Math.hypot(CAL.w, CAL.high - CAL.low);
+const onCalendar = plate("calendar", CAL.x, CAL.y, CAL.w, CAL.h, "w", CAL.low, CAL.high, "#ebe6dc");
+{
+  const f = CAL_FORESHORTEN, inX = CAL.x + 2.5 * f, inY = CAL.y + 2.5, inW = CAL.w - 5 * f, inH = CAL.h - 5, head = 7 * f;
+  border(onCalendar, "cal-frame", CAL.x, CAL.y, CAL.w, CAL.h, 2.5 * f, 2.5, "#b5ad9f");
+  onCalendar("cal-head", rect(inX, inY, head, inH), "#c9c1b2");
+  const day = inH / 7, week = (inW - head) / 5;
+  for (let i = 1; i < 7; i++) onCalendar("cal-day-" + i, rect(inX, inY + i * day - 0.3, inW, 0.6), "#d3ccbf");
+  for (let j = 1; j < 5; j++) onCalendar("cal-week-" + j, rect(inX + head + j * week - 0.3, inY, 0.6, inH), "#d3ccbf");
+  for (const [d, w, c] of [[1, 1, "#e3b4a2"], [3, 0, "#a9cfe0"], [4, 2, "#e8d36a"], [5, 3, "#e3b4a2"]]) {
+    onCalendar(`cal-event-${d}-${w}`, rect(inX + head + w * week + 1 * f, inY + d * day + 2, week - 2 * f, day - 4), c);
+  }
+}
 
 // The archive: one drawer per role.
 add({ id: "archive", poly: rect(284, 482, 158, 54), z0: 0, z1: 95, color: C.cabinet });
@@ -454,7 +474,7 @@ let dpr = 1, cssW = 1000, cssH = 700;
 
 // The frame fills the window, with the room in the middle and at least PAD cm of floor around it on the
 // tightest side. Redrawn from the geometry at the screen's own resolution: sharp on any screen.
-const PAD = 70;
+const PAD = 150;
 let view = { k: 1, ox: 0, oy: 0 };   // CSS pixels per cm, and where the room's corner sits on screen
 function resize() {
   dpr = window.devicePixelRatio || 1;
@@ -515,8 +535,13 @@ function buildMask(all, surfaces, light) {
   // exactly in JavaScript and filled as plain polygons: no canvas clipping, which is slow on the GPU.
   g.fillStyle = "#000";
   for (const s of surfaces) {
-    const sp = receiver(s), sb = bbox(sp);
-    if (area && !overlaps(sb, area)) continue;              // nothing below it is lit by this lamp either
+    let sp = receiver(s), sb = bbox(sp);
+    if (area) { // a lamp only works where its light reaches: the surface is cut to that square (the ground is huge)
+      if (!overlaps(sb, area)) continue;
+      sp = clip(sp, rect(area[0], area[1], area[2] - area[0], area[3] - area[1]));
+      if (sp.length < 3) continue;
+      sb = bbox(sp);
+    }
     // Clear this surface's footprint, then add its own light. Adding (not painting over) makes the edge exact:
     // painting over would dim the anti-aliased edge twice and leave a faint dark seam between touching surfaces.
     g.globalCompositeOperation = "destination-out"; path(g, sp); g.fill();
@@ -535,6 +560,7 @@ function buildMask(all, surfaces, light) {
     let any = false;
     for (const o of all) {
       if (!o.occludes || o === s || o.group === light.group || o.z1 <= lowest + 0.5) continue;
+      if (s.plane && o.group === s.group) continue;  // a board's own frame and legs don't shade its face
       if (light.kind === "lamp" && o.z0 >= light.z) continue; // above the lamp: lit from below, no shadow downwards
       const still = !o.moves && !s.moves, key = s.id + "|" + o.id;
       let sh = still ? cache.get(key) : undefined;
