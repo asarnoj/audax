@@ -190,8 +190,18 @@ const inboxes = {   // where papers are put, for the figure's errands (not drawn
   manager: rect(50, 160, 34, 28), director: rect(570, 173, 28, 35), assistant: rect(117, 465, 28, 34), researcher: rect(674, 299, 34, 28),
 };
 
-// Chairs: a thin round seat on a post, a five-spoke foot, and a thin curved back on the side away from the desk.
-function chair(role, x, y, back) {
+// Chairs: a thin round seat on a post, a five-spoke foot, and a thin back that follows the seat's curve, standing
+// on its edge all along (in a few straight pieces, each convex), on the side away from the desk.
+function backArc(x, y, facing, span = 120, r0 = 18, r1 = 22, pieces = 5) {
+  const a = (deg) => deg * Math.PI / 180, out = [];
+  for (let k = 0; k < pieces; k++) {
+    const t0 = a(facing - span / 2 + span * k / pieces), t1 = a(facing - span / 2 + span * (k + 1) / pieces);
+    out.push([[x + r0 * Math.cos(t0), y + r0 * Math.sin(t0)], [x + r1 * Math.cos(t0), y + r1 * Math.sin(t0)],
+      [x + r1 * Math.cos(t1), y + r1 * Math.sin(t1)], [x + r0 * Math.cos(t1), y + r0 * Math.sin(t1)]]);
+  }
+  return out;
+}
+function chair(role, x, y, backFacing) {
   const g = role + "-chair";
   add({ id: role + "-seat", poly: circle(x, y, 22, 18), z0: 43, z1: 47, color: C.chair, group: g });
   add({ id: role + "-post", poly: circle(x, y, 2.5, 8), z0: 5, z1: 43, color: C.chair, group: g, receives: false });
@@ -200,12 +210,23 @@ function chair(role, x, y, back) {
     const spoke = [[x + v[0] * w, y + v[1] * w], [x + u[0] * L + v[0] * w, y + u[1] * L + v[1] * w], [x + u[0] * L - v[0] * w, y + u[1] * L - v[1] * w], [x - v[0] * w, y - v[1] * w]];
     add({ id: `${role}-spoke-${k}`, poly: spoke, z0: 2, z1: 5, color: C.chair, group: g });
   }
-  add({ id: role + "-back", poly: back, z0: 47, z1: 88, color: C.chair, group: g });
+  for (const [k, piece] of backArc(x, y, backFacing).entries()) add({ id: `${role}-back-${k}`, poly: piece, z0: 47, z1: 88, color: C.chair, group: g });
 }
-chair("manager", 105, 71, rect(127, 53, 4, 36));
-chair("director", 650, 122, ellipse(650, 98, 20, 2.5, 14));
-chair("assistant", 199, 440, ellipse(199, 416, 20, 2.5, 14));
-chair("researcher", 594, 450, ellipse(570, 450, 2.5, 20, 14));
+chair("manager", 105, 71, 0);        // the back towards the room, east
+chair("director", 650, 122, -90);    // north
+chair("assistant", 199, 440, -90);   // north
+chair("researcher", 594, 450, 180);  // west
+
+// Computers, for the two who go out on the internet (a screen is a line out of the office).
+// Researcher: an old beige desktop, a deep monitor facing its chair, the tower beside it, a keyboard in front.
+const BEIGE = "#d8cfb8";
+add({ id: "researcher-monitor", poly: roundRect(700, 432, 38, 38, 3), z0: 75, z1: 112, color: BEIGE });
+add({ id: "researcher-tower", poly: roundRect(708, 382, 20, 42, 2), z0: 75, z1: 118, color: BEIGE });
+add({ id: "researcher-keyboard", poly: roundRect(668, 428, 16, 46, 2), z0: 75, z1: 78, color: "#cbc2aa" });
+// Assistant: a laptop, its screen tilted back from the hinge on the far side.
+add({ id: "assistant-laptop", poly: roundRect(182, 470, 34, 24, 2), z0: 74, z1: 76, color: "#c9c9c6" });
+add({ id: "assistant-laptop-screen", bottom: rect(182, 492.5, 34, 1.5), top: rect(182, 498.5, 34, 1.5), face: rect(182, 492.5, 34, 7.5),
+  z0: 76, z1: 98, zr: 87, color: "#b7b7b4" });
 
 // Desk lamps: for now only their light, at night (the lamps themselves come with the things on the desks).
 const lamps = [];

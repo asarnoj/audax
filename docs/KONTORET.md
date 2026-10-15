@@ -43,7 +43,8 @@ Allt detta ändrar formen så lite som möjligt. Det som är ditt uttryck (propo
 - **Golvet**: ljusgult, med rödbruna rutstreck (50 cm) i låg opacitet som löper en bit ut över golvets kant. Inga väggar: kontoret smälter ut i sidan, och **sidans bakgrund är marken i rummets ljus** (varm på morgonen, neutral mitt på dagen, grå när det är mulet, mörk på natten).
 - **Moln**: ett reglage för hur mulet det är. Lägre kontrast: mindre direkt sol, mer jämnt himmelsljus, lite svalare färg; skuggorna behåller formen och blir ljusare. Kan senare styras av det riktiga vädret.
 - **Möbler byggs av sina delar**, som de riktiga: en tunn skiva på ben, så att ljuset går under och skuggan blir skivans form plus tunna streck från benen. Ett massivt block från golvet ger tunga, felaktiga skuggor. Bara det som verkligen är massivt (arkivet, papperskorgen) är block.
-- **Stolarna**: en tunn rund sits på en stolpe, en fot med fem ekrar och ett tunt böjt ryggstöd på sidan bort från bordet.
+- **Stolarna**: en tunn rund sits på en stolpe, en fot med fem ekrar och ett tunt ryggstöd som följer sitsens rundning och står på dess kant hela vägen (annars lossnar ryggens skugga från sitsens).
+- **Datorerna**, för dem som går ut på nätet: Researcher har en gammal beige stationär (djup skärm, torn, tangentbord), Assistant en laptop med skärmen uppfälld. Manager går aldrig ut på nätet och har ingen.
 - **Skrivborden** (första versionen, bara form och färg): Assistant ljus björk med mjuka hörn, Director mörk valnöt i L, Researcher ett långt arbetsbord i ek, Manager ett salviagrönt stålskrivbord med snäva hörn.
 - **Board och kalendern lutar** mot rummet, så att man ser några post-its och dagarnas streck. Det räcker att se vad möbeln är; innehållet visas när man klickar på den.
 
