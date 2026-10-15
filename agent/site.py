@@ -11,7 +11,7 @@ office comes later and reads the same data from /api/.
 - /arkiv/           the file cabinet: memory and the instance config
 - /tabeller/        every database table
 - /prototyp/ljus    the lighting prototype for the illustrated office (web/ljus.html)
-- /prototyp/kontor  the greybox of the owner's floor plan (web/kontor.html)
+- /prototyp/kontor  the greybox of the owner's floor plan (web/kontor.html), live: /api/kontor/
 """
 
 from __future__ import annotations
@@ -25,12 +25,13 @@ from pathlib import Path
 import uvicorn
 from starlette.applications import Starlette
 from starlette.requests import Request
-from starlette.responses import FileResponse, HTMLResponse, JSONResponse, RedirectResponse, Response
+from starlette.responses import FileResponse, HTMLResponse, JSONResponse, RedirectResponse, Response, StreamingResponse
 from starlette.routing import Route
 
 from agent import refs
 from agent.config import ROOT
 from agent.db import Database
+from agent.kontor import Live, sse
 from agent.office import NAMES, ROLES, Office
 
 TEXT_SUFFIXES = {".md", ".yaml", ".yml", ".txt", ".json", ".csv", ".log"}
@@ -271,10 +272,38 @@ def build_app(db: Database, office: Office, roots: dict[str, Path]) -> Starlette
     async def office_greybox(request: Request) -> Response:
         return FileResponse(ROOT / "web" / "kontor.html")
 
+    # The illustrated office, live: the state of right now, then a stream of what happens (agent/kontor.py).
+    live = Live(db, office.memory, office.tz.key)
+
+    async def kontor_state(request: Request) -> Response:
+        return JSONResponse(await live.state())
+
+    async def kontor_stream(request: Request) -> Response:
+        async def events():
+            cursor = await live.cursor()   # from now on: the page already has the state of right now
+            quiet = 0
+            while not await request.is_disconnected():
+                happened = await live.changes(cursor)
+                for h in happened:
+                    yield sse(h)
+                quiet = 0 if happened else quiet + 1
+                if quiet >= 15:  # a comment now and then keeps proxies from closing a quiet stream
+                    yield ": still here\n\n"
+                    quiet = 0
+                await asyncio.sleep(1)
+        return StreamingResponse(events(), media_type="text/event-stream", headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"})
+
+    async def kontor_object(request: Request) -> Response:
+        d = await live.detail(request.path_params["name"])
+        return JSONResponse(d) if d else JSONResponse({"error": "no such thing"}, 404)
+
     return Starlette(routes=[
         Route("/", office_page),
         Route("/prototyp/ljus", light_prototype),
         Route("/prototyp/kontor", office_greybox),
+        Route("/api/kontor/lage", kontor_state),
+        Route("/api/kontor/strom", kontor_stream),
+        Route("/api/kontor/objekt/{name}", kontor_object),
         Route("/fragment/nu", now_fragment),
         Route("/fragment/tidslinje", timeline_fragment),
         Route("/roll/{role}", role_page),

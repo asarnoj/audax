@@ -14,12 +14,20 @@
   .controls { display: flex; flex-wrap: wrap; gap: 6px 14px; align-items: center; margin: 6px 0; }
   .controls label { display: flex; gap: 6px; align-items: center; }
   #time { width: min(300px, 60vw); }
+  #sheet { position: fixed; right: 12px; top: 12px; bottom: 12px; width: min(420px, calc(100vw - 24px)); overflow: auto; padding: 14px 16px;
+    border-radius: 10px; background: rgba(255, 255, 255, 0.96); color: #2b2b2b; box-shadow: 0 2px 12px rgba(0, 0, 0, 0.18); }
+  #sheet.hidden { display: none; }
+  #sheet h2 { margin: 0 0 4px; font-size: 18px; } #sheet h3 { margin: 14px 0 4px; font-size: 14px; }
+  #sheet ul { margin: 4px 0; padding-left: 18px; } #sheet li { margin: 3px 0; } #sheet .muted { color: #777; }
+  #sheet pre { white-space: pre-wrap; font: 12px/1.45 ui-monospace, monospace; background: #f5f3ee; padding: 8px; border-radius: 6px; }
+  #close { position: sticky; top: 0; float: right; border: 0; background: none; font-size: 20px; cursor: pointer; }
   #info { color: #666; font-variant-numeric: tabular-nums; margin: 4px 0 0; }
   a { color: #47a; }
 </style>
 </head>
 <body>
 <canvas id="c"></canvas>
+<div id="sheet" class="hidden"><button id="close" aria-label="Stäng">×</button><div id="sheet-body"></div></div>
 <div id="panel">
   <div><a href="/">← Kontoret</a> · gråskiss · <button id="toggle">Dölj</button></div>
   <div class="body">
@@ -129,6 +137,14 @@ const C = { floor: "#f5edc6", wall: "#3b3a38", desk: "#b3aca0", chair: "#8a857d"
 
 const objects = [];   // static: { id, poly, z0, z1, color, top?, face?, group, occludes, receives }
 const add = (o) => { objects.push(Object.assign({ occludes: true, receives: true, group: o.id }, o)); };
+// Some things show the real state (papers in a tray, notes on the board, balls in the bin) and are rebuilt
+// when it changes; the lamps' light is then made again (see draw).
+const piles = { dirty: true };
+function replace(prefix, build) {
+  for (let i = objects.length - 1; i >= 0; i--) if (objects[i].id.startsWith(prefix)) objects.splice(i, 1);
+  build();
+  piles.dirty = true;
+}
 const ellipse = (cx, cy, rx, ry, n = 16) => Array.from({ length: n }, (_, i) => [cx + rx * Math.cos(2 * Math.PI * i / n), cy + ry * Math.sin(2 * Math.PI * i / n)]);
 
 // A tilted plate (the board, the calendar): low along one edge, high along the opposite one. As a prism from the
@@ -297,12 +313,6 @@ const LOOKS = {
   researcher: { suit: "#7a5a3c", shirt: "#c9d6dc", hair: "#7a3f22", messy: true, skin: "#d9a986", shoe: "#3a2a1e" },
 };
 
-// The people at their desks, on their chairs, facing their desks (Director is out walking).
-for (const [role, h, reach] of [["manager", Math.PI, 40], ["assistant", Math.PI / 2, 42], ["researcher", 0, 46]]) {
-  const [x, y, deg] = SEATS[role];
-  for (const part of person(role + "-person", LOOKS[role], x, y, h + deg * Math.PI / 180, { seated: true, reach })) add(Object.assign({ receives: true }, part));
-}
-
 // Desk lamps, one for each person, to match their desks. Each gives its light from under its shade (x, y, z).
 const lamps = [];
 function lamp(role, desk, at, parts) {
@@ -381,30 +391,44 @@ flat("telex-slot", roundRect(713, 90, 38, 2.6, 1.3), 92.1, "#5e5a54", "telex");
 flat("telex-panel", roundRect(748, 69, 8, 11, 1.5), 92.1, "#6b675f", "telex");
 plate("telex-feed", 714, 54, 36, 11, "n", 92, 108, "#f3efe6", false);
 objects[objects.length - 1].group = "telex";
-flat("telex-printout", rect(723, 99, 21, 29.7), 76.3, "#f4f0e7", "telex");
 turn(from, 734, 90, -1);
+function printout(on) { // a sheet coming out of the printer while it prints
+  replace("telex-printout", () => { if (on) { const f = objects.length; flat("telex-printout", rect(723, 99, 21, 29.7), 76.3, "#f4f0e7", "telex"); turn(f, 734, 90, -1); } });
+}
 
 // The waste bin beside Director: a metal bin, wider at the top, dark inside, a few crumpled papers on top.
 add({ id: "bin", bottom: circle(667, 41, 17, 24), top: circle(667, 41, 21, 24), face: circle(667, 41, 21, 24), z0: 0, z1: 40, zr: 40, color: "#5f625c" });
 flat("bin-inside", circle(667, 41, 19, 24), 40.1, "#45463f", "bin");
-for (const [k, [bx, by, r]] of [[664, 39, 6.2], [671, 45, 5.6], [659, 46, 5], [670, 35, 4.6], [676, 42, 4.2]].entries()) {  // a little pile
-  const ball = Array.from({ length: 9 }, (_, i) => { const a = 2 * Math.PI * i / 9, rr = r * (0.82 + 0.18 * ((i * 7 + k * 3) % 5) / 4); return [bx + rr * Math.cos(a), by + rr * Math.sin(a)]; });
-  add({ id: `bin-paper-${k}`, poly: hull(ball), z0: 34, z1: 40.5 + (k % 2), color: "#f1ece1", group: "bin", shadeOnly: "bin" });
+const BALLS = [[664, 39, 6.2], [671, 45, 5.6], [659, 46, 5], [670, 35, 4.6], [676, 42, 4.2], [660, 33, 4.4], [667, 49, 4.8]];
+function setBin(n) { // crumpled papers in a little pile: one for every few thrown away today, seven at most
+  replace("bin-paper-", () => {
+    for (const [k, [bx, by, r]] of BALLS.slice(0, Math.min(BALLS.length, Math.ceil(n / 4))).entries()) {
+      const ball = Array.from({ length: 9 }, (_, i) => { const a = 2 * Math.PI * i / 9, rr = r * (0.82 + 0.18 * ((i * 7 + k * 3) % 5) / 4); return [bx + rr * Math.cos(a), by + rr * Math.sin(a)]; });
+      add({ id: `bin-paper-${k}`, poly: hull(ball), z0: 34, z1: 40.5 + (k % 2), color: "#f1ece1", group: "bin", shadeOnly: "bin" });
+    }
+  });
 }
 
 // Letter trays on the desks: the inboxes, where the others leave papers. Each matches its desk; a couple of
 // loose sheets lie in them (later: as many as there are unread posts).
+const TRAYS = {};
 function tray(role, [x, y], w, h, deskTop, color, inner, deg) {
   const from = objects.length, g = role + "-inbox";
   add({ id: g, poly: roundRect(x, y, w, h, 1.5), z0: deskTop, z1: deskTop + 5, color, group: g });
   flat(g + "-bottom", rect(x + 1.5, y + 1.5, w - 3, h - 3), deskTop + 5.05, inner, g);
-  const portrait = h > w, sw = portrait ? 21 : 29.7, sh = portrait ? 29.7 : 21;
-  for (const [k, a] of [[0, -3], [1, 4]].entries()) {
-    const sheet = rect(x + (w - sw) / 2, y + (h - sh) / 2, sw, sh);
-    const cx = x + w / 2, cy = y + h / 2, t = a * Math.PI / 180;
-    flat(`${g}-sheet-${k}`, sheet.map(([px, py]) => [cx + (px - cx) * Math.cos(t) - (py - cy) * Math.sin(t), cy + (px - cx) * Math.sin(t) + (py - cy) * Math.cos(t)]), deskTop + 5.1 + k * 0.1, "#f4f0e7", g);
-  }
   turn(from, x + w / 2, y + h / 2, deg);
+  TRAYS[role] = { x, y, w, h, deskTop, deg };
+}
+function setTray(role, n) { // the papers waiting for this role: a loose stack, ten at most
+  const t = TRAYS[role], g = role + "-inbox";
+  replace(g + "-sheet-", () => {
+    const from = objects.length, portrait = t.h > t.w, sw = portrait ? 21 : 29.7, sh = portrait ? 29.7 : 21, cx = t.x + t.w / 2, cy = t.y + t.h / 2;
+    for (let k = 0; k < Math.min(10, n); k++) {
+      const a = (((k * 37) % 9) - 4) * Math.PI / 180, sheet = rect(t.x + (t.w - sw) / 2, t.y + (t.h - sh) / 2, sw, sh);
+      flat(`${g}-sheet-${k}`, sheet.map(([px, py]) => [cx + (px - cx) * Math.cos(a) - (py - cy) * Math.sin(a), cy + (px - cx) * Math.sin(a) + (py - cy) * Math.cos(a)]), t.deskTop + 5.1 + k * 0.12, "#f4f0e7", g);
+    }
+    turn(from, cx, cy, t.deg);
+  });
 }
 const TRAY = "#4b4d4f", TRAY_INSIDE = "#5d5f61";   // one plain dark letter tray, the same on every desk
 tray("manager", inboxes.manager[0], 28, 34, 74, TRAY, TRAY_INSIDE, 1);
@@ -427,8 +451,14 @@ function border(on, id, x, y, w, h, across, along, color) { // across: frame wid
 const BOARD_FORESHORTEN = 54 / Math.hypot(54, 90);   // the board rises 90 cm over 54 cm
 const onBoard = plate("board", 245, 15, 151, 54, "n", 95, 185, C.board);
 border(onBoard, "board-frame", 245, 15, 151, 54, 3, 3 * BOARD_FORESHORTEN, "#8f846f");
-for (const [x, y, deg, c] of [[258, 24, -4, "#e8d36a"], [284, 40, 3, "#e8d36a"], [316, 22, 5, "#efb9a6"], [344, 41, -3, "#e8d36a"], [368, 25, 2, "#a9cfe0"], [298, 54, -6, "#e8d36a"]]) {
-  onBoard("note-" + x, rotated(rect(x, y, 13, 13 * BOARD_FORESHORTEN), deg), c);   // 13 cm notes, foreshortened
+const NOTE_COLORS = ["#e8d36a", "#e8d36a", "#efb9a6", "#e8d36a", "#a9cfe0"];
+function setBoard(n) { // a post-it for every saved finding, fourteen at most, in two loose rows
+  replace("note-", () => {
+    for (let k = 0; k < Math.min(14, n); k++) {
+      const col = k % 7, row = Math.floor(k / 7), x = 252 + col * 20 + ((k * 13) % 5) - 2, y = 22 + row * 20 + ((k * 7) % 5) - 2;
+      onBoard("note-" + k, rotated(rect(x, y, 13, 13 * BOARD_FORESHORTEN), ((k * 29) % 11) - 5), NOTE_COLORS[k % NOTE_COLORS.length]);   // 13 cm notes, foreshortened
+    }
+  });
 }
 // The calendar: a month planner, light paper in a thin frame. Seven days along its length, five weeks across its
 // slope (foreshortened), the weekday row along the high edge, and a few days with something on them.
@@ -442,9 +472,20 @@ const onCalendar = plate("calendar", CAL.x, CAL.y, CAL.w, CAL.h, "w", CAL.low, C
   const day = inH / 7, week = (inW - head) / 5;
   for (let i = 1; i < 7; i++) onCalendar("cal-day-" + i, rect(inX, inY + i * day - 0.3, inW, 0.6), "#d3ccbf");
   for (let j = 1; j < 5; j++) onCalendar("cal-week-" + j, rect(inX + head + j * week - 0.3, inY, 0.6, inH), "#d3ccbf");
-  for (const [d, w, c] of [[1, 1, "#e3b4a2"], [3, 0, "#a9cfe0"], [4, 2, "#e8d36a"], [5, 3, "#e3b4a2"]]) {
-    onCalendar(`cal-event-${d}-${w}`, rect(inX + head + w * week + 1 * f, inY + d * day + 2, week - 2 * f, day - 4), c);
-  }
+  CAL.cell = (d, w, k) => rect(inX + head + w * week + 1 * f, inY + d * day + 2 + k * 4, week - 2 * f, Math.max(3, day - 4 - k * 4));
+}
+const CAL_COLORS = { finding: "#e8d36a", reminder: "#e3b4a2", promise: "#a9cfe0" };
+function setCalendar(items) { // each planned thing on its day: seven days along, this week and the four after it across
+  replace("cal-event-", () => {
+    const monday = new Date(); monday.setHours(0, 0, 0, 0); monday.setDate(monday.getDate() - (monday.getDay() + 6) % 7);
+    const used = {};
+    for (const it of items) {
+      const t = new Date(it.at), days = Math.floor((t - monday) / 86400000), w = Math.floor(days / 7), d = days % 7;
+      if (w < 0 || w > 4) continue;
+      const key = d + "-" + w, k = used[key] = (used[key] ?? -1) + 1;
+      if (k < 3) onCalendar(`cal-event-${key}-${k}`, CAL.cell(d, w, k), CAL_COLORS[it.kind] || CAL_COLORS.finding);
+    }
+  });
 }
 
 // The archive: a low cabinet with four open drawers, one per role, full of yellow hanging folders standing in rows.
@@ -473,68 +514,141 @@ const windows = [];   // no windows: the light is the office's own
 // below at midday, from the left in the evening.
 const UP = 0;
 
-// --- the figure (one grey person walking an errand loop) --------------------------------------------
-const route = [
-  { p: [600, 104], pause: 2.5, face: Math.PI / 2 },               // at Director's desk
-  { p: [300, 112] },
-  { p: [160, 190] },
-  { p: [126, 196], pause: 2.0, face: Math.PI, reach: true },      // Manager's inbox
-  { p: [160, 190] },
-  { p: [300, 112] },
-];
-const walker = { seg: 0, along: 0, pos: route[0].p.slice(), heading: -Math.PI / 2, wait: route[0].pause, turning: false, phase: 0, speed: 0, reachT: 0, gait: 0 };
+// --- the people: where they go and how they get there --------------------------------------------------
 const VMAX = 115, STRIDE = 62;
 
-function segLen(i) { const a = route[i].p, b = route[(i + 1) % route.length].p; return Math.max(1e-6, Math.hypot(b[0] - a[0], b[1] - a[1])); }
+// Places someone goes to, and which way they face there.
+const PLACES = {
+  "inbox-manager": [112, 168, Math.PI], "inbox-director": [598, 124, Math.PI / 2], "inbox-assistant": [132, 438, Math.PI / 2],
+  "inbox-researcher": [640, 306, 0], calendar: [100, 342, Math.PI], board: [320, 100, -Math.PI / 2], bin: [622, 44, 0],
+  computer: [648, 398, 0],   // Researcher's computer, when Director borrows it
+  "drawer-assistant": [305, 463, Math.PI / 2], "drawer-manager": [344, 463, Math.PI / 2], "drawer-director": [383, 463, Math.PI / 2], "drawer-researcher": [422, 463, Math.PI / 2],
+};
+// The walkways: points between the furniture, and which connect.
+const NODES = { T1: [160, 125], T2: [300, 128], T3: [450, 130], T4: [525, 130], D: [590, 92], E1: [525, 250], E2: [570, 300], E3: [565, 400],
+  S1: [520, 450], S2: [380, 455], S3: [265, 445], W1: [150, 330], W2: [160, 230] };
+const EDGES = [["T1", "T2"], ["T2", "T3"], ["T3", "T4"], ["T4", "D"], ["T4", "E1"], ["E1", "E2"], ["E2", "E3"], ["E3", "S1"], ["S1", "S2"], ["S2", "S3"],
+  ["S3", "W1"], ["W1", "W2"], ["W2", "T1"]];
+const dist = (a, b) => Math.hypot(a[0] - b[0], a[1] - b[1]);
+function nearest(p) { return Object.keys(NODES).reduce((best, k) => dist(p, NODES[k]) < dist(p, NODES[best]) ? k : best, "T1"); }
+function route(from, to) { // the shortest way along the walkways (straight there when it's close)
+  if (dist(from, to) < 90) return [from, to];
+  const a = nearest(from), b = nearest(to), d = { [a]: 0 }, prev = {}, open = new Set(Object.keys(NODES));
+  while (open.size) {
+    const u = [...open].reduce((m, k) => (d[k] ?? Infinity) < (d[m] ?? Infinity) ? k : m);
+    open.delete(u);
+    if (u === b || d[u] === undefined) break;
+    for (const [x, y] of EDGES) for (const [p, q] of [[x, y], [y, x]]) if (p === u && open.has(q)) {
+      const nd = d[u] + dist(NODES[u], NODES[q]);
+      if (nd < (d[q] ?? Infinity)) { d[q] = nd; prev[q] = u; }
+    }
+  }
+  const nodes = [b];
+  while (nodes[0] !== a && prev[nodes[0]]) nodes.unshift(prev[nodes[0]]);
+  return [from, ...nodes.map(k => NODES[k]), to];
+}
+
+const SEAT_FACE = { manager: Math.PI, director: Math.PI / 2, assistant: Math.PI / 2, researcher: 0 };
+const REACH = { manager: 40, director: 38, assistant: 42, researcher: 46 };
+const COMPUTER = { assistant: true, researcher: true };
+const people = {};
+for (const role of ["manager", "director", "assistant", "researcher"]) {
+  const [x, y, deg] = SEATS[role], face = SEAT_FACE[role] + deg * Math.PI / 180;
+  people[role] = { role, seat: [x, y], face, stand: [x - Math.cos(face) * 34, y - Math.sin(face) * 34], pos: [x, y], heading: face,
+    mode: "seated", t: 0, queue: [], job: null, stop: 0, path: null, seg: 0, speed: 0, gait: 0, phase: 0, stride: STRIDE, reachT: 0,
+    throwT: 0, seed: Math.random() * 10, carry: false };
+}
+const live = { working: {} };
+
+// An errand: stops to make (a place, how long to stay, what changes when done), something to do on setting out,
+// and whether a paper is carried. The same errand queued twice in a row becomes one trip with both papers.
+function errand(role, job) {
+  const p = people[role];
+  if (!p) return;
+  const last = p.queue[p.queue.length - 1];
+  if (last && last.key === job.key) { last.starts.push(...(job.starts || [])); last.stops.forEach((st, i) => st.dones.push(...(job.stops[i]?.dones || []))); return; }
+  p.queue.push({ key: job.key, carry: !!job.carry, starts: job.starts || [], stops: job.stops.map(st => ({ place: st.place, act: st.act ?? 1.2, until: st.until, dones: st.dones || [] })) });
+}
+
 function angleTo(a, b) { let d = b - a; while (d > Math.PI) d -= 2 * Math.PI; while (d < -Math.PI) d += 2 * Math.PI; return d; }
-
-// Distance left until the next stop (for slowing down), summed over pass-through points.
-function distToStop() {
-  let d = segLen(walker.seg) - walker.along, i = (walker.seg + 1) % route.length;
-  while (!route[i].pause) { d += segLen(i); i = (i + 1) % route.length; }
-  return d;
-}
-function distFromStop() {
-  let d = walker.along, i = walker.seg;
-  while (!route[i].pause) { i = (i - 1 + route.length) % route.length; d += segLen(i); }
-  return d;
-}
-
-function stepWalker(dt) {
-  const w = walker, here = route[w.seg];
-  // How much of a walking gait the body shows: follows the speed with a short lag, so the feet settle
-  // under the body over a few tenths of a second when it stops, and the first step grows out of standing.
-  w.gait = lerp(w.gait, clamp(w.speed / 60, 0, 1), Math.min(1, dt * 7));
-  if (w.wait > 0) {
-    w.wait -= dt; w.speed = 0;
-    if (here.face !== undefined) w.heading += angleTo(w.heading, here.face) * Math.min(1, dt * 6);
-    w.reachT = here.reach ? Math.sin(Math.PI * clamp(1 - w.wait / here.pause, 0, 1)) : 0;
-    if (w.wait <= 0) w.turning = true;
+function stepPeople(dt) { for (const p of Object.values(people)) stepPerson(p, dt); }
+function stepPerson(p, dt) {
+  p.throwT = Math.max(0, p.throwT - dt);
+  p.gait = lerp(p.gait, clamp(p.speed / 60, 0, 1), Math.min(1, dt * 7));
+  const hurry = p.queue.length > 2 ? 1.6 : 1;   // a long queue: walk faster, so the office keeps up
+  if (p.mode === "seated") {
+    p.pos = p.seat.slice(); p.heading = p.face; p.speed = 0;
+    if (p.queue.length) { p.job = p.queue.shift(); p.job.starts.forEach(f => f()); p.carry = p.job.carry; p.mode = "rising"; p.t = 0; }
     return;
   }
-  const a = route[w.seg].p, b = route[(w.seg + 1) % route.length].p;
-  const dir = Math.atan2(b[1] - a[1], b[0] - a[0]);
-  if (w.turning) { // turn towards the way out before walking
-    const d = angleTo(w.heading, dir); w.heading += d * Math.min(1, dt * 7);
-    if (Math.abs(d) < 0.25) w.turning = false;
+  if (p.mode === "rising" || p.mode === "sitting") { // between the chair and standing beside it
+    p.t = Math.min(1, p.t + dt / 0.55);
+    const k = smooth(p.t), [a, b] = p.mode === "rising" ? [p.seat, p.stand] : [p.stand, p.seat];
+    p.pos = [lerp(a[0], b[0], k), lerp(a[1], b[1], k)];
+    if (p.t >= 1) {
+      if (p.mode === "rising") { p.stop = 0; next(p); } else { p.mode = "seated"; p.job = null; }
+    }
     return;
   }
-  // speed: ease in from a stop and out towards the next one
-  const target = VMAX * clamp(Math.min(distFromStop() / 55, distToStop() / 70) + 0.15, 0.15, 1);
-  w.speed = lerp(w.speed, target, Math.min(1, dt * 5));
-  const ds = w.speed * dt;
-  w.along += ds;
-  w.heading += angleTo(w.heading, dir) * Math.min(1, dt * 8);
-  const amp = clamp(w.speed / 60, 0, 1), S = 20 + (STRIDE - 20) * amp;
-  w.phase = (w.phase + ds / (2 * S)) % 1;
-  w.stride = S;
-  if (w.along >= segLen(w.seg)) {
-    w.along -= segLen(w.seg); w.seg = (w.seg + 1) % route.length;
-    const r = route[w.seg];
-    if (r.pause) { w.along = 0; w.pos = r.p.slice(); w.wait = r.pause; return; }
+  if (p.mode === "walking") {
+    const target = p.path[p.seg + 1], dir = Math.atan2(target[1] - p.pos[1], target[0] - p.pos[0]);
+    let left = dist(p.pos, target);
+    for (let i = p.seg + 1; i < p.path.length - 1; i++) left += dist(p.path[i], p.path[i + 1]);
+    const want = VMAX * hurry * clamp(Math.min(left / 70, 1) + 0.15, 0.15, 1);
+    p.speed = lerp(p.speed, want, Math.min(1, dt * 5));
+    p.heading += angleTo(p.heading, dir) * Math.min(1, dt * 8);
+    const ds = Math.min(p.speed * dt, dist(p.pos, target)), amp = clamp(p.speed / 60, 0, 1), S = 20 + (STRIDE - 20) * amp;
+    p.pos = [p.pos[0] + Math.cos(dir) * ds, p.pos[1] + Math.sin(dir) * ds];
+    p.phase = (p.phase + ds / (2 * S)) % 1; p.stride = S;
+    if (dist(p.pos, target) < 0.5) {
+      p.seg++;
+      if (p.seg >= p.path.length - 1) { p.speed = 0; p.mode = p.going === "home" ? "turning" : "acting"; p.t = 0; }
+    }
+    return;
   }
-  const s = route[w.seg].p, e = route[(w.seg + 1) % route.length].p, t = w.along / segLen(w.seg);
-  w.pos = [lerp(s[0], e[0], t), lerp(s[1], e[1], t)];
+  if (p.mode === "turning") { // back beside the chair: face the desk, then sit
+    p.heading += angleTo(p.heading, p.face) * Math.min(1, dt * 8);
+    if (Math.abs(angleTo(p.heading, p.face)) < 0.15) { p.mode = "sitting"; p.t = 0; }
+    return;
+  }
+  if (p.mode === "acting") { // at a stop: face it, reach out, stay as long as the errand needs
+    const st = p.job.stops[p.stop], face = PLACES[st.place][2];
+    p.heading += angleTo(p.heading, face) * Math.min(1, dt * 6);
+    p.t += dt;
+    const done = st.until ? (st.until() && p.t > st.act) || p.t > 120 : p.t > st.act;
+    p.reachT = Math.sin(Math.PI * clamp(p.t / Math.max(st.act, 0.1), 0, 1));
+    if (done) { st.dones.forEach(f => f()); p.reachT = 0; p.carry = false; p.stop++; next(p); }
+  }
+}
+function next(p) { // to the next stop, or home to the chair
+  const st = p.job.stops[p.stop];
+  if (st) { p.path = route(p.pos, PLACES[st.place].slice(0, 2)); p.going = st.place; }
+  else { p.path = route(p.pos, p.stand); p.going = "home"; }
+  p.seg = 0; p.mode = "walking";
+}
+
+// What each person looks like right now: at the desk (resting, or working: typing, or with papers), or walking.
+function peopleParts(nowT) {
+  const t = nowT / 1000, all = [];
+  for (const p of Object.values(people)) {
+    const look = LOOKS[p.role], id = p.role + "-person";
+    const seated = p.mode === "seated" || (p.mode === "rising" && p.t < 0.5) || (p.mode === "sitting" && p.t > 0.5);
+    if (seated) {
+      const base = REACH[p.role], work = live.working[p.role];
+      let reachL = base - 6 + Math.sin(t * 0.5 + p.seed), reachR = base - 6 + Math.sin(t * 0.45 + p.seed + 1);   // resting
+      if (work && COMPUTER[p.role]) { reachL = base + 1.2 * Math.sin(t * 13 + p.seed); reachR = base + 1.2 * Math.sin(t * 13 + p.seed + 2.1); }   // typing
+      else if (work) { reachL = base - 4 + 3 * Math.sin(t * 1.7 + p.seed); reachR = base + 2 * Math.sin(t * 2.3 + p.seed); }   // papers
+      if (p.throwT > 0) reachR = base + 14 * Math.sin(Math.PI * p.throwT / 0.8);   // into the bin
+      all.push(...person(id, look, p.pos[0], p.pos[1], p.heading, { seated: true, reachL, reachR }, true));
+    } else {
+      const moving = p.gait, S = p.stride || STRIDE;
+      const offL = footOffset(p.phase, S) * moving, offR = footOffset((p.phase + 0.5) % 1, S) * moving, reach = 20 * p.reachT;
+      const bob = 1 + 0.014 * moving * (1 - Math.cos(4 * Math.PI * p.phase)) / 2;
+      const carry = p.carry ? 14 : 0;
+      all.push(...person(id, look, p.pos[0], p.pos[1], p.heading, { offL, offR, swingL: 0.55 * offR + reach + carry, swingR: 0.55 * offL + reach + carry, bob, carry: p.carry }, true));
+    }
+  }
+  return all;
 }
 
 // One foot over a stride cycle, relative to the body: planted during stance (moves back exactly as fast
@@ -565,7 +679,7 @@ function person(id, look, x, y, h, pose, moves = false) {
   }
   for (const sd of [-1, 1]) { // arms
     if (sit) { // forward to the desk, hands on it
-      const reach = pose.reach || 40, elbow = [sd * 19, reach * 0.5], hand = [sd * 10, reach];
+      const reach = (sd < 0 ? pose.reachL : pose.reachR) ?? pose.reach ?? 40, elbow = [sd * 19, reach * 0.5], hand = [sd * 10, reach];
       P(`upperarm${sd}`, { bottom: dot(...elbow, 5), top: dot(sd * 21, 0, 6), z0: 90, z1: top - 2, color: look.suit });
       P(`forearm${sd}`, { bottom: dot(hand[0], hand[1] - 3, 4.5), top: dot(...elbow, 5), z0: 78, z1: 90, color: look.suit });
       P(`hand${sd}`, { poly: dot(hand[0], hand[1], 4.2), z0: 76, z1: 80, color: look.skin });
@@ -575,6 +689,7 @@ function person(id, look, x, y, h, pose, moves = false) {
       P(`hand${sd}`, { poly: dot(hand[0], hand[1], 4.4), z0: 80, z1: 84, color: look.skin });
     }
   }
+  if (pose.carry) P("paper", { poly: [at(-10, 22), at(10, 22), at(10, 36), at(-10, 36)], z0: top - 30, z1: top - 29, color: "#f4f0e7", occludes: false });
   // The body: a jacket, its front showing; the shirt's V and the tie on it.
   P("jacket", { poly: oval(0, 1, 24 * bob, 14 * bob, 22), z0: hip, z1: top, color: look.suit });
   P("shirt", { poly: [at(-6.5, -1), at(6.5, -1), at(0, 13)], z0: top - 1, z1: top + 0.2, color: look.shirt, occludes: false });
@@ -586,14 +701,6 @@ function person(id, look, x, y, h, pose, moves = false) {
     : dot(0, -6.2, 10.2, 18);
   P("hair", { poly: hair, z0: top + 23, z1: top + 24.4, color: look.hair, occludes: false });
   return parts;
-}
-
-// The walking figure (Director, on an errand).
-function figureParts() {
-  const w = walker, moving = w.gait, S = w.stride || STRIDE;
-  const offL = footOffset(w.phase, S) * moving, offR = footOffset((w.phase + 0.5) % 1, S) * moving, reach = 20 * w.reachT;
-  const bob = 1 + 0.014 * moving * (1 - Math.cos(4 * Math.PI * w.phase)) / 2;
-  return person("walker", LOOKS.director, w.pos[0], w.pos[1], w.heading, { offL, offR, swingL: 0.55 * offR + reach, swingR: 0.55 * offL + reach, bob }, true);
 }
 
 // --- light ------------------------------------------------------------------------------------------
@@ -646,7 +753,7 @@ function sunPatch(win, zr, L) {
 // --- drawing ------------------------------------------------------------------------------------------
 const canvas = document.getElementById("c"), ctx = canvas.getContext("2d");
 const layer = () => document.createElement("canvas");
-const B = layer(), M = layer(), T = layer(), A = layer();  // base, one light's mask, scratch, all lamps' light
+const B = layer(), M = layer(), T = layer(), A = layer(), O = layer();  // base, one light's mask, scratch, all lamps' light, outline
 let dpr = 1, cssW = 1000, cssH = 700;
 
 // The frame fills the window, with the room in the middle and at least PAD cm of floor around it on the
@@ -658,7 +765,7 @@ function resize() {
   cssW = window.innerWidth || 1000; cssH = window.innerHeight || 700;
   const k = Math.min(cssW / (ROOM.w + 2 * PAD), cssH / (ROOM.h + 2 * PAD));
   view = { k, ox: (cssW - ROOM.w * k) / 2, oy: (cssH - ROOM.h * k) / 2 };
-  for (const c of [canvas, B, M, T, A]) { c.width = Math.round(cssW * dpr); c.height = Math.round(cssH * dpr); }
+  for (const c of [canvas, B, M, T, A, O]) { c.width = Math.round(cssW * dpr); c.height = Math.round(cssH * dpr); }
   lampLayerKey = null;   // new layers: the lamps' light is made again (see draw)
   watchDensity();
 }
@@ -708,6 +815,13 @@ function buildMask(all, surfaces, light) {
   g.setTransform(1, 0, 0, 1, 0, 0); g.clearRect(0, 0, M.width, M.height); toWorld(g);
   const area = light.kind === "lamp" ? light.area : null;  // a lamp reaches no further than this, even on the floor
   const project = light.kind === "sun" ? sunProject(light) : lampProject(light);
+  // What moves (the people) is shadowed afresh every frame: first find how far each one's shadow can reach, so
+  // the surfaces it can't reach are skipped.
+  const reachOf = new Map();
+  for (const o of all) if (o.moves && o.occludes) {
+    const sh = shadow(o, { z: 0, plane: null }, project, light.kind === "lamp" ? light.z - 1 : Infinity);
+    reachOf.set(o, sh ? bbox(sh.concat(o.poly || o.top)) : null);
+  }
   // Surfaces lowest first. Each one first hides what lies below it (its footprint is cleared), then gets its own
   // light. Every surface and every shadow is convex, so light patches and shadows are cut to the surface
   // exactly in JavaScript and filled as plain polygons: no canvas clipping, which is slow on the GPU.
@@ -740,6 +854,7 @@ function buildMask(all, surfaces, light) {
       if (!o.occludes || o === s || o.group === light.group || o.z1 <= lowest + 0.5) continue;
       if (s.plane && o.group === s.group) continue;  // a board's own frame and legs don't shade its face
       if (o.shadeOnly && s.group !== o.shadeOnly) continue;  // small things that only shade their own furniture
+      if (o.moves && !(reachOf.get(o) && overlaps(reachOf.get(o), sb))) continue;
       if (light.kind === "lamp" && o.z0 >= light.z) continue; // above the lamp: lit from below, no shadow downwards
       const still = !o.moves && !s.moves, key = s.id + "|" + o.id;
       let sh = still ? cache.get(key) : undefined;
@@ -871,7 +986,7 @@ function lighting(minutes) {
 }
 
 let last = performance.now(), lastSync = 0, failed = false;
-let shownBg = null, lampLayerKey = null;
+let shownBg = null, lampLayerKey = null, screenFlash = 0, hover = null;
 
 // All desk lamps' light, against the still room only, into one layer (A).
 function buildLampLayer(soft) {
@@ -890,10 +1005,10 @@ function draw(nowT) {
   if (state.live && nowT - lastSync > 1000) { syncNow(); lastSync = nowT; }
   else if (state.live) state.minutes += dt / 60;
   if (state.playing) { state.minutes = (state.minutes + dt * 1440 / 40) % 1440; $("time").value = Math.floor(state.minutes); }
-  stepWalker(dt);
+  stepPeople(dt);
 
   const L = lighting(state.minutes), soft = $("mode").value === "soft";
-  const all = objects.concat(figureParts()).sort((a, b) => a.z1 - b.z1);
+  const all = objects.concat(peopleParts(nowT)).sort((a, b) => a.z1 - b.z1);
   const surfaces = all.filter(o => o.receives !== false);
 
   drawBase(all);
@@ -908,6 +1023,7 @@ function draw(nowT) {
   // The lamps and what they light stand still, so their light is worked out once, kept as a picture, and only
   // laid over the room while they're on. It's made ahead (at load, after a resize or a change of style), so
   // switching them on costs nothing. The walking figure takes the lamp light of where it stands.
+  if (piles.dirty) { lampLayerKey = null; piles.dirty = false; }   // the still room changed (a pile): make the lamps' light again
   const lampKey = `${A.width}x${A.height}|${soft}`;
   if (lampKey !== lampLayerKey) { buildLampLayer(soft); lampLayerKey = lampKey; }
   if (lampsOn) {
@@ -916,6 +1032,14 @@ function draw(nowT) {
     for (const l of lamps) if (l.glow) { path(ctx, circle(l.glow[0], l.glow[1], l.glow[2], 24)); ctx.fillStyle = css(warm.map(v => v * 0.98)); ctx.fill(); }
     ctx.setTransform(1, 0, 0, 1, 0, 0);
   }
+
+  // The Assistant's laptop lights up when a message comes in, and while it's answering.
+  screenFlash = Math.max(0, screenFlash - dt);
+  if (screenFlash > 0 || live.working.assistant) {
+    const sc = objects.find(o => o.id === "assistant-laptop-screen");
+    if (sc) { toWorld(ctx); path(ctx, sc.face); ctx.fillStyle = "rgba(205, 228, 245, 0.75)"; ctx.fill(); ctx.setTransform(1, 0, 0, 1, 0, 0); }
+  }
+  if (hover) drawOutline(hover);
 
   // The page's background: the ground's colour in this light (ambient plus unshaded sun), so they meet seamlessly.
   const sunOn = L.sunStrength > 0.01, lit = rgb(BG).map((v, i) => v * (L.ambient[i] + (sunOn ? L.sunColor[i] * L.sunStrength * FLAT_SUN : 0)));
@@ -930,6 +1054,121 @@ function draw(nowT) {
   $("info").textContent = `${state.date} ${hh}:${mm} · ` + (L.sunStrength > 0.01 ? `dagsljus från ${Math.round(L.az)}°, ${Math.round(L.K / 100) * 100} K` : "mörkt ute") +
     ` · skrivbordslampor ${lampsOn ? "på" : "av"}`;
 }
+// --- connected to the office: the state of right now, then what happens (agent/kontor.py) -----------------
+const ROLE_SET = new Set(Object.keys(people));
+const counts = { trays: { manager: 0, director: 0, assistant: 0, researcher: 0 }, board: 0, bin: 0 };
+const addTray = (role, d) => { counts.trays[role] = Math.max(0, counts.trays[role] + d); setTray(role, counts.trays[role]); };
+const addBoard = (d) => { counts.board = Math.max(0, counts.board + d); setBoard(counts.board); };
+const addBin = (d) => { counts.bin = Math.max(0, counts.bin + d); setBin(counts.bin); };
+async function fetchState() { const r = await fetch("/api/kontor/lage"); if (!r.ok) throw new Error(r.status); return r.json(); }
+function apply(state) {
+  live.working = state.working || {};
+  for (const role of ROLE_SET) { counts.trays[role] = state.waiting?.[role] ?? 0; setTray(role, counts.trays[role]); }
+  counts.board = (state.board || []).length; setBoard(counts.board);
+  setCalendar(state.calendar || []);
+  counts.bin = state.bin ?? 0; setBin(counts.bin);
+}
+const refresh = () => fetchState().then(apply).catch(() => {});
+const refreshCalendar = () => fetchState().then(st => setCalendar(st.calendar || [])).catch(() => {});
+const quiet = () => Object.values(people).every(p => p.mode === "seated" && !p.queue.length);
+setInterval(() => { if (quiet()) refresh(); }, 30000);   // now and then, when nobody is mid-errand: match the counts exactly
+
+// What happened, acted out (docs/KONTORET.md, "Från systemet till kontoret").
+function happen(h) {
+  switch (h.type) {
+    case "start": live.working[h.role] = { kind: h.kind }; break;
+    case "end": delete live.working[h.role]; break;
+    case "out": if (h.role === "director") errand("director", { key: "computer", stops: [{ place: "computer", act: 3, until: () => !live.working.director }] }); break;
+    case "print": printout(true); setTimeout(() => { printout(false); addTray("director", h.n); }, 2200); break;
+    case "drop": people.director.throwT = 0.8; setTimeout(() => { addTray("director", -h.n); addBin(h.n); }, 450); break;
+    case "pass": errand("director", { key: "inbox-manager", carry: true, starts: [() => addTray("director", -1)], stops: [{ place: "inbox-manager", dones: [() => addTray("manager", 1)] }] }); break;
+    case "place": {
+      const to = { calendar: "calendar", board: "board", assistant: "inbox-assistant", bin: "bin" }[h.to];
+      const done = { calendar: refreshCalendar, board: () => addBoard(1), assistant: () => addTray("assistant", 1), bin: () => addBin(1) }[h.to];
+      errand("manager", { key: to, carry: true, starts: [() => addTray("manager", -1)], stops: [{ place: to, dones: [done] }] });
+      break;
+    }
+    case "post":
+      if (ROLE_SET.has(h.from) && ROLE_SET.has(h.to) && h.from !== h.to) errand(h.from, { key: "inbox-" + h.to, carry: true, stops: [{ place: "inbox-" + h.to, dones: [() => addTray(h.to, 1)] }] });
+      else if (ROLE_SET.has(h.to)) addTray(h.to, 1);
+      break;
+    case "message":
+      if (h.dir === "in") screenFlash = 4;
+      else if (h.from === "calendar") errand("assistant", { key: "calendar-take", stops: [{ place: "calendar", dones: [refreshCalendar] }] });
+      else if (h.from === "inbox") { people.assistant.throwT = 0.8; addTray("assistant", -1); }
+      break;
+    case "book": errand(ROLE_SET.has(h.by) ? h.by : "assistant", { key: "calendar", carry: true, stops: [{ place: "calendar", dones: [refreshCalendar] }] }); break;
+    case "pull": errand("assistant", { key: "board-take", stops: [{ place: "board", act: 1.5, dones: [() => addBoard(-h.n)] }] }); break;
+    case "archive": errand(h.role, { key: "drawer-" + h.role, stops: [{ place: "drawer-" + h.role, act: 1.8 }] }); break;
+  }
+}
+refresh().then(() => {
+  const stream = new EventSource("/api/kontor/strom");
+  stream.onmessage = (e) => { try { happen(JSON.parse(e.data)); } catch (err) { console.error(err); } };
+  stream.onopen = () => refresh();   // after a reconnect: catch up with the state of right now
+});
+
+// --- what can be clicked: a white outline that follows its shape, and a window with what it holds ---------
+const CLICKABLE = [["board", ["board"]], ["calendar", ["calendar"]], ["bin", ["bin"]], ["archive", ["archive"]],
+  ["desk-manager", ["manager-desk"]], ["desk-director", ["director-desk", "director-desk-side"]], ["desk-assistant", ["assistant-desk"]], ["desk-researcher", ["researcher-desk"]]];
+const shapesOf = (ids) => ids.map(id => objects.find(o => o.id === id)).filter(Boolean).map(o => o.face || o.shape || silhouette(o));
+function inside(poly, [x, y]) {
+  let sign = 0;
+  for (let i = 0; i < poly.length; i++) {
+    const [ax, ay] = poly[i], [bx, by] = poly[(i + 1) % poly.length], c = (bx - ax) * (y - ay) - (by - ay) * (x - ax);
+    if (c !== 0) { if (sign && Math.sign(c) !== sign) return false; sign = Math.sign(c); }
+  }
+  return true;
+}
+function drawOutline(name) { // stroke every shape white, then cut their insides away: the outline of their union
+  const ids = CLICKABLE.find(c => c[0] === name)[1], polys = shapesOf(ids), g = O.getContext("2d");
+  g.setTransform(1, 0, 0, 1, 0, 0); g.clearRect(0, 0, O.width, O.height); toWorld(g);
+  g.lineWidth = 6 / view.k; g.lineJoin = "round"; g.strokeStyle = "#fff";
+  for (const pl of polys) { path(g, pl); g.stroke(); }
+  g.globalCompositeOperation = "destination-out";
+  for (const pl of polys) { path(g, pl); g.fill(); }
+  g.globalCompositeOperation = "source-over";
+  ctx.setTransform(1, 0, 0, 1, 0, 0); ctx.drawImage(O, 0, 0);
+}
+canvas.addEventListener("mousemove", (e) => {
+  const w = [(e.clientX - view.ox) / view.k, (e.clientY - view.oy) / view.k];
+  const hit = CLICKABLE.find(([, ids]) => shapesOf(ids).some(pl => inside(pl, w)));
+  hover = hit ? hit[0] : null;
+  canvas.style.cursor = hover ? "pointer" : "";
+});
+canvas.addEventListener("mouseleave", () => { hover = null; });
+canvas.addEventListener("click", () => { if (hover) openSheet(hover); });
+$("close").addEventListener("click", () => $("sheet").classList.add("hidden"));
+
+const esc = (v) => String(v ?? "").replace(/[&<>"]/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" })[c]);
+const when = (iso) => iso ? new Date(iso).toLocaleString("sv-SE", { weekday: "short", day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" }) : "";
+async function openSheet(name) {
+  const body = $("sheet-body");
+  $("sheet").classList.remove("hidden");
+  body.innerHTML = "<p class='muted'>Hämtar…</p>";
+  let d;
+  try { const r = await fetch("/api/kontor/objekt/" + name); d = await r.json(); }
+  catch { body.innerHTML = "<p class='muted'>Det här finns bara på Pi:n, där kontoret är kopplat.</p>"; return; }
+  const list = (items, f) => items && items.length ? "<ul>" + items.map(f).join("") + "</ul>" : "<p class='muted'>Inget.</p>";
+  let html = `<h2>${esc(d.title)}</h2><p class="muted">${esc(d.about)}</p>`;
+  if (name.startsWith("desk-")) {
+    html += `<p>${d.working ? "Arbetar nu: " + esc(d.working.task) : "Ledig just nu."} · ${d.waiting} väntar i inkorgen.</p>`;
+    html += `<h3>Arbetsminne</h3>${d.memory ? `<pre>${esc(d.memory)}</pre>` : "<p class='muted'>Tomt.</p>"}`;
+    html += `<h3>Senaste arbetet</h3>` + list(d.runs, r => `<li>${esc(when(r.at))} · ${esc(r.task)} (${r.seconds} s)</li>`);
+    html += `<h3>Post</h3>` + list(d.posts, p => `<li>${esc(when(p.at))} · ${esc(p.from)} → ${esc(p.to)} (${esc(p.kind)}): ${esc(p.text)}</li>`);
+  } else if (name === "archive") {
+    for (const dr of d.drawers) html += `<h3>${esc(dr.name)}s låda</h3>` + list(dr.files, f => `<li>${esc(f.path)} <span class="muted">· ändrad ${esc(when(f.changed))}</span></li>`);
+  } else if (name === "bin") {
+    html += list(d.items, i => `<li>${esc(i.title)} <span class="muted">· ${esc(when(i.at))} · ${esc(i.by)}${i.why ? ": " + esc(i.why) : ""}</span></li>`);
+  } else if (name === "calendar") {
+    html += "<h3>Planerat</h3>" + list(d.planned, i => `<li>${esc(when(i.at))} · ${esc(i.title)}</li>`);
+    html += "<h3>Dina pass</h3>" + list(d.yours, i => `<li>${esc(when(i.start))} · ${esc(i.title)}</li>`);
+  } else if (name === "board") {
+    html += list(d.items, i => `<li>${i.url ? `<a href="${esc(i.url)}" target="_blank" rel="noopener">${esc(i.title)}</a>` : esc(i.title)} <span class="muted">· ${esc(when(i.at))}</span></li>`);
+  }
+  body.innerHTML = html;
+}
+
 resize();
 requestAnimationFrame(frame);
 </script>
