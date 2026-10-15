@@ -19,7 +19,7 @@ Kontorssidans huvudbild är kontoret ovanifrån: de fyra rollerna vid sina skriv
 - **Det som sitter på väggar syns inte.** En tavla på väggen är ett streck sett uppifrån. Det som ska gå att se måste ligga ned eller luta mot kameran, som board och kalendern.
 - **Skala: 1 px = 1 cm.** Figma har bara pixlar, så en pixel får betyda en centimeter. Rummet i prototypen är 900 × 620 cm, alltså en ram på 900 × 620; ett skrivbord är 160 × 80. Decimaler går bra, och eftersom allt är vektorer spelar skalan ingen roll för skärpan.
 - **Platta färger.** Varje form har en färg. Ljus och skuggor läggs på av motorn; rita dem inte. Mönster, linjer och detaljer går bra, de räknas som en del av formens färg.
-- **Ljuset kommer från riktiga källor:** taklampan på dagen, skrivbordslamporna, skärmarna. Rummet har inga fönster (solen finns kvar i ljusprototypen om vi vill ha ett takfönster senare).
+- **Ljuset kommer från riktiga källor:** dagsljuset från sidan, skrivbordslamporna, skärmarna.
 
 ## Vad jag gör med dina ritningar
 
@@ -39,7 +39,7 @@ Allt detta ändrar formen så lite som möjligt. Det som är ditt uttryck (propo
 - **Assistant** nere till vänster, nära kalendern och arkivet.
 - **Researcher** nere till höger, under Director.
 - **Arkivet** längst ned i mitten: fyra lådor, en per roll.
-- **Inga fönster och ingen dörr.** Ljuset är kontorets eget: en **taklampa** mitt i rummet på dagen (skuggorna faller utåt från mitten), skrivbordslamporna när den är släckt.
+- **Inga fönster och ingen dörr.** På dagen kommer ett **naturligt ljus från sidan** över hela rummet: riktningen följer den riktiga solen med söder uppåt i bild (från vänster på morgonen, ovanifrån mitt på dagen, från höger på kvällen), vinkeln är stiliserad (låg i gryning och skymning, ungefär 50° mitt på dagen, året runt) och färgen varm i början och slutet av dagen. Bara möblerna skuggar. På natten lyser skrivbordslamporna.
 - **Board och kalendern lutar** mot rummet, så att man ser några post-its och dagarnas streck. Det räcker att se vad möbeln är; innehållet visas när man klickar på den.
 
 ## Vem pratar med vem (mätt, vecka 7–14 okt)
@@ -154,14 +154,14 @@ När mottagaren börjar sin körning tar den upp sina papper ur inkorgen; högen
 
 ## Hela kontorets lägen
 
-- **Dygnet**: taklampan lyser från gryning till skymning; på natten är rummet mörkt och skrivbordslamporna lyser (klart i gråskissen).
+- **Dygnet**: dagsljuset från sidan vandrar från vänster till höger och skiftar i färg; på natten är rummet mörkt och skrivbordslamporna lyser (klart i gråskissen).
 - **Rummet visar läget även när ingen rör sig**: högen i varje inkorg är antalet olästa poster, remsan i telexen det som väntar på triage, lapparna i kalendern de kommande bokningarna och fynden, post-its på board det sparade.
 
 ## Beslut som är dina
 
 1. **Manager och papperskorgen**: en egen liten papperskorg, eller går Manager till Directors (≈ 20 i veckan)?
 2. **Natten**: sitter rollerna kvar och arbetar i lampljuset, går de hem mellan sina pass, eller sover de vid bordet?
-3. **Kvoten pausad**: släckt i taket och figurerna väntar, en skylt, eller något annat?
+3. **Kvoten pausad**: figurerna väntar vid släckta lampor, en skylt, eller något annat?
 4. **Byggläget**: en hantverkare som dyker upp när en ändring byggs, och går när du har tryckt "Driftsätt"?
 5. **Ägaren själv**: syns du i kontoret, eller är Assistentens skärm fönstret ut mot dig?
 

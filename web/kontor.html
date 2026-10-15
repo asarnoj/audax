@@ -18,7 +18,7 @@
 </head>
 <body>
 <main>
-  <p><a href="/">← Kontoret</a> · Gråskiss av planlösningen: grå lådor, en taklampa, skrivbordslampor och en figur som lämnar ett papper från Director till Manager. Inget av det här är design.</p>
+  <p><a href="/">← Kontoret</a> · Gråskiss av planlösningen: grå lådor, dagsljus från sidan, skrivbordslampor och en figur som lämnar ett papper från Director till Manager. Inget av det här är design.</p>
   <canvas id="c"></canvas>
   <div class="controls">
     <label>Tid <input id="time" type="range" min="0" max="1439" step="1"></label>
@@ -28,8 +28,7 @@
   </div>
   <div class="controls">
     <label>Datum <input id="date" type="date"></label>
-    <label>Taklampan <select id="ceiling"><option value="auto">på dagtid</option><option value="on">på</option><option value="off">av</option></select></label>
-    <label>Skrivbordslampor <select id="lamps"><option value="auto">när taklampan är släckt</option><option value="on">på</option><option value="off">av</option></select></label>
+    <label>Skrivbordslampor <select id="lamps"><option value="auto">när det är mörkt</option><option value="on">på</option><option value="off">av</option></select></label>
     <label>Ljus <select id="mode"><option value="band">i band</option><option value="soft">mjukt</option></select></label>
   </div>
   <p id="info"></p>
@@ -42,7 +41,6 @@
 // surface at height zr is the convex hull of its corners projected along the light onto that plane.
 // ---------------------------------------------------------------------------------------------
 const DESK_BANDS = [[0.45, 1.0], [0.16, 0.62], [0.05, 0.34], [0.016, 0.16]]; // [share of the light under the lamp, brightness]
-const CEILING_BANDS = [[0.7, 1.0], [0.42, 0.82], [0.2, 0.66], [0.02, 0.5]];
 const LAT = 59.33, LON = 18.07, TZ = "Europe/Stockholm";
 const ROOM = { w: 792, h: 544, wall: 20, height: 270 };  // the floor plan (Figma, 14 Oct): a 50 cm grid
 const MARGIN = 30;
@@ -135,6 +133,11 @@ function plate(id, x, y, w, h, high, zLow, zHigh, color) {
   const strip = { n: rect(x, y, w, 3), s: rect(x, y + h - 3, w, 3), w: rect(x, y, 3, h), e: rect(x + w - 3, y, 3, h) };
   const opposite = { n: "s", s: "n", w: "e", e: "w" }[high];
   add({ id, bottom: strip[opposite], top: strip[high], face: rect(x, y, w, h), z0: zLow, z1: zHigh, zr: (zLow + zHigh) / 2, color });
+  // It stands on four legs: short ones under the low edge, long ones under the high edge.
+  const corners = { n: [[x + 4, y + 4], [x + w - 4, y + 4]], s: [[x + 4, y + h - 4], [x + w - 4, y + h - 4]],
+    w: [[x + 4, y + 4], [x + 4, y + h - 4]], e: [[x + w - 4, y + 4], [x + w - 4, y + h - 4]] };
+  for (const [k, [lx, ly]] of corners[opposite].entries()) add({ id: `${id}-leg-low-${k}`, poly: circle(lx, ly, 2.5, 6), z0: 0, z1: zLow, color, group: id, receives: false });
+  for (const [k, [lx, ly]] of corners[high].entries()) add({ id: `${id}-leg-high-${k}`, poly: circle(lx, ly, 2.5, 6), z0: 0, z1: zHigh, color, group: id, receives: false });
   return (u, v) => (zLow + zHigh) / 2;  // the face's height for things on it (the middle, near enough)
 }
 const flat = (id, poly, z, color, group) => add({ id, poly, z0: z - 0.4, z1: z, color, occludes: false, group: group || id });
@@ -199,8 +202,10 @@ for (let i = 0; i < 4; i++) flat("drawer-" + i, rect(289 + i * 38.5, 487, 34, 44
 
 const windows = [];   // no windows: the light is the office's own
 
-// A lamp in the ceiling, over the middle of the room: the light of the working day.
-const CEILING = { role: "ceiling", x: ROOM.w / 2, y: ROOM.h / 2, z: 255, group: "ceiling", href: 255, cone: 85, bands: CEILING_BANDS };
+// Daylight from the side, over the whole room (no windows, no roof in the way: walls cast no shadow).
+// Its direction is the real sun's, with south at the top of the picture: from the left in the morning, from
+// above at midday, from the right in the evening.
+const UP = 180;
 
 // --- the figure (one grey person walking an errand loop) --------------------------------------------
 const route = [
@@ -390,10 +395,6 @@ function buildMask(all, surfaces, light) {
   const cache = entry.map;
   const g = M.getContext("2d");
   g.setTransform(1, 0, 0, 1, 0, 0); g.clearRect(0, 0, M.width, M.height); toWorld(g);
-  if (light.kind === "sun") { // outdoors is in full sun; indoors only through the windows
-    g.fillStyle = "#fff"; g.fillRect(WORLD.x, WORLD.y, WORLD.w, WORLD.h);
-    path(g, shadow(BUILDING, 0, sunProject(light))); g.globalCompositeOperation = "destination-out"; g.fill(); g.globalCompositeOperation = "source-over";
-  }
   const area = light.kind === "lamp" ? light.area : null;  // a lamp reaches no further than this, even on the floor
   const project = light.kind === "sun" ? sunProject(light) : lampProject(light);
   // Surfaces lowest first. Each one first hides what lies below it (its footprint is cleared), then gets its own
@@ -407,14 +408,8 @@ function buildMask(all, surfaces, light) {
     g.globalCompositeOperation = "source-over";
     const zr = s.zr ?? s.z1;
     let lit = false;
-    if (light.kind === "sun") {
-      g.beginPath();
-      for (const w of windows) {
-        const p = sunPatch(w, zr, light);
-        const q = p && overlaps(bbox(p), sb) ? clip(p, sp) : [];
-        if (q.length >= 3) { subpath(g, q); lit = true; }
-      }
-      if (lit) { g.fillStyle = "#fff"; g.fill(); g.fillStyle = "#000"; }
+    if (light.kind === "sun") { // daylight reaches every surface; only things in its way shade it
+      path(g, sp); g.fillStyle = "#fff"; g.fill(); g.fillStyle = "#000"; lit = true;
     } else if (zr < light.z - 2 && s.group !== light.group) {
       const R = light.reach(zr);
       if (overlaps([light.x - R, light.y - R, light.x + R, light.y + R], sb)) { path(g, sp); g.fillStyle = light.gradient(g, zr); g.fill(); g.fillStyle = "#000"; lit = true; }
@@ -469,8 +464,8 @@ function addLight(color, strength, mask = M) {
 }
 
 // --- a lamp: light falls off with distance and angle (∝ h / d³), cut off by the shade ----------------------
-// Brightness 1 is the light straight under the lamp at its reference height (a desk lamp: the desk; the ceiling
-// lamp: the floor); each band is a flat ring where the light falls below a share of that.
+// Brightness 1 is the light straight under the lamp at its reference height (for a desk lamp, the desk);
+// each band is a flat ring where the light falls below a share of that.
 const gradientCache = new Map();
 function lampLight(l, soft) {
   const H = l.href, CONE = l.cone * Math.PI / 180, BANDS = l.bands;
@@ -523,14 +518,28 @@ $("date").addEventListener("input", () => { if (/^\d{4}-\d{2}-\d{2}$/.test($("da
 $("now").addEventListener("click", () => { state.live = true; setPlaying(false); syncNow(); });
 $("play").addEventListener("click", () => { state.live = false; setPlaying(!state.playing); });
 
+// The sun's highest point on a date, for the stylised angle (found once per date).
+const noonCache = new Map();
+function highest(date) {
+  if (!noonCache.has(date)) { let m = -90; for (let k = 0; k < 96; k++) m = Math.max(m, sun(stockholm(date, k * 15)).el); noonCache.set(date, m); }
+  return noonCache.get(date);
+}
+
 function lighting(minutes) {
   const s = sun(stockholm(state.date, minutes));
-  const mode = $("ceiling").value;
-  const ceiling = mode === "on" || (mode === "auto" && s.el > -4);   // on from dawn to dusk
+  // Real sunrise, sunset and direction; a stylised height, so the shadows read the same all year: low at dawn
+  // and dusk, about 50° at midday (Stockholm's real sun is 7–53° at noon over the year).
+  const progress = clamp(s.el / Math.max(1, highest(state.date)), 0, 1);
+  const el = 10 + 40 * smooth(progress);
+  const d = (s.az - UP) * Math.PI / 180, tanE = Math.tan(el * Math.PI / 180);
+  const day = smooth(clamp((s.el + 4) / 6, 0, 1));            // dusk to day, around sunrise and sunset
+  const K = 2100 + 3400 * smooth(clamp((el - 10) / 30, 0, 1));
+  const sunColor = kelvin(K);
+  const night = [0.12, 0.13, 0.20], dayAmbient = mix([0.40, 0.40, 0.42], sunColor.map(v => v * 0.45), 0.3 * (1 - progress));
   return {
-    el: s.el, ceiling,
-    ambient: ceiling ? [0.30, 0.30, 0.32] : [0.12, 0.13, 0.20],       // light bounced off walls and ceiling
-    ceilingColor: kelvin(3800), ceilingStrength: 0.62,
+    kind: "sun", name: "sun", key: `${s.az.toFixed(2)}|${el.toFixed(2)}`,
+    el: s.el, az: s.az, K, sx: Math.sin(d), sy: -Math.cos(d), tanE, sunColor,
+    sunStrength: 0.62 * day, ambient: mix(night, dayAmbient, day), dark: s.el < 0,
   };
 }
 
@@ -558,8 +567,8 @@ function draw(nowT, warmUp = false) {
   ctx.globalCompositeOperation = "multiply"; ctx.fillStyle = css(L.ambient); ctx.fillRect(0, 0, canvas.width, canvas.height);
   ctx.globalCompositeOperation = "source-over";
 
-  if (L.ceiling) { buildMask(all, surfaces, lampLight(CEILING, soft)); addLight(L.ceilingColor, L.ceilingStrength); }
-  const lampsOn = warmUp || $("lamps").value === "on" || ($("lamps").value === "auto" && !L.ceiling);
+  if (L.sunStrength > 0.01) { buildMask(all, surfaces, L); addLight(L.sunColor, L.sunStrength); }
+  const lampsOn = warmUp || $("lamps").value === "on" || ($("lamps").value === "auto" && L.dark);
   const warm = kelvin(2700);
   if (lampsOn) { // every desk lamp into one shared light, then onto the picture once
     const g = A.getContext("2d"); g.setTransform(1, 0, 0, 1, 0, 0); g.clearRect(0, 0, A.width, A.height);
@@ -573,7 +582,8 @@ function draw(nowT, warmUp = false) {
 
   const hh = String(Math.floor(state.minutes / 60)).padStart(2, "0"), mm = String(Math.floor(state.minutes % 60)).padStart(2, "0");
   $("clock").textContent = `${hh}:${mm}${state.live ? " (nu)" : ""}`;
-  $("info").textContent = `${state.date} ${hh}:${mm} · taklampan ${L.ceiling ? "på" : "av"} · skrivbordslampor ${lampsOn ? "på" : "av"}`;
+  $("info").textContent = `${state.date} ${hh}:${mm} · ` + (L.sunStrength > 0.01 ? `dagsljus från ${Math.round(L.az)}°, ${Math.round(L.K / 100) * 100} K` : "mörkt ute") +
+    ` · skrivbordslampor ${lampsOn ? "på" : "av"}`;
 }
 resize();
 // One unseen pass with the lamps on at load: their shadows get cached, their bands made and the GPU's blend
