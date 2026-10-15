@@ -252,15 +252,17 @@ function chair(role, x, y, back, o) {
 }
 // Manager: a grey-green steel office chair, square and tidy. Director: a big dark executive chair with a tall
 // back. Assistant: a light, round, friendly chair. Researcher: a plain wooden chair on four legs.
+// Where each chair stands: pulled out a little from its desk, turned a few degrees, as if just sat in.
+const SEATS = { manager: [116, 74, 3], director: [652, 110, -4], assistant: [203, 430, 4], researcher: [622, 452, -2] };
 let from = objects.length;
-chair("manager", 105, 71, "e", { size: 42, color: "#7f8f89", corner: 6, backTop: 92 });
-turn(from, 105, 71, 4); from = objects.length;
-chair("director", 650, 122, "n", { size: 50, color: "#3f3430", corner: 12, back: 7, backTop: 115, frame: "#5a524c" });
-turn(from, 650, 122, -7); from = objects.length;
-chair("assistant", 199, 440, "n", { size: 42, round: true, color: "#e6e1d8", backTop: 88, frame: "#a9a49b" });
-turn(from, 199, 440, 9); from = objects.length;
-chair("researcher", 594, 450, "w", { size: 40, color: "#a77a52", corner: 4, back: 4, backTop: 90, legs: 4 });
-turn(from, 594, 450, -4);
+chair("manager", SEATS.manager[0], SEATS.manager[1], "e", { size: 42, color: "#7f8f89", corner: 6, backTop: 92 });
+turn(from, ...SEATS.manager); from = objects.length;
+chair("director", SEATS.director[0], SEATS.director[1], "n", { size: 50, color: "#3f3430", corner: 12, back: 7, backTop: 115, frame: "#5a524c" });
+turn(from, ...SEATS.director); from = objects.length;
+chair("assistant", SEATS.assistant[0], SEATS.assistant[1], "n", { size: 42, round: true, color: "#e6e1d8", backTop: 88, frame: "#a9a49b" });
+turn(from, ...SEATS.assistant); from = objects.length;
+chair("researcher", SEATS.researcher[0], SEATS.researcher[1], "w", { size: 40, color: "#a77a52", corner: 4, back: 4, backTop: 90, legs: 4 });
+turn(from, ...SEATS.researcher);
 
 // Computers, for the two who go out on the internet (a screen is a line out of the office).
 // Researcher: an old beige desktop. A CRT monitor (a flat front, a rounded housing tapering to the back) facing the
@@ -269,14 +271,14 @@ const BEIGE = "#d9d0b9", BEIGE_DARK = "#bdb39b";
 from = objects.length;
 add({ id: "researcher-monitor-back", poly: [[705, 433], [740, 441], [740, 461], [705, 469]], z0: 77, z1: 110, color: BEIGE, group: "researcher-monitor" });
 add({ id: "researcher-monitor", poly: roundRect(698, 429, 9, 44, 3), z0: 75, z1: 113, color: BEIGE });
-turn(from, 720, 451, -3); from = objects.length;
+turn(from, 720, 451, -1); from = objects.length;
 add({ id: "researcher-tower", poly: roundRect(705, 380, 22, 44, 3.5), z0: 75, z1: 118, color: BEIGE });
-turn(from, 716, 402, 2); from = objects.length;
+turn(from, 716, 402, 1); from = objects.length;
 add({ id: "researcher-keyboard", poly: roundRect(667, 428, 16, 46, 3), z0: 75, z1: 77.5, color: BEIGE });
 for (let r = 0; r < 4; r++) flat("researcher-keys-" + r, roundRect(669 + r * 3.3, 431, 2.2, 40, 1), 77.6, BEIGE_DARK, "researcher-keyboard");
-turn(from, 675, 451, 5); from = objects.length;
+turn(from, 675, 451, 2); from = objects.length;
 add({ id: "researcher-mouse", poly: ellipse(674, 486, 3.5, 5.5, 12), z0: 75, z1: 78.5, color: BEIGE });
-turn(from, 674, 486, 14);
+turn(from, 674, 486, 6);
 // Assistant: a laptop. The base with its keyboard and trackpad, a thin screen tipped back from the hinge.
 const SILVER = "#cfcfcc";
 from = objects.length;
@@ -285,7 +287,21 @@ flat("assistant-laptop-keys", roundRect(184, 481, 30, 12, 1.5), 75.7, "#a3a3a0",
 flat("assistant-laptop-pad", roundRect(193, 472.5, 12, 6.5, 1.5), 75.7, "#dcdcd9", "assistant-laptop");
 plate("assistant-laptop-screen", 180, 495.5, 38, 4.5, "s", 75.6, 98, "#bdbdba", false);
 objects[objects.length - 1].shape = roundRect(180, 495.5, 38, 4.5, [0, 0, 2, 2]);
-turn(from, 199, 484, -6);
+turn(from, 199, 484, -2);
+
+// How each person looks (see person() below).
+const LOOKS = {
+  manager: { suit: "#5f6b66", shirt: "#e9eef0", tie: "#2f3b4a", hair: "#3b2a20", skin: "#e8c4a6", shoe: "#2b2a28" },
+  director: { suit: "#2e2f33", shirt: "#f2f0ea", tie: "#9b3a36", hair: "#a7a29b", skin: "#e2b896", shoe: "#1f1e1d" },
+  assistant: { suit: "#d4a24f", shirt: "#f4efe6", hair: "#c99a5b", long: true, skin: "#f0cdb0", shoe: "#5a4636" },
+  researcher: { suit: "#7a5a3c", shirt: "#c9d6dc", hair: "#7a3f22", messy: true, skin: "#d9a986", shoe: "#3a2a1e" },
+};
+
+// The people at their desks, on their chairs, facing their desks (Director is out walking).
+for (const [role, h, reach] of [["manager", Math.PI, 40], ["assistant", Math.PI / 2, 42], ["researcher", 0, 46]]) {
+  const [x, y, deg] = SEATS[role];
+  for (const part of person(role + "-person", LOOKS[role], x, y, h + deg * Math.PI / 180, { seated: true, reach })) add(Object.assign({ receives: true }, part));
+}
 
 // Desk lamps, one for each person, to match their desks. Each gives its light from under its shade (x, y, z).
 const lamps = [];
@@ -322,6 +338,41 @@ lamp("assistant", 74, [236, 476, 106], [
   { id: "shade", poly: circle(236, 476, 12, 20), z0: 104, z1: 112, color: "#f1ebdf" },
 ]);
 
+// The lounge in the middle of the room: a corner sofa, an armchair facing it, and a floor lamp with a pleated
+// shade that runs round in a circle, open at the top.
+{
+  const SOFA = "#7d9a95", SOFA_DARK = "#6c8883", X = 300, Y = 205;
+  add({ id: "sofa-back-n", poly: roundRect(X, Y, 190, 18, 6), z0: 0, z1: 78, color: SOFA_DARK, group: "sofa" });
+  add({ id: "sofa-back-w", poly: roundRect(X, Y, 18, 170, 6), z0: 0, z1: 78, color: SOFA_DARK, group: "sofa" });
+  add({ id: "sofa-seat-n", poly: roundRect(X + 16, Y + 16, 158, 62, 5), z0: 0, z1: 42, color: SOFA, group: "sofa" });
+  add({ id: "sofa-seat-w", poly: roundRect(X + 16, Y + 76, 62, 80, 5), z0: 0, z1: 42, color: SOFA, group: "sofa" });
+  add({ id: "sofa-arm-e", poly: roundRect(X + 172, Y + 14, 18, 66, 6), z0: 0, z1: 60, color: SOFA_DARK, group: "sofa" });
+  add({ id: "sofa-arm-s", poly: roundRect(X + 14, Y + 154, 66, 18, 6), z0: 0, z1: 60, color: SOFA_DARK, group: "sofa" });
+  for (const [k, cx] of [[0, X + 60], [1, X + 120]].entries()) flat(`sofa-seam-n-${k}`, rect(cx, Y + 18, 1, 58), 42.1, SOFA_DARK, "sofa");
+  flat("sofa-seam-w", rect(X + 18, Y + 116, 58, 1), 42.1, SOFA_DARK, "sofa");
+  // The armchair, across from the sofa's corner, turned towards it.
+  const ARM = "#b0674b", ARM_DARK = "#97573f", ax = 455, ay = 345;
+  const f0 = objects.length;
+  add({ id: "armchair-seat", poly: roundRect(ax - 30, ay - 30, 60, 60, 6), z0: 0, z1: 42, color: ARM, group: "armchair" });
+  add({ id: "armchair-back", poly: roundRect(ax - 34, ay + 16, 68, 18, 6), z0: 0, z1: 80, color: ARM_DARK, group: "armchair" });
+  add({ id: "armchair-arm-l", poly: roundRect(ax - 36, ay - 30, 14, 54, 5), z0: 0, z1: 60, color: ARM_DARK, group: "armchair" });
+  add({ id: "armchair-arm-r", poly: roundRect(ax + 22, ay - 30, 14, 54, 5), z0: 0, z1: 60, color: ARM_DARK, group: "armchair" });
+  turn(f0, ax, ay, 40);   // facing up and to the left, towards the sofa
+  // The floor lamp by the end of the sofa: a round foot, a pole, and a pleated shade open at the top; the
+  // inside of the shade glows when it's on.
+  const lx = 520, ly = 228, zs = 140, zt = 168, rin = 16.5, pleats = 28;
+  add({ id: "floorlamp-foot", poly: circle(lx, ly, 14, 20), z0: 0, z1: 3, color: "#55524d", group: "floorlamp" });
+  add({ id: "floorlamp-pole", poly: circle(lx, ly, 1.6, 8), z0: 3, z1: 150, color: "#55524d", group: "floorlamp", receives: false });
+  add({ id: "floorlamp-inside", poly: circle(lx, ly, rin + 0.5, 24), z0: zs, z1: zs + 1, color: "#d9c39b", group: "floorlamp" });
+  for (let k = 0; k < pleats; k++) { // the pleats: a ring of narrow pieces, their outer edge folding in and out
+    const a0 = 2 * Math.PI * k / pleats, a1 = 2 * Math.PI * (k + 1) / pleats, r0 = k % 2 ? 22 : 20.2, r1 = k % 2 ? 20.2 : 22;
+    const piece = [[lx + rin * Math.cos(a0), ly + rin * Math.sin(a0)], [lx + r0 * Math.cos(a0), ly + r0 * Math.sin(a0)],
+      [lx + r1 * Math.cos(a1), ly + r1 * Math.sin(a1)], [lx + rin * Math.cos(a1), ly + rin * Math.sin(a1)]];
+    add({ id: `floorlamp-pleat-${k}`, poly: piece, z0: zs, z1: zt, color: k % 2 ? "#ede4d2" : "#e2d7c2", group: "floorlamp" });
+  }
+  lamps.push({ role: "lounge", x: lx, y: ly, z: 146, group: "floorlamp", href: 146, cone: 52, bands: DESK_BANDS, glow: [lx, ly, rin] });
+}
+
 // The telex on the side of Director's desk, more like a printer: a light body, paper standing ready at its back,
 // the slot it prints out of, a small panel, and a fresh printout lying in front.
 from = objects.length;
@@ -331,7 +382,7 @@ flat("telex-panel", roundRect(748, 69, 8, 11, 1.5), 92.1, "#6b675f", "telex");
 plate("telex-feed", 714, 54, 36, 11, "n", 92, 108, "#f3efe6", false);
 objects[objects.length - 1].group = "telex";
 flat("telex-printout", rect(723, 99, 21, 29.7), 76.3, "#f4f0e7", "telex");
-turn(from, 734, 90, -3);
+turn(from, 734, 90, -1);
 
 // The waste bin beside Director: a metal bin, wider at the top, dark inside, a few crumpled papers on top.
 add({ id: "bin", bottom: circle(667, 41, 17, 24), top: circle(667, 41, 21, 24), face: circle(667, 41, 21, 24), z0: 0, z1: 40, zr: 40, color: "#5f625c" });
@@ -355,10 +406,11 @@ function tray(role, [x, y], w, h, deskTop, color, inner, deg) {
   }
   turn(from, x + w / 2, y + h / 2, deg);
 }
-tray("manager", inboxes.manager[0], 28, 34, 74, "#7f8f89", "#93a29c", 2);
-tray("director", inboxes.director[0], 34, 28, 76, "#4a3426", "#5b4131", -3);
-tray("assistant", inboxes.assistant[0], 28, 34, 74, "#f0ebe2", "#e2dcd1", 4);
-tray("researcher", inboxes.researcher[0], 34, 28, 75, "#8e6a47", "#a07a54", -2);
+const TRAY = "#4b4d4f", TRAY_INSIDE = "#5d5f61";   // one plain dark letter tray, the same on every desk
+tray("manager", inboxes.manager[0], 28, 34, 74, TRAY, TRAY_INSIDE, 1);
+tray("director", inboxes.director[0], 34, 28, 76, TRAY, TRAY_INSIDE, -1);
+tray("assistant", inboxes.assistant[0], 28, 34, 74, TRAY, TRAY_INSIDE, 1);
+tray("researcher", inboxes.researcher[0], 34, 28, 75, TRAY, TRAY_INSIDE, 0);
 
 // The board (saved findings, as post-its) and the calendar: tilted towards the room.
 // Seen from above, anything lying on a tilted plate is foreshortened along the slope: a square post-it looks
@@ -492,38 +544,56 @@ function footOffset(phase, S) {
   return -S / 2 + S * smooth((phase - 0.5) / 0.5);
 }
 
-function figureParts() {
-  const w = walker, [x, y] = w.pos, h = w.heading;
+// The people. Flat and simple, seen from above but leaning a little forward, so the front of the upper body shows
+// in front of the head: the jacket, the shirt's V and a tie, arms reaching forward. Each a little different.
+// pose: { seated, reach } for someone at a desk; { offL, offR, swing, bob } for someone walking.
+function person(id, look, x, y, h, pose, moves = false) {
   const f = [Math.cos(h), Math.sin(h)], s = [-Math.sin(h), Math.cos(h)];
   const at = (side, fwd) => [x + s[0] * side + f[0] * fwd, y + s[1] * side + f[1] * fwd];
-  const moving = w.gait, S = w.stride || STRIDE;
-  const offL = footOffset(w.phase, S) * moving, offR = footOffset((w.phase + 0.5) % 1, S) * moving;
-  const twist = 0.10 * (offL / STRIDE);
-  const bob = 1 + 0.014 * moving * (1 - Math.cos(4 * Math.PI * w.phase)) / 2;
-  const reach = 20 * w.reachT;
-  const ell = (cx, cy, a, b, rot, n = 18) => Array.from({ length: n }, (_, i) => {
-    const t = 2 * Math.PI * i / n, ca = Math.cos(rot), sa = Math.sin(rot);
-    const u = a * Math.cos(t), v = b * Math.sin(t); // u along the shoulders, v forwards
-    const su = [s[0] * ca - f[0] * sa, s[1] * ca - f[1] * sa], fv = [f[0] * ca + s[0] * sa, f[1] * ca + s[1] * sa];
-    return [cx + su[0] * u + fv[0] * v, cy + su[1] * u + fv[1] * v];
-  });
-  const parts = [];
-  const limb = (id, bottom, top, z0, z1, color) => parts.push({ id, bottom, top, z0, z1, color, group: "figure", moves: true });
-  for (const [side, off, name] of [[-10, offL, "l"], [10, offR, "r"]]) {
-    const foot = at(side, off + 4), hip = at(side * 0.9, off * 0.25);
-    limb("shoe-" + name, ell(foot[0], foot[1], 5.5, 13, 0, 10), ell(foot[0], foot[1], 5.5, 13, 0, 10), 0, 9, C.shoe);
-    limb("leg-" + name, circle(foot[0], foot[1], 6.5, 8), circle(hip[0], hip[1], 8, 8), 9, 88, C.limb);
+  const oval = (side, fwd, a, b, n = 18) => Array.from({ length: n }, (_, i) => at(side + a * Math.cos(2 * Math.PI * i / n), fwd + b * Math.sin(2 * Math.PI * i / n)));
+  const dot = (side, fwd, r, n = 12) => oval(side, fwd, r, r, n);
+  const parts = [], P = (pid, o) => parts.push(Object.assign({ id: `${id}-${pid}`, group: id, moves }, o));
+  const sit = !!pose.seated, top = sit ? 112 : 140, hip = sit ? 58 : 90, bob = pose.bob || 1;
+  if (sit) { // thighs forward from the seat (mostly hidden under the desk)
+    for (const sd of [-9, 9]) P(`thigh${sd}`, { poly: hull(dot(sd, 0, 7).concat(dot(sd * 0.9, 34, 6.5))), z0: 44, z1: hip, color: look.suit });
+  } else { // legs and shoes, stepping
+    for (const [sd, off] of [[-10, pose.offL], [10, pose.offR]]) {
+      const foot = [sd, off + 4];
+      P(`shoe${sd}`, { poly: oval(foot[0], foot[1], 5.5, 12, 10), z0: 0, z1: 9, color: look.shoe });
+      P(`leg${sd}`, { bottom: dot(foot[0], foot[1], 6), top: dot(sd * 0.9, off * 0.25, 7.5), z0: 9, z1: hip, color: look.suit });
+    }
   }
-  for (const [side, footOff, name] of [[-24, offR, "l"], [24, offL, "r"]]) { // each arm swings with the opposite foot
-    const swing = 0.55 * footOff + reach;
-    const shoulder = at(side, 0), hand = at(side * 1.08, swing);
-    limb("arm-" + name, circle(hand[0], hand[1], 5, 8), circle(shoulder[0], shoulder[1], 6, 8), 82, 140, C.limb);
+  for (const sd of [-1, 1]) { // arms
+    if (sit) { // forward to the desk, hands on it
+      const reach = pose.reach || 40, elbow = [sd * 19, reach * 0.5], hand = [sd * 10, reach];
+      P(`upperarm${sd}`, { bottom: dot(...elbow, 5), top: dot(sd * 21, 0, 6), z0: 90, z1: top - 2, color: look.suit });
+      P(`forearm${sd}`, { bottom: dot(hand[0], hand[1] - 3, 4.5), top: dot(...elbow, 5), z0: 78, z1: 90, color: look.suit });
+      P(`hand${sd}`, { poly: dot(hand[0], hand[1], 4.2), z0: 76, z1: 80, color: look.skin });
+    } else { // hanging, swinging with the opposite foot
+      const swing = sd < 0 ? pose.swingL : pose.swingR, hand = [sd * 25, swing];
+      P(`arm${sd}`, { bottom: dot(...hand, 5), top: dot(sd * 22, 0, 6), z0: 84, z1: top - 2, color: look.suit });
+      P(`hand${sd}`, { poly: dot(hand[0], hand[1], 4.4), z0: 80, z1: 84, color: look.skin });
+    }
   }
-  const torso = ell(x, y, 25 * bob, 14 * bob, twist);
-  limb("torso", torso, torso, 88, 146, C.body);
-  const hc = at(0, 2), head = ell(hc[0], hc[1], 10.5 * bob, 11.5 * bob, 0, 16);
-  limb("head", head, head, 146, 172, C.head);
+  // The body: a jacket, its front showing; the shirt's V and the tie on it.
+  P("jacket", { poly: oval(0, 1, 24 * bob, 14 * bob, 22), z0: hip, z1: top, color: look.suit });
+  P("shirt", { poly: [at(-6.5, -1), at(6.5, -1), at(0, 13)], z0: top - 1, z1: top + 0.2, color: look.shirt, occludes: false });
+  if (look.tie) P("tie", { poly: [at(-1.7, 1), at(1.7, 1), at(1.3, 11.5), at(0, 14), at(-1.3, 11.5)], z0: top - 1, z1: top + 0.4, color: look.tie, occludes: false });
+  if (look.long) P("hairback", { poly: oval(0, -10, 12.5, 9, 16), z0: top - 4, z1: top + 1.5, color: look.hair });
+  // The head behind the chest, the hair covering its top and leaving a little face at the front.
+  P("head", { poly: dot(0, -4, 10.5, 18), z0: top, z1: top + 24, color: look.skin });
+  const hair = look.messy ? hull(Array.from({ length: 14 }, (_, i) => { const a = 2 * Math.PI * i / 14, r = 10.6 + (i % 3) * 0.9; return at(r * Math.cos(a), -6.5 + r * Math.sin(a)); }))
+    : dot(0, -6.2, 10.2, 18);
+  P("hair", { poly: hair, z0: top + 23, z1: top + 24.4, color: look.hair, occludes: false });
   return parts;
+}
+
+// The walking figure (Director, on an errand).
+function figureParts() {
+  const w = walker, moving = w.gait, S = w.stride || STRIDE;
+  const offL = footOffset(w.phase, S) * moving, offR = footOffset((w.phase + 0.5) % 1, S) * moving, reach = 20 * w.reachT;
+  const bob = 1 + 0.014 * moving * (1 - Math.cos(4 * Math.PI * w.phase)) / 2;
+  return person("walker", LOOKS.director, w.pos[0], w.pos[1], w.heading, { offL, offR, swingL: 0.55 * offR + reach, swingR: 0.55 * offL + reach, bob }, true);
 }
 
 // --- light ------------------------------------------------------------------------------------------
@@ -840,7 +910,12 @@ function draw(nowT) {
   // switching them on costs nothing. The walking figure takes the lamp light of where it stands.
   const lampKey = `${A.width}x${A.height}|${soft}`;
   if (lampKey !== lampLayerKey) { buildLampLayer(soft); lampLayerKey = lampKey; }
-  if (lampsOn) addLight(warm, 1.05, A);
+  if (lampsOn) {
+    addLight(warm, 1.05, A);
+    toWorld(ctx);   // a shade open at the top shows its lit inside
+    for (const l of lamps) if (l.glow) { path(ctx, circle(l.glow[0], l.glow[1], l.glow[2], 24)); ctx.fillStyle = css(warm.map(v => v * 0.98)); ctx.fill(); }
+    ctx.setTransform(1, 0, 0, 1, 0, 0);
+  }
 
   // The page's background: the ground's colour in this light (ambient plus unshaded sun), so they meet seamlessly.
   const sunOn = L.sunStrength > 0.01, lit = rgb(BG).map((v, i) => v * (L.ambient[i] + (sunOn ? L.sunColor[i] * L.sunStrength * FLAT_SUN : 0)));
