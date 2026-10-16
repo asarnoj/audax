@@ -6,6 +6,8 @@ Claude run instead of one per item.
 
 from __future__ import annotations
 
+from agent import trail
+
 import asyncio
 import json
 import logging
@@ -50,12 +52,10 @@ class Ingest:
                 payload["deadline"] = item.raw["deadline"]
             if config.note:
                 payload["source_note"] = config.note
-            cur = await self.db.conn.execute(
-                "INSERT OR IGNORE INTO events (source, kind, dedupe_key, payload, triaged_at) VALUES (?, ?, ?, ?, ?)",
-                (config.source, config.kind, item.key, json.dumps(payload, ensure_ascii=False), "baseline" if baseline else None),
-            )
-            new += cur.rowcount
-        await self.db.conn.commit()
+            new += bool(await self.db.insert("events", ignore=True, source=config.source, kind=config.kind, dedupe_key=item.key,
+                                             payload=json.dumps(payload, ensure_ascii=False), triaged_at="baseline" if baseline else None))
+        if new and not baseline:
+            await trail.emit("print", "director", n=new)   # the printer on Director's desk
         await self._stats(config.id, fetched=len(items), new=0 if baseline else new)
         if new and not baseline:
             self._wake.set()

@@ -134,7 +134,7 @@ class AssistantNight:
         if log_text or changes:
             with (self.memory.path / "changelog.md").open("a") as f:
                 f.write(f"\n## {now:%Y-%m-%d %H:%M} · Assistant\n{log_text}\n" + "".join(f"- {c}\n" for c in changes))
-        await self.memory.commit_if_changed(f"assistant natt {now:%Y-%m-%d %H:%M}")
+        await self.memory.commit_if_changed(f"assistant natt {now:%Y-%m-%d %H:%M}", by="assistant")
         log.info("assistant night pass: %s", "; ".join(changes) or "inga ändringar")
         return changes
 

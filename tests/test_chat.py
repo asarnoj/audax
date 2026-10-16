@@ -11,7 +11,7 @@ from agent.tools import TurnContext, build_chat_tools
 
 
 class FakeMemory:
-    async def commit_if_changed(self, message):
+    async def commit_if_changed(self, message, by=None):
         return []
 
     def read(self, *names):

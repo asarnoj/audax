@@ -11,6 +11,8 @@ a conflict (quiet hours, a session, a pause) comes back at once, so the Assistan
 
 from __future__ import annotations
 
+from agent import trail
+
 import logging
 from datetime import datetime, timedelta
 
@@ -83,10 +85,9 @@ class Agenda:
         found = await self.conflicts(at)
         if found and not confirm:
             return None, found
-        bid = await self.db.execute(
-            "INSERT INTO bookings (kind, title, body, due_at, latest_at, fixed, requested_by, ref, reason) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
-            (kind, title, body, utc_iso(at), utc_iso(latest) if latest else None, int(fixed), by, ref, reason),
-        )
+        bid = await self.db.insert("bookings", kind=kind, title=title, body=body, due_at=utc_iso(at), latest_at=utc_iso(latest) if latest else None,
+                                   fixed=int(fixed), requested_by=by, ref=ref, reason=reason)
+        await trail.emit("book", by, ref=f"#B{bid}")
         return bid, found
 
     async def cancel(self, booking_id: int, by: str, reason: str = "") -> str:

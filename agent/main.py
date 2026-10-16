@@ -94,6 +94,11 @@ async def run() -> None:
     settings.workspace.mkdir(parents=True, exist_ok=True)
     db = Database(settings.database)
     await db.open()
+    from agent import trail
+
+    trail.attach(db)   # the office's event log (agent/trail.py)
+    # A run cut off by a restart never finished: say so, rather than leaving it looking like it is still running.
+    await db.execute("UPDATE claude_runs SET is_error = 1, error = 'interrupted', finished_at = created_at WHERE finished_at IS NULL")
 
     gate = ClaudeGate(db, settings.workspace)  # the background lane: roles queue here, one run at a time
     chat_gate = ClaudeGate(db, settings.workspace, quota=gate.quota)  # the conversation lane: never waits for background work

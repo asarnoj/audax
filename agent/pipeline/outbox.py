@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from agent import trail
+
 import json
 import logging
 from collections.abc import Awaitable, Callable
@@ -35,10 +37,8 @@ async def add_candidate(
     expires_at: str | None = None,
     event_id: int | None = None,
 ) -> int:
-    return await db.execute(
-        "INSERT INTO candidates (event_id, kind, title, body, url, features, expires_at) VALUES (?, ?, ?, ?, ?, ?, ?)",
-        (event_id, kind, title, body, url, json.dumps(features, ensure_ascii=False), expires_at),
-    )
+    return await db.insert("candidates", event_id=event_id, kind=kind, title=title, body=body, url=url,
+                           features=json.dumps(features, ensure_ascii=False), expires_at=expires_at)
 
 
 def render(row) -> str:
@@ -153,10 +153,8 @@ class Outbox:
         )
 
     async def record(self, candidate_id: int, module: str, tier: str, reason: str, context: dict) -> None:
-        await self.db.execute(
-            "INSERT INTO decisions (candidate_id, module, tier, reason, context) VALUES (?, ?, ?, ?, ?)",
-            (candidate_id, module, tier, reason, json.dumps(context, ensure_ascii=False)),
-        )
+        await self.db.insert("decisions", candidate_id=candidate_id, module=module, tier=tier, reason=reason,
+                             context=json.dumps(context, ensure_ascii=False))
 
     async def peek_shelf(self, limit: int = 12, about: str | None = None) -> list:
         """What is saved for later, newest first, without changing anything (optionally only what matches `about`)."""
@@ -173,8 +171,10 @@ class Outbox:
             if await self.db.execute_count(
                 "UPDATE candidates SET status = 'pulled', updated_at = datetime('now') WHERE id = ? AND status = 'shelved'", (cid,)
             ):
-                await self.db.execute("INSERT INTO feedback (candidate_id, signal, value) VALUES (?, 'shelf_pull', 'pulled')", (cid,))
+                await self.db.insert("feedback", candidate_id=cid, signal="shelf_pull", value="pulled")
                 n += 1
+        if n:
+            await trail.emit("pull", "assistant", n=n)
         return n
 
     async def pull_shelf(self, limit: int = 8) -> list:
@@ -184,9 +184,9 @@ class Outbox:
         )
         for r in rows:
             await self.db.execute("UPDATE candidates SET status = 'pulled', updated_at = datetime('now') WHERE id = ?", (r["id"],))
-            await self.db.execute(
-                "INSERT INTO feedback (candidate_id, signal, value) VALUES (?, 'shelf_pull', 'pulled')", (r["id"],)
-            )
+            await self.db.insert("feedback", candidate_id=r["id"], signal="shelf_pull", value="pulled")
+        if rows:
+            await trail.emit("pull", "assistant", n=len(rows))
         return rows
 
 

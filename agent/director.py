@@ -289,7 +289,7 @@ class Director:
         if log_text or changes:
             with (self.dir / "log.md").open("a") as f:
                 f.write(f"\n## {now:%Y-%m-%d %H:%M} · {mode}\n{log_text}\n" + "".join(f"- {c}\n" for c in changes))
-        await self.memory.commit_if_changed(f"director {mode} {now:%Y-%m-%d %H:%M}")
+        await self.memory.commit_if_changed(f"director {mode} {now:%Y-%m-%d %H:%M}", by="director")
         log.info("director %s: %s", mode, "; ".join(changes) or "inga ändringar")
         return changes
 

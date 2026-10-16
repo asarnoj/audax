@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from agent import trail
+
 import json
 import logging
 from dataclasses import dataclass
@@ -266,12 +268,10 @@ class Researcher:
                 continue
             if f.get("query") not in queries:  # keep yield attribution honest
                 f["query"] = next((q for q in queries if q.lower() in str(f.get("query", "")).lower()), f.get("query"))
-            cur = await self.db.conn.execute(
-                "INSERT OR IGNORE INTO events (source, kind, dedupe_key, payload) VALUES (?, ?, ?, ?)",
-                (source, f.get("kind", "opportunity"), normalize_url(f["url"]), json.dumps(f, ensure_ascii=False)),
-            )
-            new += cur.rowcount
-        await self.db.conn.commit()
+            new += bool(await self.db.insert("events", ignore=True, source=source, kind=f.get("kind", "opportunity"),
+                                             dedupe_key=normalize_url(f["url"]), payload=json.dumps(f, ensure_ascii=False)))
+        if new:
+            await trail.emit("print", "director", n=new)   # a search's findings come out of the printer too
         new_leads = await search_map.record_leads(self.db, task.id, result.structured.get("leads") or [])
         skipped = result.structured.get("skipped") or []
         await self.db.execute(

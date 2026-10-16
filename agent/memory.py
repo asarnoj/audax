@@ -47,14 +47,18 @@ class MemoryRepo:
             return []
         return [line[3:] for line in out.splitlines() if line]
 
-    async def commit_if_changed(self, message: str) -> list[str]:
+    async def commit_if_changed(self, message: str, by: str | None = None) -> list[str]:
+        """Saves what changed, tagged with the run that changed it (#R), and records it in the office's log."""
+        from agent import trail
+
         files = await self.changed_files()
         if not files:
             return []
         await self._git("add", "-A")
-        code, out = await self._git("commit", "-q", "-m", message)
+        code, out = await self._git("commit", "-q", "-m", message + trail.tag())
         if code != 0:
             log.warning("memory commit failed: %s", out)
             return []
         log.info("memory commit (%s): %s", message, ", ".join(files))
+        await trail.emit("save", by, files=files[:12])
         return files

@@ -87,12 +87,9 @@ class Pursuits:
         if row is None:
             if not fields.get("title"):
                 raise ValueError("a new pursuit needs a title")
-            pid = await self.db.execute(
-                "INSERT INTO pursuits (title, organization, url, candidate_id, status, deadline, remind_at, next_step, note, source) "
-                "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
-                (fields["title"], fields.get("organization"), fields.get("url"), fields.get("candidate_id"), fields.get("status", "interested"),
-                 fields.get("deadline"), fields.get("remind_at"), fields.get("next_step"), fields.get("note"), by),
-            )
+            pid = await self.db.insert("pursuits", title=fields["title"], organization=fields.get("organization"), url=fields.get("url"),
+                                       candidate_id=fields.get("candidate_id"), status=fields.get("status", "interested"), deadline=fields.get("deadline"),
+                                       remind_at=fields.get("remind_at"), next_step=fields.get("next_step"), note=fields.get("note"), source=by)
             await self._log(pid, fields.get("status", "interested"), fields.get("note") or "lades till", by)
             return pid, True
         changes = {k: fields[k] for k in FIELDS if k in fields and fields[k] != row[k]}
@@ -125,7 +122,7 @@ class Pursuits:
         return pid
 
     async def _log(self, pid: int, status: str | None, note: str | None, by: str) -> None:
-        await self.db.execute("INSERT INTO pursuit_log (pursuit_id, status, note, by) VALUES (?, ?, ?, ?)", (pid, status, note, by))
+        await self.db.insert("pursuit_log", pursuit_id=pid, status=status, note=note, by=by)
 
     # --- time -------------------------------------------------------------
 

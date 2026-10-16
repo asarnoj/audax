@@ -17,6 +17,7 @@ from agent.claude_gate import ClaudeGate, ClaudeTask, Priority, QuotaPaused
 from agent.config import Settings
 from agent.db import Database
 from agent.memory import MemoryRepo
+from agent import trail
 from agent.pipeline.outbox import add_candidate
 from agent.prompts import prompt as prompt_template
 from agent.schedule import utc_iso
@@ -108,7 +109,7 @@ class Triage:
             return None
 
         by_id = {r["id"]: r for r in rows}
-        created = 0
+        created, dropped = 0, 0
         for item in result.structured.get("items", []):
             row = by_id.get(item.get("event_id"))
             if row is None:
@@ -132,16 +133,17 @@ class Triage:
                 continue
             if not item.get("keep", True):
                 await self.db.execute("UPDATE candidates SET status = 'dropped', tier = 'drop' WHERE id = ?", (cid,))
-                await self.db.execute(
-                    "INSERT INTO decisions (candidate_id, module, tier, reason) VALUES (?, ?, 'drop', ?)",
-                    (cid, MODULE, item.get("reason", "")),
-                )
+                await self.db.insert("decisions", candidate_id=cid, module=MODULE, tier="drop", reason=item.get("reason", ""))
+                dropped += 1
             else:
                 created += 1
+                await trail.emit("pass", "director", ref=f"#F{cid}")
 
         # Mark the whole batch, including events the model skipped, so nothing loops forever.
         marks = ",".join("?" * len(rows))
         await self.db.execute(f"UPDATE events SET triaged_at = datetime('now') WHERE id IN ({marks})", tuple(by_id))
+        if dropped:
+            await trail.emit("drop", "director", n=dropped)
         log.info("triage: %d events -> %d candidates", len(rows), created)
         return created
 

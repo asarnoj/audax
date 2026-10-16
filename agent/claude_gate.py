@@ -34,7 +34,9 @@ from claude_agent_sdk import (
     query,
 )
 
+from agent import trail
 from agent.db import Database
+from agent.vocab import role_of
 
 log = logging.getLogger(__name__)
 
@@ -78,6 +80,7 @@ class RunResult:
     trace: list[dict] = field(default_factory=list)  # tool calls: {"tool", "input", "error"}
     context_tokens: int | None = None  # largest single model call (input + cached), i.e. how much context is resent
     usage: dict[str, int] = field(default_factory=dict)  # totals: input, output, cache_read, cache_write, turns
+    run_id: int | None = None  # this run's row in claude_runs (#R)
 
 
 class QuotaPaused(Exception):
@@ -285,6 +288,11 @@ class ClaudeGate:
             if (until := self.paused_until(task.priority)) is not None:
                 raise QuotaPaused(until)
             started = time.monotonic()
+            # The run's row exists from the start, so what it writes carries its id (agent/trail.py). The id stays
+            # set after the run, for the caller applying what it returned.
+            run_id = await self.db.execute("INSERT INTO claude_runs (kind, model) VALUES (?, ?)", (task.kind, task.model))
+            trail.current_run.set(run_id)
+            await trail.emit("start", role_of(task.kind), task=task.kind)
             RUNNING[id(task)] = (task, time.time())
             try:
                 result = await self._runner(task, self.workspace, self._on_rate_limit)
@@ -296,7 +304,9 @@ class ClaudeGate:
             if result.duration_ms is None:
                 result.duration_ms = int((time.monotonic() - started) * 1000)
 
+        result.run_id = run_id
         await self._log(task, result)
+        await trail.emit("end", role_of(task.kind), task=task.kind, failed=result.is_error)
         return result
 
     async def _log(self, task: ClaudeTask, r: RunResult) -> None:
@@ -311,11 +321,10 @@ class ClaudeGate:
             if prev and prev["session_cost_usd"] is not None and r.cost_usd >= prev["session_cost_usd"]:
                 own = r.cost_usd - prev["session_cost_usd"]
         await self.db.execute(
-            "INSERT INTO claude_runs (kind, model, session_id, duration_ms, cost_usd, session_cost_usd, is_error, error, rate_limit, trace, output, context_tokens, "
-            "input_tokens, output_tokens, cache_read_tokens, cache_write_tokens, turns) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            "UPDATE claude_runs SET session_id = ?, duration_ms = ?, cost_usd = ?, session_cost_usd = ?, is_error = ?, error = ?, rate_limit = ?, "
+            "trace = ?, output = ?, context_tokens = ?, input_tokens = ?, output_tokens = ?, cache_read_tokens = ?, cache_write_tokens = ?, turns = ?, "
+            "finished_at = datetime('now') WHERE id = ?",
             (
-                task.kind,
-                task.model,
                 r.session_id,
                 r.duration_ms,
                 own,
@@ -326,13 +335,14 @@ class ClaudeGate:
                 if rl
                 else None,
                 json.dumps(r.trace, ensure_ascii=False) if r.trace else None,
-                (r.text or "")[:600] or None,
+                (r.text or "")[:4000] or None,
                 r.context_tokens,
                 r.usage.get("input"),
                 r.usage.get("output"),
                 r.usage.get("cache_read"),
                 r.usage.get("cache_write"),
                 r.usage.get("turns"),
+                r.run_id,
             ),
         )
 

@@ -304,7 +304,7 @@ class ResearchPlanner:
             path.parent.mkdir(parents=True, exist_ok=True)
             with path.open("a") as f:
                 f.write(f"\n## {now:%Y-%m-%d %H:%M}\n{log_text}\n" + "".join(f"- {c}\n" for c in changes))
-        await self.memory.commit_if_changed(f"researcher {now:%Y-%m-%d %H:%M}")
+        await self.memory.commit_if_changed(f"researcher {now:%Y-%m-%d %H:%M}", by="researcher")
         log.info("researcher planned: %s", "; ".join(changes) or "inga ändringar")
         return changes
 

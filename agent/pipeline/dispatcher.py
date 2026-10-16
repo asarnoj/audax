@@ -13,6 +13,7 @@ import json
 import logging
 from datetime import datetime, timedelta
 
+from agent import trail
 from agent.agenda import FOCUS_KEY, SILENCE_KEY, Agenda
 from agent.claude_gate import ClaudeGate, ClaudeTask, Priority, QuotaPaused
 from agent.config import Settings
@@ -165,6 +166,8 @@ class Dispatcher:
                 await self.outbox.set_tier(row["id"], "drop", "dropped")
                 label = "släppt"
             await self.outbox.record(row["id"], MODULE, label, d.get("reason", ""), trace)
+            to = {"at": "calendar", "now": "assistant", "shelf": "board", "drop": "bin"}[decision]
+            await trail.emit("place", "manager", to=to, ref=f"#F{row['id']}")
         if now_rows:
             await self._deliver_findings(now_rows, self.schedule.now(), decided_now=True)
 
@@ -239,8 +242,11 @@ class Dispatcher:
             await self.outbox.set_tier(r["id"], "at")
             await self.agenda.schedule_findings([r["id"]], until)
             await self.outbox.record(r["id"], MODULE, f"väntar till {self.agenda.show(until)}", "Tiden kom, men det var nattro, paus eller ett pass.", {})
+            await trail.emit("place", "manager", to="calendar", ref=f"#F{r['id']}")
         if go:
             await self.outbox.deliver([r for r, _ in go])  # the Assistant writes the message
+            for r, _ in go:   # a planned one is taken from the calendar, one sent now from the Assistant's inbox
+                await trail.emit("deliver", "assistant", source="inbox" if decided_now else "calendar", ref=f"#F{r['id']}")
 
     async def _deliver_booking(self, b, now: datetime) -> None:
         """A reminder the owner asked for, or a promise the Assistant made, through the one voice."""
@@ -266,6 +272,7 @@ class Dispatcher:
         await self.db.execute(
             "UPDATE bookings SET status = 'sent', sent_at = datetime('now'), message_id = ? WHERE id = ?", (ids[0] if ids else None, b["id"])
         )
+        await trail.emit("deliver", "assistant", source="calendar", ref=f"#B{b['id']}")
         from agent import refs
 
         await refs.link(self.db, ids, {f"#B{b['id']}"} | ({b["ref"]} if b["ref"] else set()))

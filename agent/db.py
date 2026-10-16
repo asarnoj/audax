@@ -428,7 +428,35 @@ MIGRATIONS: list[str] = [
     );
     CREATE INDEX bookings_due ON bookings(status, due_at);
     """,
+    # 20: who did what (agent/trail.py): a run's row exists from its start, so the rows it writes carry its id, and
+    # the office's event log records what happens in structured fields where it happens.
+    """
+    ALTER TABLE claude_runs ADD COLUMN finished_at TEXT;
+    UPDATE claude_runs SET finished_at = created_at;
+    ALTER TABLE posts ADD COLUMN run_id INTEGER;
+    ALTER TABLE decisions ADD COLUMN run_id INTEGER;
+    ALTER TABLE candidates ADD COLUMN run_id INTEGER;
+    ALTER TABLE messages ADD COLUMN run_id INTEGER;
+    ALTER TABLE bookings ADD COLUMN run_id INTEGER;
+    ALTER TABLE events ADD COLUMN run_id INTEGER;
+    ALTER TABLE pursuit_log ADD COLUMN run_id INTEGER;
+    ALTER TABLE feedback ADD COLUMN run_id INTEGER;
+    CREATE INDEX posts_run ON posts(run_id);
+    CREATE INDEX decisions_run ON decisions(run_id);
+    CREATE INDEX candidates_run ON candidates(run_id);
+    CREATE TABLE office_events (
+        id INTEGER PRIMARY KEY,
+        created_at TEXT NOT NULL DEFAULT (datetime('now')),
+        run_id INTEGER,
+        kind TEXT NOT NULL,             -- start|end|print|pass|drop|place|post|message|deliver|book|pull|save
+        role TEXT,
+        data TEXT NOT NULL DEFAULT '{}'
+    );
+    """,
 ]
+
+# Tables whose rows carry the id of the run that wrote them (agent/trail.py).
+STAMPED = {"posts", "decisions", "candidates", "messages", "bookings", "events", "pursuit_log", "feedback"}
 
 
 class Database:
@@ -461,6 +489,18 @@ class Database:
             await self.conn.executescript(sql)
             await self.conn.execute(f"PRAGMA user_version = {i}")
         await self.conn.commit()
+
+    async def insert(self, table: str, ignore: bool = False, **values: Any) -> int:
+        """Insert a row; in a stamped table it carries the id of the run writing it (agent/trail.py)."""
+        from agent.trail import current_run
+
+        if table in STAMPED and "run_id" not in values:
+            values["run_id"] = current_run.get()
+        cols = ", ".join(values)
+        cur = await self.conn.execute(
+            f"INSERT {'OR IGNORE ' if ignore else ''}INTO {table} ({cols}) VALUES ({', '.join('?' * len(values))})", tuple(values.values()))
+        await self.conn.commit()
+        return cur.lastrowid if cur.rowcount else 0
 
     async def execute(self, sql: str, params: tuple = ()) -> int:
         cur = await self.conn.execute(sql, params)

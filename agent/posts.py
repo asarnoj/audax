@@ -12,6 +12,7 @@ from __future__ import annotations
 import logging
 from collections.abc import Callable
 
+from agent import trail
 from agent.db import Database
 
 log = logging.getLogger(__name__)
@@ -36,10 +37,9 @@ class Posts:
         answer_to: int | None = None, from_owner: bool = False, wake: bool = False,
     ) -> int:
         assert to in ROLES and kind in KINDS, (to, kind)
-        pid = await self.db.execute(
-            "INSERT INTO posts (sender, recipient, kind, body, verbatim, context, answer_to, from_owner) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
-            (sender, to, kind, body, verbatim, context, answer_to, int(from_owner)),
-        )
+        pid = await self.db.insert("posts", sender=sender, recipient=to, kind=kind, body=body, verbatim=verbatim, context=context,
+                                   answer_to=answer_to, from_owner=int(from_owner))
+        await trail.emit("post", sender, to=to, what=kind, ref=ref(pid))
         if answer_to is not None:
             await self.db.execute(
                 "UPDATE posts SET status = 'done', handled_at = datetime('now'), outcome = ? WHERE id = ?", (f"besvarad i {ref(pid)}", answer_to)

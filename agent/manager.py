@@ -297,7 +297,7 @@ class Manager:
                 features={"time_sensitivity": "low", "relevance": "medium", "actionability": "low"},
             )
 
-        await self.memory.commit_if_changed(f"manager {now:%Y-%m-%d %H:%M}")
+        await self.memory.commit_if_changed(f"manager {now:%Y-%m-%d %H:%M}", by="manager")
         log.info("manager applied: %s", "; ".join(changes) or "inga ändringar")
 
     # --- proposals (approved by användaren) --------------------------------------

@@ -264,7 +264,7 @@ class ChatSession:
             await refs_mod.link(self.db, ids + [m.message_row_id for m in batch if m.message_row_id], turn.refs)
         if internal and batch[0].done and not batch[0].done.done():
             batch[0].done.set_result(ids)
-        await self.memory.commit_if_changed(f"chat {self._now()}")
+        await self.memory.commit_if_changed(f"chat {self._now()}", by="assistant")
 
     async def _keep_typing(self) -> None:
         while True:

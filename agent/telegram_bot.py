@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from agent import trail
+
 import asyncio
 import json
 import logging
@@ -107,12 +109,10 @@ class TelegramBot:
         ids = []
         for chunk in _chunks(text):
             msg = await self._send_retrying(chunk)
-            ids.append(
-                await self.db.execute(
-                    "INSERT INTO messages (telegram_message_id, direction, candidate_id, text, origin, in_session) VALUES (?, 'out', ?, ?, ?, ?)",
-                    (msg.message_id, candidate_id, chunk, origin, int(in_session)),
-                )
-            )
+            ids.append(await self.db.insert("messages", telegram_message_id=msg.message_id, direction="out", candidate_id=candidate_id,
+                                            text=chunk, origin=origin, in_session=int(in_session)))
+        if ids:
+            await trail.emit("message", "assistant", direction="out")
         return ids
 
     async def _send_retrying(self, chunk: str, attempts: int = 3):
@@ -137,10 +137,8 @@ class TelegramBot:
         msg = await self.app.bot.send_poll(
             self.settings.telegram_chat_id, question, options, is_anonymous=False, allows_multiple_answers=multiple
         )
-        row_id = await self.db.execute(
-            "INSERT INTO messages (telegram_message_id, direction, text, origin) VALUES (?, 'out', ?, 'proactive')",
-            (msg.message_id, "[omröstning] " + question + "\n" + "\n".join(f"- {o}" for o in options)),
-        )
+        row_id = await self.db.insert("messages", telegram_message_id=msg.message_id, direction="out", origin="proactive",
+                                      text="[omröstning] " + question + "\n" + "\n".join(f"- {o}" for o in options))
         return msg.poll.id, row_id
 
     async def send_proposal(self, text: str, proposal_id: int) -> int:
@@ -149,10 +147,7 @@ class TelegramBot:
             InlineKeyboardButton("Nej", callback_data=f"proposal:{proposal_id}:no"),
         ]])
         msg = await self.app.bot.send_message(self.settings.telegram_chat_id, text, reply_markup=keyboard)
-        return await self.db.execute(
-            "INSERT INTO messages (telegram_message_id, direction, text, origin) VALUES (?, 'out', ?, 'proactive')",
-            (msg.message_id, text),
-        )
+        return await self.db.insert("messages", telegram_message_id=msg.message_id, direction="out", text=text, origin="proactive")
 
     async def on_proposal_button(self, update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
         q = update.callback_query
@@ -184,9 +179,7 @@ class TelegramBot:
         msg = await self.app.bot.send_message(
             self.settings.telegram_chat_id, text[:4000], reply_markup=InlineKeyboardMarkup(buttons) if buttons else None
         )
-        await self.db.execute(
-            "INSERT INTO messages (telegram_message_id, direction, text, origin) VALUES (?, 'out', ?, 'proactive')", (msg.message_id, text)
-        )
+        await self.db.insert("messages", telegram_message_id=msg.message_id, direction="out", text=text, origin="proactive")
 
     async def on_change_button(self, update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
         q = update.callback_query
@@ -379,9 +372,8 @@ class TelegramBot:
         if msg.reply_to_message:
             replied_text = msg.reply_to_message.text
             replied_row = await self._message_row_id(msg.reply_to_message.message_id)
-        row_id = await self.db.execute(
-            "INSERT INTO messages (telegram_message_id, direction, text) VALUES (?, 'in', ?)", (msg.message_id, msg.text)
-        )
+        row_id = await self.db.insert("messages", telegram_message_id=msg.message_id, direction="in", text=msg.text)
+        await trail.emit("message", "assistant", direction="in")
         if replied_row is not None:
             await self.db.execute(
                 "INSERT INTO feedback (message_id, candidate_id, signal, value, note) "
