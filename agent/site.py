@@ -1,17 +1,14 @@
-"""The office's web page: the raw data, read only, for the owner (docs/MODEL.md).
+"""The office's website, read only, for the owner (docs/KONTORET.md, docs/OPERATIONS.md).
 
-Served inside the engine (so it sees the runs in progress) on localhost; Tailscale Serve makes it reachable from the
-owner's own devices and nowhere else (docs/OPERATIONS.md). Plain pages with no styling on purpose: the illustrated
-office comes later and reads the same data from /api/.
+Served inside the engine (so it sees the runs in progress) on localhost; nginx makes it reachable on the Tailscale
+address and nowhere else. The data comes from agent/office.py.
 
-- /                 the office: what each role does right now (live) and the latest events
-- /roll/<role>      a role's desk: working memory, files, inbox, history
-- /korning/<id>     one Claude run: its steps and output
-- /arende/<id>      follow a case by its id (#P, #S, #F, #B), or search
-- /arkiv/           the file cabinet: memory and the instance config
-- /tabeller/        every database table
-- /prototyp/ljus    the lighting prototype for the illustrated office (web/ljus.html)
-- /prototyp/kontor  the greybox of the owner's floor plan (web/kontor.html), live: /api/kontor/
+- /                    the illustrated office (web/office.html)
+- /api/state           the state of right now, with the point in the event log it was read at
+- /api/stream          what happens from then on (server-sent events; a reconnecting page carries on from its last id)
+- /api/thing/<name>    what a click shows: desk-<role>, archive, bin, calendar, board
+- /api/work/<id>       one piece of work (#R)
+- /data/               the raw data, in plain pages: the tables, the files, a case by its id, one run
 """
 
 from __future__ import annotations
@@ -31,12 +28,12 @@ from starlette.routing import Route
 from agent import refs
 from agent.config import ROOT
 from agent.db import Database
-from agent.kontor import Live, sse
-from agent.office import NAMES, ROLES, Office
+from agent.office import Office, sse
+from agent.vocab import NAMES, role_of, task_name
 
 TEXT_SUFFIXES = {".md", ".yaml", ".yml", ".txt", ".json", ".csv", ".log"}
 PAGE = 100  # table rows per page
-ID = re.compile(r"#([PSFB])(\d+)\b")  # an id in running text (refs.PATTERN also takes it without the #)
+ID = re.compile(r"#([PSFBR])(\d+)\b")  # an id in running text (refs.PATTERN also takes it without the #)
 
 
 def e(value) -> str:
@@ -44,248 +41,50 @@ def e(value) -> str:
 
 
 def linked(text: str | None, limit: int | None = None) -> str:
-    """Escaped text where every id (#P12, #S3, #F210, #B4) links to its case."""
+    """Escaped text where every id (#P12, #S3, #F210, #B4, #R88) links to its page."""
     text = text or ""
     if limit and len(text) > limit:
         text = text[:limit] + "…"
-    return ID.sub(lambda m: f'<a href="/arende/{m.group(1)}{m.group(2)}">{m.group(0)}</a>', e(text))
 
-
-def who(name: str) -> str:
-    return f'<a href="/roll/{name}">{NAMES[name]}</a>' if name in ROLES else e(NAMES.get(name, name))
+    def link(m: re.Match) -> str:
+        href = f"/data/run/{m.group(2)}" if m.group(1) == "R" else f"/data/case/{m.group(1)}{m.group(2)}"
+        return f'<a href="{href}">{m.group(0)}</a>'
+    return ID.sub(link, e(text))
 
 
 def page(title: str, body: str) -> HTMLResponse:
     return HTMLResponse(
-        f'<!doctype html><html lang="sv"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">'
+        f'<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">'
         f"<title>{e(title)} · Audax</title></head><body>"
-        '<p><a href="/">Kontoret</a> · ' + " · ".join(f'<a href="/roll/{r}">{NAMES[r]}</a>' for r in ROLES)
-        + ' · <a href="/arende/">Ärenden</a> · <a href="/arkiv/">Arkivet</a> · <a href="/tabeller/">Tabellerna</a></p>'
+        '<p><a href="/">Office</a> · <a href="/data/">Data</a> · <a href="/data/case/">Cases</a> · <a href="/data/files/">Files</a> · '
+        '<a href="/data/tables/">Tables</a></p>'
         f"<h1>{e(title)}</h1>{body}</body></html>"
     )
 
 
-def live(element: str, url: str, seconds: int) -> str:
-    return (f"<script>setInterval(() => fetch('{url}').then(r => r.text()).then(t => "
-            f"document.getElementById('{element}').innerHTML = t).catch(() => {{}}), {seconds * 1000});</script>")
-
-
-# --- fragments --------------------------------------------------------------------------
-
-
-def now_html(now: dict) -> str:
-    out = [f"<p>Klockan {e(now['at'])}.</p>"]
-    for role, r in now["roles"].items():
-        name = who(role) if role in ROLES else e(r["name"])
-        if r["working"]:
-            for w in r["working"]:
-                out.append(f"<h3>{name}: arbetar</h3><p>{e(w['task'])}, sedan {e(w['since'])} ({w['seconds']} s)</p>")
-                if w["steps"]:
-                    out.append("<ul>" + "".join(f"<li>{e(s)}</li>" for s in w["steps"]) + "</ul>")
-        elif role in ROLES:
-            out.append(f"<h3>{name}: ledig</h3>")
-            if last := r.get("last_run"):
-                out.append(f'<p>Senast: {e(last["task"])} {e(last["at"])} (<a href="/korning/{last["id"]}">körning {last["id"]}</a>)'
-                           + (" · misslyckades" if last["error"] else "") + "</p>")
-        if role in ROLES:
-            line = f"Inkorg: {r['inbox']} olästa"
-            if "questions_for_owner" in r:
-                line += f" · frågor till dig som väntar: {r['questions_for_owner']}"
-            out.append(f"<p>{line}</p>")
-    if q := now.get("quota"):
-        rl = q.get("rate_limit") or {}
-        line = f"Kvot: {e(rl.get('status') or 'okänd')}"
-        if rl.get("utilization") is not None:
-            line += f", {e(rl.get('type'))} {round(rl['utilization'] * 100)} %"
-        if q.get("paused_until"):
-            line += f" · bakgrundsarbetet pausat till {e(q['paused_until'])}"
-        out.append(f"<p>{line}</p>")
-    if night := now.get("night"):
-        out.append(f"<p>Natten {e(night.get('night'))}: klart {e(', '.join(night.get('done', [])) or 'inget')} · försök {e(night.get('attempts'))}</p>")
-    return "".join(out)
-
-
-def timeline_html(events: list[dict]) -> str:
-    items = []
-    for ev in events:
-        if ev["type"] == "message":
-            how = " (på eget initiativ)" if ev["origin"] == "proactive" else ""
-            refs_ = " " + " ".join(linked(r) for r in ev["refs"]) if ev["refs"] else ""
-            items.append(f"<li>{e(ev['at'])} · {who(ev['from'])} → {who(ev['to'])}{how}: {linked(ev['text'], 400)}{refs_}</li>")
-        elif ev["type"] == "post":
-            items.append(f"<li>{e(ev['at'])} · {linked(ev['ref'])} {who(ev['from'])} → {who(ev['to'])} ({e(ev['kind'])}, {e(ev['status'])}): "
-                         f"{linked(ev['text'], 400)}</li>")
-        else:
-            cost = f", {ev['cost_usd']:.2f} $" if ev["cost_usd"] is not None else ""
-            err = f" · fel: {e(ev['error'])}" if ev["error"] else ""
-            items.append(f'<li>{e(ev["at"])} · {who(ev["role"])} körde {e(ev["task"])} ({ev["seconds"]} s{cost}) '
-                         f'<a href="/korning/{ev["id"]}">körning {ev["id"]}</a>{err}</li>')
-    return "<ul>" + "".join(items) + "</ul>" if items else "<p>Inget ännu.</p>"
-
-
-# --- the app ------------------------------------------------------------------------------
-
-
 def build_app(db: Database, office: Office, roots: dict[str, Path]) -> Starlette:
     async def office_page(request: Request) -> Response:
-        return page("Kontoret", f'<div id="nu">{now_html(await office.now())}</div>{live("nu", "/fragment/nu", 2)}'
-                    f'<h2>Senaste händelser</h2><div id="tid">{timeline_html(await office.timeline(60))}</div>'
-                    f'{live("tid", "/fragment/tidslinje", 10)}<p><a href="/prototyp/kontor">Gråskissen</a> · <a href="/prototyp/ljus">Ljusprototypen</a></p>')
+        return FileResponse(ROOT / "web" / "office.html")
 
-    async def now_fragment(request: Request) -> Response:
-        return HTMLResponse(now_html(await office.now()))
+    # --- the office, live --------------------------------------------------------------------
 
-    async def timeline_fragment(request: Request) -> Response:
-        return HTMLResponse(timeline_html(await office.timeline(60)))
+    async def api_state(request: Request) -> Response:
+        return JSONResponse(await office.state())
 
-    async def role_page(request: Request) -> Response:
-        role = request.path_params["role"]
-        if role not in ROLES:
-            return page("Finns inte", "<p>Ingen sådan roll.</p>")
-        r = await office.role(role)
-        files = []
-        for f in r["files"]:
-            if f["folder"]:
-                files.append(f'<li><a href="/arkiv/minne/{e(f["path"])}">{e(f["path"])}</a> ({len(f["files"])} filer)</li>')
-            elif f["exists"]:
-                files.append(f'<li><a href="/arkiv/minne/{e(f["path"])}">{e(f["path"])}</a></li>')
-            else:
-                files.append(f"<li>{e(f['path'])} (finns inte än)</li>")
-        inbox = "".join(f"<li>{e(p['at'])} · {linked(p['ref'])} från {who(p['from'])} ({e(p['kind'])}, {e(p['status'])}): {linked(p['text'])}</li>"
-                        for p in r["inbox"])
-        return page(r["name"],
-                    f"<h2>Arbetsminne</h2><pre>{linked(r['working_memory'] or '(tomt)')}</pre>"
-                    f"<h2>Inkorg</h2>{'<ul>' + inbox + '</ul>' if inbox else '<p>Tom.</p>'}"
-                    f"<h2>Filer</h2><ul>{''.join(files)}</ul>"
-                    f"<h2>Historik</h2>{timeline_html(r['timeline'])}")
+    async def api_stream(request: Request) -> Response:
+        start = request.headers.get("last-event-id") or request.query_params.get("from")
+        cursor = int(start) if start and start.isdigit() else await office.cursor()
 
-    async def run_page(request: Request) -> Response:
-        r = await office.run(int(request.path_params["id"]))
-        if r is None:
-            return page("Finns inte", "<p>Ingen sådan körning.</p>")
-        rows = [("Roll", who(r["role"])), ("Uppgift", e(r["task"]) + f" ({e(r['kind'])})"), ("Tid", e(r["at"])), ("Modell", e(r["model"])),
-                ("Längd", f"{(r['duration_ms'] or 0) / 1000:.0f} s"), ("Kostnad", f"{r['cost_usd']:.3f} $" if r["cost_usd"] is not None else "–"),
-                ("Tokens", f"in {e(r['input_tokens'])}, ut {e(r['output_tokens'])}, cache {e(r['cache_read_tokens'])}/{e(r['cache_write_tokens'])}, "
-                           f"kontext {e(r['context_tokens'])}"),
-                ("Steg", e(r["turns"])), ("Kvot", e(r["rate_limit"])), ("Fel", e(r["error"]) if r["is_error"] else "nej")]
-        trace = "".join(f"<li>{e(t['tool'])}: {e(t['input'])}{' · fel' if t.get('error') else ''}</li>" for t in r["trace"])
-        return page(f"Körning {r['id']}",
-                    "<table>" + "".join(f"<tr><th>{k}</th><td>{v}</td></tr>" for k, v in rows) + "</table>"
-                    f"<h2>Verktyg</h2>{'<ol>' + trace + '</ol>' if trace else '<p>Inga.</p>'}"
-                    f"<h2>Utdata (början)</h2><pre>{linked(r['output'] or '')}</pre>")
-
-    async def case_page(request: Request) -> Response:
-        ref = request.path_params.get("ref", "")
-        q = request.query_params.get("q", "").strip()
-        form = '<form action="/arende/"><input name="q" placeholder="#S3, #F210 eller några ord" value="' + e(q) + '"> <button>Sök</button></form>'
-        if not ref:
-            if q and refs.PATTERN.fullmatch(q):
-                m = refs.PATTERN.fullmatch(q)
-                return RedirectResponse(f"/arende/{m.group(1).upper()}{m.group(2)}")
-            result = f"<pre>{linked(await refs.lookup(db, q, limit=40))}</pre>" if q else ""
-            return page("Ärenden", form + result)
-        c = await office.case(ref)
-        if c is None:
-            return page(ref, form + "<p>Inget ärende med det id:t.</p>")
-        parts = [form, f"<pre>{linked(c['about'])}</pre>"]
-        if c["decisions"]:
-            parts.append("<h2>Beslut</h2><ul>" + "".join(f"<li>{e(d['at'])} · {e(d['module'])} · {e(d['tier'])}: {e(d['reason'])}</li>"
-                                                        for d in c["decisions"]) + "</ul>")
-        if c["messages"]:
-            parts.append("<h2>Meddelanden</h2><ul>" + "".join(f"<li>{e(m['at'])} · {who(m['from'])}: {linked(m['text'])}</li>" for m in c["messages"]) + "</ul>")
-        if c["posts"]:
-            parts.append("<h2>Post</h2><ul>" + "".join(
-                f"<li>{e(p['at'])} · {linked(p['ref'])} {who(p['from'])} → {who(p['to'])} ({e(p['kind'])}, {e(p['status'])}): {linked(p['text'])}</li>"
-                for p in c["posts"]) + "</ul>")
-        if c["bookings"]:
-            parts.append("<h2>Bokningar</h2><ul>" + "".join(
-                f"<li>{linked(b['ref'])} {e(b['kind'])}, {e(b['status'])}, {e(b['due'])}: {e(b['title'])}</li>" for b in c["bookings"]) + "</ul>")
-        return page(c["ref"], "".join(parts))
-
-    async def archive_page(request: Request) -> Response:
-        rel = request.path_params.get("path", "").strip("/")
-        if not rel:
-            return page("Arkivet", "<ul>" + "".join(f'<li><a href="/arkiv/{n}/">{n}/</a></li>' for n in roots) + "</ul>")
-        root_name, _, sub = rel.partition("/")
-        if root_name not in roots:
-            return page("Finns inte", "<p>Ingen sådan mapp.</p>")
-        root = roots[root_name].resolve()
-        path = (root / sub).resolve()
-        if not path.is_relative_to(root) or any(part.startswith(".") for part in path.relative_to(root).parts) or not path.exists():
-            return page("Finns inte", "<p>Ingen sådan fil.</p>")
-        up = rel.rsplit("/", 1)[0] if "/" in rel else ""
-        back = f'<p><a href="/arkiv/{e(up)}{"/" if up else ""}">↑ {e(up or "Arkivet")}</a></p>'
-        if path.is_dir():
-            entries = sorted((p for p in path.iterdir() if not p.name.startswith(".")), key=lambda p: (p.is_file(), p.name))
-            items = "".join(f'<li><a href="/arkiv/{e(rel)}/{e(p.name)}{"/" if p.is_dir() else ""}">{e(p.name)}{"/" if p.is_dir() else ""}</a></li>'
-                            for p in entries)
-            return page(rel + "/", back + (f"<ul>{items}</ul>" if items else "<p>Tom.</p>"))
-        if path.suffix not in TEXT_SUFFIXES:
-            return page(rel, back + f"<p>{path.stat().st_size} byte, inte text.</p>")
-        return page(rel, back + f"<pre>{linked(path.read_text(errors='replace'))}</pre>")
-
-    async def tables_page(request: Request) -> Response:
-        name = request.path_params.get("name")
-        tables = [r["name"] for r in await db.fetchall("SELECT name FROM sqlite_master WHERE type = 'table' AND name NOT LIKE 'sqlite_%' ORDER BY name")]
-        if not name:
-            counts = [(t, (await db.fetchone(f'SELECT count(*) AS n FROM "{t}"'))["n"]) for t in tables]
-            return page("Tabellerna", "<ul>" + "".join(f'<li><a href="/tabeller/{t}">{t}</a> ({n})</li>' for t, n in counts) + "</ul>")
-        if name not in tables:  # only real table names reach the SQL below
-            return page("Finns inte", "<p>Ingen sådan tabell.</p>")
-        offset = max(0, int(request.query_params.get("sida", "0") or 0)) * PAGE
-        rows = await db.fetchall(f'SELECT * FROM "{name}" ORDER BY rowid DESC LIMIT ? OFFSET ?', (PAGE, offset))
-        total = (await db.fetchone(f'SELECT count(*) AS n FROM "{name}"'))["n"]
-        if not rows:
-            return page(name, "<p>Inga rader.</p>")
-        cols = rows[0].keys()
-        head = "<tr>" + "".join(f"<th>{e(c)}</th>" for c in cols) + "</tr>"
-        body = "".join("<tr>" + "".join(f"<td>{linked(str(r[c]) if r[c] is not None else '', 300)}</td>" for c in cols) + "</tr>" for r in rows)
-        sida = offset // PAGE
-        nav = (f'<p>Rad {offset + 1}–{offset + len(rows)} av {total}, nyast först. '
-               + (f'<a href="?sida={sida - 1}">← nyare</a> ' if sida else "")
-               + (f'<a href="?sida={sida + 1}">äldre →</a>' if offset + len(rows) < total else "") + "</p>")
-        return page(name, nav + f'<table border="1">{head}{body}</table>' + nav)
-
-    # The same data as JSON, for the illustrated office later.
-    async def api_now(request: Request) -> Response:
-        return JSONResponse(await office.now())
-
-    async def api_timeline(request: Request) -> Response:
-        role = request.query_params.get("roll")
-        return JSONResponse(await office.timeline(int(request.query_params.get("antal", "60")), role if role in ROLES else None))
-
-    async def api_role(request: Request) -> Response:
-        role = request.path_params["role"]
-        return JSONResponse(await office.role(role)) if role in ROLES else JSONResponse({"error": "no such role"}, 404)
-
-    async def api_run(request: Request) -> Response:
-        r = await office.run(int(request.path_params["id"]))
-        return JSONResponse(r) if r else JSONResponse({"error": "no such run"}, 404)
-
-    async def api_case(request: Request) -> Response:
-        c = await office.case(request.path_params["ref"])
-        return JSONResponse(c) if c else JSONResponse({"error": "no such case"}, 404)
-
-    async def light_prototype(request: Request) -> Response:
-        return FileResponse(ROOT / "web" / "ljus.html")
-
-    async def office_greybox(request: Request) -> Response:
-        return FileResponse(ROOT / "web" / "kontor.html")
-
-    # The illustrated office, live: the state of right now, then a stream of what happens (agent/kontor.py).
-    feed = Live(db, office.memory, office.tz.key)
-
-    async def kontor_state(request: Request) -> Response:
-        return JSONResponse(await feed.state())
-
-    async def kontor_stream(request: Request) -> Response:
         async def events():
-            cursor = await feed.cursor()   # from now on: the page already has the state of right now
+            nonlocal cursor
             quiet = 0
             while not await request.is_disconnected():
-                happened = await feed.changes(cursor)
+                happened = await office.since(cursor)
                 for h in happened:
                     yield sse(h)
+                if happened:
+                    cursor = happened[-1]["id"]
+                    yield sse({"type": "counts", **await office.counts()})   # what the piles show now
                 quiet = 0 if happened else quiet + 1
                 if quiet >= 15:  # a comment now and then keeps proxies from closing a quiet stream
                     yield ": still here\n\n"
@@ -293,37 +92,136 @@ def build_app(db: Database, office: Office, roots: dict[str, Path]) -> Starlette
                 await asyncio.sleep(1)
         return StreamingResponse(events(), media_type="text/event-stream", headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"})
 
-    async def kontor_work(request: Request) -> Response:
-        w = await feed.work(request.path_params["id"])
+    async def api_thing(request: Request) -> Response:
+        d = await office.detail(request.path_params["name"])
+        return JSONResponse(d) if d else JSONResponse({"error": "no such thing"}, 404)
+
+    async def api_work(request: Request) -> Response:
+        w = await office.work(request.path_params["id"])
         return JSONResponse(w) if w else JSONResponse({"error": "no such work"}, 404)
 
-    async def kontor_object(request: Request) -> Response:
-        d = await feed.detail(request.path_params["name"])
-        return JSONResponse(d) if d else JSONResponse({"error": "no such thing"}, 404)
+    # --- the raw data -------------------------------------------------------------------------
+
+    async def data_index(request: Request) -> Response:
+        parts = []
+        working = office.working()
+        parts.append("<h2>Working now</h2>" + ("<ul>" + "".join(f"<li>{e(NAMES[r])}: {e(w['task'])} ({w['seconds']} s)</li>" for r, w in working.items())
+                                                + "</ul>" if working else "<p>No one.</p>"))
+        if office.status:
+            q = office.status()
+            rl = q.get("rate_limit") or {}
+            line = f"Quota: {e(rl.get('status') or 'unknown')}"
+            if rl.get("utilization") is not None:
+                line += f", {e(rl.get('type'))} {round(rl['utilization'] * 100)} %"
+            if q.get("paused_until"):
+                line += f" · background work paused until {e(q['paused_until'])}"
+            parts.append(f"<p>{line}</p>")
+        runs = await db.fetchall("SELECT id, kind, finished_at, duration_ms, is_error FROM claude_runs ORDER BY id DESC LIMIT 40")
+        parts.append("<h2>Latest work</h2><ul>" + "".join(
+            f'<li><a href="/data/run/{r["id"]}">#R{r["id"]}</a> {e(office.local(r["finished_at"]))} · {e(NAMES.get(role_of(r["kind"]), ""))} · '
+            f'{e(task_name(r["kind"]))} ({(r["duration_ms"] or 0) // 1000} s){" · failed" if r["is_error"] else ""}</li>' for r in runs) + "</ul>")
+        return page("Data", "".join(parts))
+
+    async def run_page(request: Request) -> Response:
+        r = await office.run(request.path_params["id"])
+        if r is None:
+            return page("Not found", "<p>No such run.</p>")
+        rows = [("Role", e(NAMES.get(r["role"], r["role"]))), ("Task", e(r["task"]) + f" ({e(r['kind'])})"), ("Time", e(r["at"])), ("Model", e(r["model"])),
+                ("Length", f"{(r['duration_ms'] or 0) / 1000:.0f} s"), ("Cost", f"{r['cost_usd']:.3f} $" if r["cost_usd"] is not None else "–"),
+                ("Tokens", f"in {e(r['input_tokens'])}, out {e(r['output_tokens'])}, cache {e(r['cache_read_tokens'])}/{e(r['cache_write_tokens'])}, "
+                           f"context {e(r['context_tokens'])}"),
+                ("Turns", e(r["turns"])), ("Quota", e(r["rate_limit"])), ("Error", e(r["error"]) if r["is_error"] else "no")]
+        trace = "".join(f"<li>{e(t['tool'])}: {e(t['input'])}{' · failed' if t.get('error') else ''}</li>" for t in r["trace"])
+        return page(f"#R{r['id']}",
+                    "<table>" + "".join(f"<tr><th>{k}</th><td>{v}</td></tr>" for k, v in rows) + "</table>"
+                    f"<h2>Tools</h2>{'<ol>' + trace + '</ol>' if trace else '<p>None.</p>'}"
+                    f"<h2>Output (the start)</h2><pre>{linked(r['output'] or '')}</pre>")
+
+    async def case_page(request: Request) -> Response:
+        ref = request.path_params.get("ref", "")
+        q = request.query_params.get("q", "").strip()
+        form = '<form action="/data/case/"><input name="q" placeholder="#S3, #F210 or a few words" value="' + e(q) + '"> <button>Search</button></form>'
+        if not ref:
+            if q and (m := refs.PATTERN.fullmatch(q)):
+                return RedirectResponse(f"/data/case/{m.group(1).upper()}{m.group(2)}")
+            result = f"<pre>{linked(await refs.lookup(db, q, limit=40))}</pre>" if q else ""
+            return page("Cases", form + result)
+        c = await office.case(ref)
+        if c is None:
+            return page(ref, form + "<p>No case with that id.</p>")
+        parts = [form, f"<pre>{linked(c['about'])}</pre>"]
+        if c["decisions"]:
+            parts.append("<h2>Decisions</h2><ul>" + "".join(f"<li>{e(d['at'])} · {e(d['module'])} · {e(d['decision'])}: {e(d['reason'])}</li>"
+                                                         for d in c["decisions"]) + "</ul>")
+        if c["messages"]:
+            parts.append("<h2>Messages</h2><ul>" + "".join(f"<li>{e(m['at'])} · {e(m['from'])}: {linked(m['text'])}</li>" for m in c["messages"]) + "</ul>")
+        if c["posts"]:
+            parts.append("<h2>Posts</h2><ul>" + "".join(
+                f"<li>{e(p['at'])} · {linked(p['ref'])} {e(p['from'])} → {e(p['to'])} ({e(p['kind'])}, {e(p['status'])}): {linked(p['text'])}</li>"
+                for p in c["posts"]) + "</ul>")
+        if c["bookings"]:
+            parts.append("<h2>Bookings</h2><ul>" + "".join(
+                f"<li>{linked(b['ref'])} {e(b['kind'])}, {e(b['status'])}, {e(b['due'])}: {e(b['title'])}</li>" for b in c["bookings"]) + "</ul>")
+        return page(c["ref"], "".join(parts))
+
+    async def files_page(request: Request) -> Response:
+        rel = request.path_params.get("path", "").strip("/")
+        if not rel:
+            return page("Files", "<ul>" + "".join(f'<li><a href="/data/files/{n}/">{n}/</a></li>' for n in roots) + "</ul>")
+        root_name, _, sub = rel.partition("/")
+        if root_name not in roots:
+            return page("Not found", "<p>No such folder.</p>")
+        root = roots[root_name].resolve()
+        path = (root / sub).resolve()
+        if not path.is_relative_to(root) or any(part.startswith(".") for part in path.relative_to(root).parts) or not path.exists():
+            return page("Not found", "<p>No such file.</p>")
+        up = rel.rsplit("/", 1)[0] if "/" in rel else ""
+        back = f'<p><a href="/data/files/{e(up)}{"/" if up else ""}">↑ {e(up or "Files")}</a></p>'
+        if path.is_dir():
+            entries = sorted((p for p in path.iterdir() if not p.name.startswith(".")), key=lambda p: (p.is_file(), p.name))
+            items = "".join(f'<li><a href="/data/files/{e(rel)}/{e(p.name)}{"/" if p.is_dir() else ""}">{e(p.name)}{"/" if p.is_dir() else ""}</a></li>'
+                            for p in entries)
+            return page(rel + "/", back + (f"<ul>{items}</ul>" if items else "<p>Empty.</p>"))
+        if path.suffix not in TEXT_SUFFIXES:
+            return page(rel, back + f"<p>{path.stat().st_size} bytes, not text.</p>")
+        return page(rel, back + f"<pre>{linked(path.read_text(errors='replace'))}</pre>")
+
+    async def tables_page(request: Request) -> Response:
+        name = request.path_params.get("name")
+        tables = [r["name"] for r in await db.fetchall("SELECT name FROM sqlite_master WHERE type = 'table' AND name NOT LIKE 'sqlite_%' ORDER BY name")]
+        if not name:
+            counts = [(t, (await db.fetchone(f'SELECT count(*) AS n FROM "{t}"'))["n"]) for t in tables]
+            return page("Tables", "<ul>" + "".join(f'<li><a href="/data/tables/{t}">{t}</a> ({n})</li>' for t, n in counts) + "</ul>")
+        if name not in tables:  # only real table names reach the SQL below
+            return page("Not found", "<p>No such table.</p>")
+        offset = max(0, int(request.query_params.get("page", "0") or 0)) * PAGE
+        rows = await db.fetchall(f'SELECT * FROM "{name}" ORDER BY rowid DESC LIMIT ? OFFSET ?', (PAGE, offset))
+        total = (await db.fetchone(f'SELECT count(*) AS n FROM "{name}"'))["n"]
+        if not rows:
+            return page(name, "<p>No rows.</p>")
+        cols = rows[0].keys()
+        head = "<tr>" + "".join(f"<th>{e(c)}</th>" for c in cols) + "</tr>"
+        body = "".join("<tr>" + "".join(f"<td>{linked(str(r[c]) if r[c] is not None else '', 300)}</td>" for c in cols) + "</tr>" for r in rows)
+        n = offset // PAGE
+        nav = (f'<p>Rows {offset + 1}–{offset + len(rows)} of {total}, newest first. '
+               + (f'<a href="?page={n - 1}">← newer</a> ' if n else "")
+               + (f'<a href="?page={n + 1}">older →</a>' if offset + len(rows) < total else "") + "</p>")
+        return page(name, nav + f'<table border="1">{head}{body}</table>' + nav)
 
     return Starlette(routes=[
         Route("/", office_page),
-        Route("/prototyp/ljus", light_prototype),
-        Route("/prototyp/kontor", office_greybox),
-        Route("/api/kontor/lage", kontor_state),
-        Route("/api/kontor/strom", kontor_stream),
-        Route("/api/kontor/objekt/{name}", kontor_object),
-        Route("/api/kontor/arbete/{id:int}", kontor_work),
-        Route("/fragment/nu", now_fragment),
-        Route("/fragment/tidslinje", timeline_fragment),
-        Route("/roll/{role}", role_page),
-        Route("/korning/{id:int}", run_page),
-        Route("/arende/", case_page),
-        Route("/arende/{ref}", case_page),
-        Route("/arkiv/", archive_page),
-        Route("/arkiv/{path:path}", archive_page),
-        Route("/tabeller/", tables_page),
-        Route("/tabeller/{name}", tables_page),
-        Route("/api/nu", api_now),
-        Route("/api/tidslinje", api_timeline),
-        Route("/api/roll/{role}", api_role),
-        Route("/api/korning/{id:int}", api_run),
-        Route("/api/arende/{ref}", api_case),
+        Route("/api/state", api_state),
+        Route("/api/stream", api_stream),
+        Route("/api/thing/{name}", api_thing),
+        Route("/api/work/{id:int}", api_work),
+        Route("/data/", data_index),
+        Route("/data/run/{id:int}", run_page),
+        Route("/data/case/", case_page),
+        Route("/data/case/{ref}", case_page),
+        Route("/data/files/", files_page),
+        Route("/data/files/{path:path}", files_page),
+        Route("/data/tables/", tables_page),
+        Route("/data/tables/{name}", tables_page),
     ])
 
 

@@ -36,7 +36,7 @@ from claude_agent_sdk import (
 
 from agent import trail
 from agent.db import Database
-from agent.vocab import role_of
+from agent.vocab import OUT_TOOLS, role_of
 
 log = logging.getLogger(__name__)
 
@@ -121,6 +121,7 @@ async def sdk_runner(task: ClaudeTask, workspace: Path, on_rate_limit: OnRateLim
 
     texts: list[str] = []
     trace = task.trace
+    went_out = False
     by_id: dict[str, dict] = {}
     context = 0
     result: ResultMessage | None = None
@@ -134,6 +135,9 @@ async def sdk_runner(task: ClaudeTask, workspace: Path, on_rate_limit: OnRateLim
                 if isinstance(b, ToolUseBlock) and b.name != "ToolSearch":
                     entry = {"tool": b.name.removeprefix("mcp__"), "input": _short(b.input), "error": False}
                     trace.append(entry)
+                    if not went_out and entry["tool"].startswith(OUT_TOOLS):   # out of the office: on the office page too
+                        went_out = True
+                        await trail.emit("out", role_of(task.kind), task=task.kind)
                     by_id[b.id] = entry
         elif isinstance(msg, UserMessage) and isinstance(msg.content, list):
             for b in msg.content:

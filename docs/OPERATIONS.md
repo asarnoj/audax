@@ -17,7 +17,7 @@ Se det live:
 
 ## Kontorets sida
 
-En enkel webbsida i samma process (`agent/site.py`, data i `agent/office.py`): vad varje roll gör just nu (live, med verktygsstegen i en pågående körning), händelserna (samtalet, posten mellan rollerna, körningarna), varje rolls skrivbord (arbetsminne, filer, inkorg, historik), en körnings steg, ärenden följda via id (#P, #S, #F, #B), arkivet (minnet och instansens inställningar) och alla tabeller. Samma data finns som JSON under `/api/` för det illustrerade kontoret senare. Sidan kan bara läsa.
+En webbsida i samma process (`agent/site.py`, data i `agent/office.py`). På `/` det illustrerade kontoret ovanifrån ([KONTORET.md](KONTORET.md)): läget just nu och det som händer, i realtid, och bakom varje klick innehåll och historik. Under `/data/` rådatan i enkla sidor: vem som arbetar nu och kvoten, de senaste körningarna (#R) med sina steg, ärenden följda via id (#P, #S, #F, #B), filerna (minnet och instansens inställningar) och alla tabeller. Sidans fasta text är engelska. Sidan kan bara läsa.
 
 - Motorn lyssnar bara på `127.0.0.1:8400` (`site:` i settings.yaml). **nginx** på Pi:n gör den nåbar på Pi:ns Tailscale-adress, port 8400, och ingen annanstans (inte hemnätet): `/etc/nginx/sites-available/audax` med `listen <tailscale-ip>:8400;` och `proxy_pass http://127.0.0.1:8400;`. Öppna `http://<pi-namnet>:8400` på en enhet i tailnetet.
 - `.env` ligger utanför arkivet, och dolda filer (`.git`) visas inte.

@@ -291,7 +291,7 @@ async def run() -> None:
     web_site = None
     if settings.site.enabled:
         office = Office(db, memory.path, settings.timezone, status=gate.status)
-        app = site.build_app(db, office, {"minne": memory.path, "installningar": INSTANCE / "config"})
+        app = site.build_app(db, office, {"memory": memory.path, "config": INSTANCE / "config"})
         web_site = site.start(app, settings.site.host, settings.site.port)
         log.info("office page on http://%s:%d", settings.site.host, settings.site.port)
     log.info("agent running")

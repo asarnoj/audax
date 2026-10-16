@@ -1121,32 +1121,40 @@ function draw(nowT) {
   $("info").textContent = `${state.date} ${hh}:${mm} · ` + (L.sunStrength > 0.01 ? `daylight from ${Math.round(L.az)}°, ${Math.round(L.K / 100) * 100} K` : "dark outside") +
     ` · desk lamps ${lampsOn ? "on" : "off"}`;
 }
-// --- connected to the office: the state of right now, then what happens (agent/kontor.py) -----------------
+// --- connected to the office: the state of right now, then what happens (agent/office.py) -----------------
+// The state carries the point in the office's event log it was read at; the stream goes on from there, and after
+// a dropped connection the browser carries on from the last event it got (its id), so nothing is told twice.
 const ROLE_SET = new Set(Object.keys(people));
+let TASK = {}, NAME = { assistant: "Assistant", director: "Director", researcher: "Researcher", manager: "Manager" };
 const counts = { trays: { manager: 0, director: 0, assistant: 0, researcher: 0 }, board: 0, bin: 0 };
 const addTray = (role, d) => { counts.trays[role] = Math.max(0, counts.trays[role] + d); setTray(role, counts.trays[role]); };
 const addBoard = (d) => { counts.board = Math.max(0, counts.board + d); setBoard(counts.board); };
 const addBin = (d) => { counts.bin = Math.max(0, counts.bin + d); setBin(counts.bin); };
-async function fetchState() { const r = await fetch("/api/kontor/lage"); if (!r.ok) throw new Error(r.status); return r.json(); }
+async function fetchState() { const r = await fetch("/api/state"); if (!r.ok) throw new Error(r.status); return r.json(); }
+function setCounts(c) {   // what the piles show, exactly as the office has it
+  for (const role of ROLE_SET) { counts.trays[role] = c.waiting?.[role] ?? 0; setTray(role, counts.trays[role]); }
+  counts.board = c.board ?? 0; setBoard(counts.board);
+  setCalendar(c.calendar || []);
+  counts.bin = c.bin ?? 0; setBin(counts.bin);
+}
 function apply(state) {
   live.working = state.working || {};
   live.last = state.last || {};
+  TASK = state.tasks || TASK; NAME = { ...NAME, ...state.names };
   showRoles();
-  for (const role of ROLE_SET) { counts.trays[role] = state.waiting?.[role] ?? 0; setTray(role, counts.trays[role]); }
-  counts.board = (state.board || []).length; setBoard(counts.board);
-  setCalendar(state.calendar || []);
-  counts.bin = state.bin ?? 0; setBin(counts.bin);
+  setCounts(state);
 }
-const refresh = () => fetchState().then(apply).catch(() => {});
 const refreshCalendar = () => fetchState().then(st => setCalendar(st.calendar || [])).catch(() => {});
 const quiet = () => Object.values(people).every(p => p.mode === "seated" && !p.queue.length);
-setInterval(() => { if (quiet()) refresh(); }, 30000);   // now and then, when nobody is mid-errand: match the counts exactly
+let settled = null;   // the latest counts from the stream, put in place once nobody is mid-errand
+setInterval(() => { if (settled && quiet()) { setCounts(settled); settled = null; } }, 2000);
 
 // What happened, acted out (docs/KONTORET.md, "Från systemet till kontoret").
 function happen(h) {
+  if (h.type === "counts") { settled = h; return; }
   fetchSoon();
   switch (h.type) {
-    case "start": live.working[h.role] = { kind: h.kind, task: TASK[h.kind] || h.kind }; showRoles(); break;
+    case "start": live.working[h.role] = { kind: h.task, task: TASK[h.task] || h.task }; showRoles(); break;
     case "end": delete live.working[h.role]; (live.last ||= {})[h.role] = new Date().toISOString(); showRoles(); break;
     case "out": if (h.role === "director") errand("director", { key: "computer", stops: [{ place: "computer", act: 3, until: () => !live.working.director }] }); break;
     case "print": printout(true); setTimeout(() => { printout(false); addTray("director", h.n); }, 2200); break;
@@ -1158,25 +1166,25 @@ function happen(h) {
       errand("manager", { key: to, carry: true, starts: [() => addTray("manager", -1)], stops: [{ place: to, dones: [done] }] });
       break;
     }
+    case "deliver":   // the Assistant takes what is due, from its inbox or from the calendar, and writes it to you
+      if (h.source === "calendar") errand("assistant", { key: "calendar-take", stops: [{ place: "calendar", dones: [refreshCalendar] }] });
+      else { people.assistant.throwT = 0.8; addTray("assistant", -1); }
+      break;
     case "post":
-      if (ROLE_SET.has(h.from) && ROLE_SET.has(h.to) && h.from !== h.to) errand(h.from, { key: "inbox-" + h.to, carry: true, stops: [{ place: "inbox-" + h.to, dones: [() => addTray(h.to, 1)] }] });
+      if (ROLE_SET.has(h.role) && ROLE_SET.has(h.to) && h.role !== h.to) errand(h.role, { key: "inbox-" + h.to, carry: true, stops: [{ place: "inbox-" + h.to, dones: [() => addTray(h.to, 1)] }] });
       else if (ROLE_SET.has(h.to)) addTray(h.to, 1);
       break;
-    case "message":
-      if (h.dir === "in") screenFlash = 4;
-      else if (h.from === "calendar") errand("assistant", { key: "calendar-take", stops: [{ place: "calendar", dones: [refreshCalendar] }] });
-      else if (h.from === "inbox") { people.assistant.throwT = 0.8; addTray("assistant", -1); }
-      break;
-    case "book": errand(ROLE_SET.has(h.by) ? h.by : "assistant", { key: "calendar", carry: true, stops: [{ place: "calendar", dones: [refreshCalendar] }] }); break;
+    case "message": if (h.direction === "in") screenFlash = 4; break;
+    case "book": errand(ROLE_SET.has(h.role) ? h.role : "assistant", { key: "calendar", carry: true, stops: [{ place: "calendar", dones: [refreshCalendar] }] }); break;
     case "pull": errand("assistant", { key: "board-take", stops: [{ place: "board", act: 1.5, dones: [() => addBoard(-h.n)] }] }); break;
-    case "archive": errand(h.role, { key: "drawer-" + h.role, stops: [{ place: "drawer-" + h.role, act: 1.8 }] }); break;
+    case "save": if (ROLE_SET.has(h.role)) errand(h.role, { key: "drawer-" + h.role, stops: [{ place: "drawer-" + h.role, act: 1.8 }] }); break;
   }
 }
-refresh().then(() => {
-  const stream = new EventSource("/api/kontor/strom");
+fetchState().then((state) => {
+  apply(state);
+  const stream = new EventSource("/api/stream?from=" + state.cursor);
   stream.onmessage = (e) => { try { happen(JSON.parse(e.data)); } catch (err) { console.error(err); } };
-  stream.onopen = () => refresh();   // after a reconnect: catch up with the state of right now
-});
+}).catch(() => { /* not on the Pi: an empty office */ });
 
 // --- what can be clicked: a white outline that follows its shape, and a window with what it holds ---------
 const CLICKABLE = [["board", ["board"]], ["calendar", ["calendar"]], ["bin", ["bin"]], ["archive", ["archive"]],
@@ -1209,10 +1217,6 @@ canvas.addEventListener("mousemove", (e) => {
 canvas.addEventListener("mouseleave", () => { hover = null; });
 canvas.addEventListener("click", () => { if (hover) openSheet(hover); });
 // --- the window: what a piece of furniture holds --------------------------------------------------------
-const TASK = { chat: "Conversation", assistant_night: "Night review", director_understand: "Daily review", director_reflect: "Reflection",
-  triage: "Triage", researcher_plan: "Planning", research: "Search mission", research_deep: "Wide search", page_extract: "Reading a watched page",
-  manager: "Daily review", dispatcher: "Dispatcher" };
-const NAME = { assistant: "Assistant", director: "Director", researcher: "Researcher", manager: "Manager" };
 const closeSheet = () => { $("veil").classList.add("hidden"); openName = null; };
 $("close").addEventListener("click", closeSheet);
 $("veil").addEventListener("click", (e) => { if (e.target.id === "veil") closeSheet(); });
@@ -1252,10 +1256,10 @@ let openName = null;
 async function getJSON(url) { const r = await fetch(url); if (!r.ok) throw new Error(r.status); return r.json(); }
 async function fetchObject(name) {
   try {
-    const d = await getJSON("/api/kontor/objekt/" + name);
+    const d = await getJSON("/api/thing/" + name);
     ahead[name] = d;
     if (openName === name && !document.querySelector("#sheet .detail:not([hidden])")) render(name, d);
-    if (d.work) for (const w of d.work.slice(0, 12)) if (!works[w.id]) works[w.id] = getJSON("/api/kontor/arbete/" + w.id).catch(() => { delete works[w.id]; return null; });
+    if (d.work) for (const w of d.work.slice(0, 12)) if (!works[w.id]) works[w.id] = getJSON("/api/work/" + w.id).catch(() => { delete works[w.id]; return null; });
   } catch { /* not on the Pi: nothing to show */ }
 }
 const fetchAll = () => OBJECTS.reduce((p, n) => p.then(() => fetchObject(n)), Promise.resolve());
@@ -1330,7 +1334,7 @@ async function openWork(id) {
   const box = $("work-" + id);
   if (!box.hidden) { box.hidden = true; return; }
   box.hidden = false;
-  if (!works[id]) works[id] = getJSON("/api/kontor/arbete/" + id).catch(() => null);
+  if (!works[id]) works[id] = getJSON("/api/work/" + id).catch(() => null);
   const loading = setTimeout(() => { box.innerHTML = "<p class='muted'>Loading…</p>"; }, 150);   // only if it wasn't fetched ahead
   const w = await works[id];
   clearTimeout(loading);
@@ -1339,7 +1343,7 @@ async function openWork(id) {
   if (w.failed) html += `<p class="muted">It didn't finish: ${esc(w.error)}</p>`;
   if (w.about.length) html += "<h3>What it was about</h3><ul class='plain'>" + w.about.map(a =>
     `<li><div class="muted">${esc(a.label)}</div><span class="text">${esc(a.text)}</span>${a.note ? `<div class="muted">${esc(a.note)}</div>` : ""}</li>`).join("") + "</ul>";
-  if (w.wrote) html += `<h3>Its answer</h3><div class="notes">${notes(w.wrote)}${w.wrote.length >= 600 ? "…" : ""}</div>`;
+  if (w.answer) html += `<h3>Its answer</h3><div class="notes">${notes(w.answer)}</div>`;
   if (w.posts.length) html += "<h3>What it sent</h3><ul class='plain'>" + w.posts.map(p => `<li><div class="muted">${esc(p.kind)} to ${esc(p.to)}</div><span class="text">${esc(p.text)}</span></li>`).join("") + "</ul>";
   if (w.edits.length) html += "<h3>What it changed</h3>" + w.edits.map(e =>
     `<details><summary>${esc(e.file)} <span class="muted">+${e.added} −${e.removed} lines</span></summary><pre class="diff">${diff(e.patch)}</pre></details>`).join("");

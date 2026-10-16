@@ -38,3 +38,8 @@ def task_name(kind: str) -> str:
 
 def kinds_of(role: str) -> list[str]:
     return [k for k, (r, _) in KINDS.items() if r == role]
+
+
+# Tools that go out of the office (mail, the web, GitHub): on the office page, Director borrows Researcher's
+# computer for them. Names as they appear in a run's trace.
+OUT_TOOLS = ("agent__mail_", "agent__web_read", "agent__github", "WebSearch")
