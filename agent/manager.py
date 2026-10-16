@@ -1,11 +1,11 @@
-"""Manager: owner of the experience (docs/ARCHITECTURE.md, docs/ATTENTION.md §4.6).
+"""Manager: owner of the experience (docs/MODEL.md, docs/archive/ATTENTION.md §4.6).
 
-Nightly: reviews the conversation like a UX researcher, calibrates pacing (policy.md), voice
-(style.md) and the owner's current bandwidth (state.md), and tends the shelf. What the agent looks for
-is Director's job, not Manager's.
+Nightly: reviews the conversation like a UX researcher, calibrates pacing, voice and what the situation means for
+the owner's attention (all in policy.md), and tends the shelf. What the agent looks for is Director's job, not
+Manager's.
 
 Python gathers the facts, Claude judges, Python applies the result within fixed bounds:
-- policy.md, style.md, state.md, journal and changelog are written here (the chat can't edit them)
+- policy.md is written here (the chat can't edit it); the run's own account is kept on the run (agent/trail.py)
 - structural changes to the experience become proposals that the owner approves with a button
 """
 
@@ -18,6 +18,7 @@ from datetime import datetime, timedelta
 from zoneinfo import ZoneInfo
 
 
+from agent import trail
 from agent.pursuits import Pursuits
 from agent.claude_gate import ClaudeGate, ClaudeTask, Priority, QuotaPaused
 from agent.config import Settings
@@ -40,9 +41,6 @@ SCHEMA = {
     "properties": {
         "policy_md": {"type": ["string", "null"], "description": "Swedish. The whole new policy.md, or null if unchanged"},
         "policy_reason": {"type": "string", "description": "Swedish, one sentence"},
-        "style_md": {"type": ["string", "null"], "description": "Swedish. The whole new style.md, or null. Only for a recurring pattern or the owner's own request."},
-        "style_reason": {"type": ["string", "null"], "description": "Swedish. The evidence for the style change"},
-        "state_md": {"type": ["string", "null"], "description": "Swedish. The whole new state.md, or null if the situation is unchanged"},
         "resurface": {"type": "array", "items": {"type": "integer"}, "description": "Candidate ids from the shelf to bring back"},
         "questions": {
             "type": "array",
@@ -111,8 +109,7 @@ SCHEMA = {
             },
         },
         "working_memory_md": {"type": "string", "description": "Swedish. Your whole new working memory (see the prompt)"},
-        "journal_md": {"type": "string", "description": "Swedish. Today's journal entry"},
-        "changelog": {"type": "string", "description": "Swedish. What you changed and why; empty string if nothing"},
+        "summary": {"type": "string", "description": "Swedish. What you saw and what you changed, and why: the run's own account"},
         "note_to_owner": {"type": ["string", "null"], "description": "Swedish brief for the chat, or null"},
         "desk_review": {
             "type": "object",
@@ -125,7 +122,7 @@ SCHEMA = {
             "required": ["sampled", "followed_policy", "notes"],
         },
     },
-    "required": ["policy_md", "policy_reason", "working_memory_md", "desk_review", "journal_md", "changelog", "checkin"],
+    "required": ["policy_md", "policy_reason", "working_memory_md", "desk_review", "summary", "checkin"],
 }
 
 CHECKIN_QUESTION = "Avstämning: hur har mängden meddelanden från mig känts senaste tiden?"
@@ -174,7 +171,6 @@ class Manager:
             activity=await self._activity(since_sql),
             feedback=await self._feedback(since_sql),
             conversation=await self._conversation(since_sql),
-            style_state=self.memory.read("style.md", "state.md"),
             notes=Posts.format(inbox),
             shelf=await self._shelf(),
             proposals=await self._proposals(),
@@ -210,12 +206,6 @@ class Manager:
         if out.get("policy_md"):
             (self.memory.path / "policy.md").write_text(out["policy_md"].strip() + "\n")
             changes.append(f"policy: {out.get('policy_reason', '')}")
-        if out.get("style_md"):
-            (self.memory.path / "style.md").write_text(out["style_md"].strip() + "\n")
-            changes.append(f"stilguide: {out.get('style_reason') or ''}")
-        if out.get("state_md"):
-            (self.memory.path / "state.md").write_text(out["state_md"].strip() + "\n")
-            changes.append("läge uppdaterat")
         for cid in out.get("resurface") or []:
             if await self.db.fetchone("SELECT 1 FROM candidates WHERE id = ? AND status = 'shelved'", (cid,)):
                 await self.db.execute(
@@ -281,15 +271,7 @@ class Manager:
         if out.get("checkin"):
             await self.db.kv_set("manager.checkin_pending", True)
 
-        journal = self.memory.path / "journal" / f"{now:%Y-%m-%d}.md"
-        journal.parent.mkdir(exist_ok=True)
-        existing = journal.read_text() if journal.exists() else ""
-        journal.write_text(existing + (f"# {now:%Y-%m-%d}\n\n" if not existing else "\n") + out.get("journal_md", "").strip() + "\n")
-
-        log_text = (out.get("changelog") or "").strip()
-        if log_text or changes:
-            with (self.memory.path / "changelog.md").open("a") as f:
-                f.write(f"\n## {now:%Y-%m-%d %H:%M}\n{log_text}\n" + "".join(f"- {c}\n" for c in changes))
+        await trail.account("\n".join([(out.get("summary") or "").strip(), *(f"- {c}" for c in changes)]))
 
         if note := (out.get("note_to_owner") or "").strip():
             await add_candidate(

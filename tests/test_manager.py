@@ -4,6 +4,7 @@ from zoneinfo import ZoneInfo
 
 import pytest
 
+from agent import trail
 from agent.claude_gate import ClaudeGate, RunResult
 from agent.config import load_settings
 from agent.db import Database
@@ -18,14 +19,25 @@ async def env(tmp_path, monkeypatch):
     mem = tmp_path / "memory"
     mem.mkdir()
     (mem / "policy.md").write_text("# Policy\nkallstart\n")
-    (mem / "changelog.md").write_text("# Ändringslogg\n")
     subprocess.run(["git", "init", "-q"], cwd=mem, check=True)
     research = None
 
     db = Database(tmp_path / "t.db")
     await db.open()
+    trail.attach(db)
     yield db, MemoryRepo(mem), research
+    trail.attach(None)
+    trail.current_run.set(None)
     await db.close()
+
+
+async def begin(db) -> None:
+    """A run in progress, so Manager's account has somewhere to go (as when the gate runs it)."""
+    trail.current_run.set(await db.execute("INSERT INTO claude_runs (kind) VALUES ('manager')"))
+
+
+async def account(db) -> str:
+    return (await db.fetchone("SELECT summary FROM claude_runs ORDER BY id DESC LIMIT 1"))["summary"] or ""
 
 
 def manager(db, memory, tmp_path, structured=None):
@@ -35,19 +47,20 @@ def manager(db, memory, tmp_path, structured=None):
     return Manager(load_settings(), db, ClaudeGate(db, tmp_path, runner=runner), memory)
 
 
-BASE = {"policy_md": None, "policy_reason": "", "journal_md": "Lugn dag.", "changelog": "", "checkin": False,
+BASE = {"policy_md": None, "policy_reason": "", "summary": "", "checkin": False,
         "desk_review": {"sampled": 3, "followed_policy": True, "notes": ""}}
 
 
-async def test_apply_writes_policy_journal_changelog_and_commits(env, tmp_path):
+async def test_apply_writes_policy_keeps_its_account_on_the_run_and_commits(env, tmp_path):
     db, memory, _ = env
+    await begin(db)
     m = manager(db, memory, tmp_path)
-    await m.apply({**BASE, "policy_md": "# Policy\nnytt läge", "policy_reason": "mer feedback", "changelog": "Justerade tempo."}, NOW)
+    await m.apply({**BASE, "policy_md": "# Policy\nnytt läge", "policy_reason": "mer feedback", "summary": "Justerade tempo."}, NOW)
 
     assert (memory.path / "policy.md").read_text() == "# Policy\nnytt läge\n"
-    assert "Lugn dag." in (memory.path / "journal" / "2026-10-12.md").read_text()
-    log = (memory.path / "changelog.md").read_text()
-    assert "Justerade tempo." in log and "policy: mer feedback" in log
+    log = await account(db)
+    assert log.startswith("Justerade tempo.") and "policy: mer feedback" in log
+    assert not (memory.path / "journal").exists() and not (memory.path / "changelog.md").exists()
     assert await memory.changed_files() == []  # committed
 
 
@@ -82,12 +95,13 @@ async def test_proposal_flow_one_at_a_time(env, tmp_path):
 
 async def test_note_goes_through_the_desk_and_the_spot_check_is_logged(env, tmp_path):
     db, memory, _ = env
+    await begin(db)
     m = manager(db, memory, tmp_path)
     await m.apply({**BASE, "note_to_owner": "Jag skickar lite färre jobbtips nu.",
                    "desk_review": {"sampled": 5, "followed_policy": False, "notes": "skickade sent på kvällen trots policyn"}}, NOW)
     row = await db.fetchone("SELECT kind, status, body FROM candidates")
     assert (row["kind"], row["status"]) == ("manager_note", "pending")  # the dispatcher decides when
-    assert "gled från policyn: skickade sent på kvällen" in (memory.path / "changelog.md").read_text()
+    assert "gled från policyn: skickade sent på kvällen" in await account(db)
 
 
 async def test_checkin_is_queued_as_question(env, tmp_path):
@@ -102,15 +116,14 @@ async def test_checkin_is_queued_as_question(env, tmp_path):
 
 async def test_run_end_to_end_with_fake_claude(env, tmp_path):
     db, memory, _ = env
-    m = manager(db, memory, tmp_path, structured={**BASE, "changelog": "Inget att ändra än, för lite data."})
+    m = manager(db, memory, tmp_path, structured={**BASE, "summary": "Inget att ändra än, för lite data."})
     out = await m.run()
-    assert out["changelog"].startswith("Inget att ändra")
+    assert out["summary"].startswith("Inget att ändra") and (await account(db)).startswith("Inget att ändra")
     assert await db.kv_get("manager.last_run") is not None
 
 
-async def test_manager_v2_style_state_shelf_and_questions(env, tmp_path):
+async def test_manager_shelf_posts_and_questions(env, tmp_path):
     db, memory, _ = env
-    (memory.path / "style.md").write_text("# Stil\nkort\n")
     shelved = await db.execute("INSERT INTO candidates (kind, title, body, status) VALUES ('event', 'Hack', 'b', 'shelved')")
     sent = await db.execute("INSERT INTO candidates (kind, title, body, status) VALUES ('event', 'X', 'b', 'sent')")
     from agent.posts import Posts
@@ -118,12 +131,9 @@ async def test_manager_v2_style_state_shelf_and_questions(env, tmp_path):
     note = await Posts(db).send("assistant", "manager", "note", "längd", verbatim="det där var för långt", from_owner=True)
     m = manager(db, memory, tmp_path)
     m._seen_posts = [note]
-    await m.apply({**BASE, "working_memory_md": "Fokus: längden.", "posts": [{"to": "director", "kind": "note", "body": "Julius verkar stressad"}], "style_md": "# Stil\nännu kortare", "style_reason": "två klagomål på längd",
-                   "state_md": "Tentavecka.", "resurface": [shelved, sent],
+    await m.apply({**BASE, "working_memory_md": "Fokus: längden.", "posts": [{"to": "director", "kind": "note", "body": "Julius verkar stressad"}], "resurface": [shelved, sent],
                    "questions": [{"what": "Funkar kvällarna?", "why": "timing"}, {"what": "extra", "why": "x"}]}, NOW)
 
-    assert (memory.path / "style.md").read_text() == "# Stil\nännu kortare\n"
-    assert (memory.path / "state.md").read_text() == "Tentavecka.\n"
     st = {r["id"]: r["status"] for r in await db.fetchall("SELECT id, status FROM candidates")}
     assert st == {shelved: "pending", sent: "sent"}  # only shelved items can be resurfaced
     qs = await db.fetchall("SELECT sender, recipient, body FROM posts WHERE kind = 'question'")
@@ -131,7 +141,6 @@ async def test_manager_v2_style_state_shelf_and_questions(env, tmp_path):
     assert await Posts(db).inbox("manager") == []  # read, so handled
     assert [p["body"] for p in await Posts(db).inbox("director")] == ["Julius verkar stressad"]
     assert (memory.path / "arbetsminne" / "manager.md").read_text() == "Fokus: längden.\n"
-    assert "stilguide: två klagomål på längd" in (memory.path / "changelog.md").read_text()
 
 
 
@@ -141,6 +150,7 @@ async def test_manager_owns_the_schedule_but_not_the_owners_bookings(env, tmp_pa
     from agent.schedule import Schedule
 
     db, memory, _ = env
+    await begin(db)
 
     class Clock(Schedule):
         def now(self):
@@ -161,4 +171,4 @@ async def test_manager_owns_the_schedule_but_not_the_owners_bookings(env, tmp_pa
     ]}, NOW)
     assert (await db.fetchone("SELECT deliver_at FROM candidates WHERE id = ?", (planned,)))["deliver_at"].startswith("2026-10-13T07:00")
     assert (await db.fetchone("SELECT status FROM bookings WHERE id = ?", (own,)))["status"] == "planned"  # the owner's own: fixed
-    assert "bara ägaren kan stryka" in (memory.path / "changelog.md").read_text()
+    assert "bara ägaren kan stryka" in await account(db)

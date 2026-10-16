@@ -37,6 +37,14 @@ def tag() -> str:
     return f" [#R{rid}]" if rid else ""
 
 
+async def account(text: str) -> None:
+    """The run's own account of what it did and why (Swedish), kept on the run: the one log there is."""
+    rid = current_run.get()
+    if _db is None or rid is None or not text.strip():
+        return
+    await _db.execute("UPDATE claude_runs SET summary = ? WHERE id = ?", (text.strip(), rid))
+
+
 async def emit(kind: str, role: str | None = None, **data) -> None:
     if _db is None:
         return

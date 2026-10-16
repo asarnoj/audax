@@ -1,5 +1,5 @@
 """Changes to what the agent looks for: missions (config/research.yaml) and senses (sources.yaml,
-watchlist.yaml). Owned by Director (docs/ARCHITECTURE.md); the chat uses the same operations when
+watchlist.yaml). Owned by Director (docs/MODEL.md); the chat uses the same operations when
 the owner asks directly. All config, applied live by the reload watcher, reversible via git.
 """
 

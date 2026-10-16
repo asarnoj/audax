@@ -34,11 +34,10 @@ ABOUT = {
 }
 # Who owns which notes in the memory (the memory map in agent/prompts/claude_md.md); a trailing / is a folder.
 FILES = {
-    "assistant": ["arbetsminne/assistant.md", "profile.md", "interests.md", "projects.md", "school.md", "schedule.md", "interrupt.md"],
-    "director": ["arbetsminne/director.md", "direction/person.md", "direction/now.md", "direction/goals.md", "direction/threads/",
-                 "direction/ideas.md", "direction/log.md"],
-    "researcher": ["arbetsminne/researcher.md", "research/maps/", "research/log.md"],
-    "manager": ["arbetsminne/manager.md", "policy.md", "style.md", "state.md", "journal/", "changelog.md"],
+    "assistant": ["arbetsminne/assistant.md", "profile.md"],
+    "director": ["arbetsminne/director.md", "direction/person.md", "direction/now.md"],
+    "researcher": ["arbetsminne/researcher.md", "research/maps/"],
+    "manager": ["arbetsminne/manager.md", "policy.md"],
 }
 DRAWERS = ("assistant", "manager", "director", "researcher")  # the archive's drawers, left to right
 # The tools, in words a person reads.
@@ -172,8 +171,12 @@ class Office:
                             files.append({"path": p.relative_to(self.memory).as_posix(),
                                           "changed": datetime.fromtimestamp(p.stat().st_mtime, self.tz).isoformat(timespec="minutes")})
                 drawers.append({"role": role, "name": NAMES[role], "files": files})
+            goals = await self.db.fetchall(
+                "SELECT id, kind, title, status, deadline FROM pursuits WHERE status IN ('active', 'paused', 'interested', 'preparing', 'applied', "
+                "'interviewing', 'offer', 'exploring', 'shared') ORDER BY kind != 'goal', kind != 'project', coalesce(deadline, '9999'), id")
             return {"title": "Archive", "about": "The memory: one drawer per role. Everyone reads everything; each role writes only in its own drawer.",
-                    "drawers": drawers}
+                    "drawers": drawers,
+                    "records": [{"ref": f"#S{g['id']}", "kind": g["kind"], "title": g["title"], "status": g["status"], "deadline": g["deadline"]} for g in goals]}
         if name == "bin":
             rows = await self.db.fetchall(
                 "SELECT c.id, c.title, d.module, d.reason, d.created_at FROM decisions d JOIN candidates c ON c.id = d.candidate_id "
@@ -299,7 +302,7 @@ class Office:
         return {
             "id": r["id"], "task": task_name(r["kind"]), "role": role_of(r["kind"]), "at": self.local(r["finished_at"] or r["created_at"]),
             "seconds": (r["duration_ms"] or 0) // 1000, "failed": bool(r["is_error"]), "error": r["error"],
-            "about": about[:40], "answer": answer,
+            "account": r["summary"], "about": about[:40], "answer": answer,
             "posts": [{"ref": f"#P{p['id']}", "to": NAMES.get(p["recipient"], p["recipient"]), "kind": p["kind"], "text": p["body"]} for p in posts],
             "edits": edits,
             "tools": [{"tool": TOOL.get(t["tool"].removeprefix("agent__"), t["tool"].removeprefix("agent__")), "input": t["input"], "failed": t.get("error", False)}

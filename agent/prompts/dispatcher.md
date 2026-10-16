@@ -37,7 +37,7 @@ Recent activity:
 May always interrupt ({owner_s} list):
 {interrupt}
 
-Manager's policy and state:
+Manager's policy, with the current situation:
 {policy}
 
 New findings to decide on:

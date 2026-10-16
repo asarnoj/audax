@@ -193,8 +193,8 @@ class Dispatcher:
             "availability": avail.status_line() + ("; " + "; ".join(modes) if modes else ""),
             "gaps": ", ".join(f"{a:%H:%M}–{b:%H:%M}" for a, b in gaps) or "none left today",
             "activity": await self._activity(),
-            "interrupt": self.memory.read("interrupt.md") or "(empty)",
-            "policy": self.memory.read("policy.md", "state.md"),
+            "interrupt": self.memory.section("profile.md", "får alltid störa") or "(empty)",
+            "policy": self.memory.read("policy.md"),
             "planned": await self.agenda.upcoming(days=3),
             "candidates": "\n\n".join(candidates),
         }

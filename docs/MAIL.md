@@ -1,6 +1,6 @@
 # Mejlen: skrivskyddat fönster
 
-Status: Gmail byggt · KTH-mejlen öppen fråga · hör till [ARCHITECTURE.md](ARCHITECTURE.md)
+Status: Gmail byggt · KTH-mejlen öppen fråga · hör till [MODEL.md](MODEL.md)
 
 ## Vad det är till för
 Mejlen ger Audax sammanhang om vad som händer i ditt liv: svar på ansökningar, bokningar, deadlines, människor och åtaganden. Audax kan inte skicka, radera eller ändra något.

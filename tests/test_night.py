@@ -33,7 +33,7 @@ def night_pass(db, tmp_path, structured=None):
     return AssistantNight(load_settings(), db, ClaudeGate(db, tmp_path, runner=runner), MemoryRepo(mem), None), mem
 
 
-OUT = {"working_memory_md": "Fokus: tentan.", "conversation_summary": "Pratade om tentan och Google.", "promises": [], "log": ""}
+OUT = {"working_memory_md": "Fokus: tentan.", "conversation_summary": "Pratade om tentan och Google.", "promises": [], "summary": ""}
 
 
 async def test_night_pass_writes_working_memory_and_restarts_a_big_session(db, tmp_path):

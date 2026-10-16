@@ -1,4 +1,4 @@
-"""The persistent chat session with användaren: the agent's only voice (docs/ARCHITECTURE.md).
+"""The persistent chat session with användaren: the agent's only voice (docs/MODEL.md).
 
 the owner's messages that arrive while Claude is busy are buffered and sent together as one turn.
 Proactive messages are written here too: the dispatcher calls `speak()` with an internal instruction,
@@ -38,7 +38,7 @@ MONTHS = ["jan", "feb", "mar", "apr", "maj", "jun", "jul", "aug", "sep", "okt", 
 # Tools for the chat session; paths are relative to workspace/ and further limited by
 # workspace/.claude/settings.json (e.g. policy.md is read-only).
 # Rights follow ownership (docs/MODEL.md): the Assistant reads all of memory but writes only its own files.
-ASSISTANT_FILES = ("profile.md", "interests.md", "projects.md", "school.md", "schedule.md", "interrupt.md", "arbetsminne/assistant.md")
+ASSISTANT_FILES = ("profile.md", "arbetsminne/assistant.md")
 CHAT_TOOLS = [
     "Read(./memory/**)",
     *(f"{verb}(./memory/{f})" for f in ASSISTANT_FILES for verb in ("Edit", "Write")),
@@ -206,7 +206,7 @@ class ChatSession:
         internal = batch[0].internal
         session_id = await self.db.kv_get(SESSION_KEY)
         prompt = await self._prompt(batch)
-        pursuing = await Pursuits(self.db, self.settings.timezone).summary()
+        pursuing = await Pursuits(self.db, self.settings.timezone).overview(notes=False, ideas=False)
         working_memory = self.memory.read("arbetsminne/assistant.md")
 
         def task(resume: str | None, prefix: str = "") -> ClaudeTask:
@@ -219,11 +219,11 @@ class ChatSession:
                 allowed_tools=CHAT_TOOLS + tool_names,
                 mcp_servers=mcp_servers,
                 system_prompt_append=prompt_template("chat")
-                + "\n\n# Style guide and current state (owned by Manager; follow them)\n"
-                + self.memory.read("style.md", "state.md")
-                + "\n\n# Interests, and what never to suggest (applies even to things discussed earlier)\n"
-                + self.memory.read("interests.md")
-                + "\n\n# What " + personalize("{owner}") + " is pursuing (keep it current with track_pursuit)\n"
+                + "\n\n# Manager's policy: the situation, pacing and how you write (follow it)\n"
+                + self.memory.read("policy.md")
+                + "\n\n# The profile, with interests and what never to suggest (applies even to things discussed earlier)\n"
+                + self.memory.read("profile.md")
+                + "\n\n# Goals and what " + personalize("{owner}") + " goes for (keep what they go for current with track_pursuit)\n"
                 + pursuing
                 + ("\n\n# Your working memory (from your last night pass)\n" + working_memory if working_memory else ""),
             )

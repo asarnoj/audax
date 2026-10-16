@@ -1,4 +1,4 @@
-"""Windows: read-only views of what the owner makes and works on, for the Director (docs/ARCHITECTURE.md).
+"""Windows: read-only views of what the owner makes and works on, for the Director (docs/MODEL.md).
 
 GitHub: recently active repos with their recent commits and README, so the Director sees what is
 being built, how far it has come and where it stands still. Uses GITHUB_TOKEN (fine-grained,

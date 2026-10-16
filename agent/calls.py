@@ -22,8 +22,8 @@ class Call:
 
 CALLS: dict[str, Call] = {
     "chat": Call("Assistant", "The conversation, and writing every proactive message (internal turns)",
-                 "prompts/chat.md + claude_md.md + style/state/interests", "models.chat",
-                 "memory files, web search, web_read, github, mail (read), control/inbox tools", "each message from the owner; each delivery"),
+                 "prompts/chat.md + claude_md.md + policy, profile, the records (#S)", "models.chat",
+                 "the profile, web search, web_read, github, mail (read), control/inbox tools", "each message from the owner; each delivery"),
     "triage": Call("Director", "Value features and a factual brief per new event, in batches",
                    "prompts/triage.md", "models.triage", "none (structured output)", "new events from senses or research"),
     "dispatcher": Call("Manager", "Whether, when and how pending items reach the owner",
@@ -46,7 +46,7 @@ CALLS: dict[str, Call] = {
     "director_reflect": Call("Director", "Deep reflection: hidden assets, gaps, connections; checked ideas",
                              "prompts/director.md + director_reflect.md", "models.reflect (high effort)", "web search, web_read, github, mail (read), memory (read)",
                              "the night sweep on Mon/Wed/Sat mornings"),
-    "manager": Call("Manager", "UX review of the conversation; pacing, style, state, shelf",
+    "manager": Call("Manager", "UX review of the conversation; pacing, situation, style (policy.md), shelf",
                     "prompts/manager.md", "models.manager", "memory (read); its own files are written from its answer", "the night sweep, last step; when woken by the owner's words"),
     "builder": Call("Builder", "Change the engine on a branch in a sandboxed worktree",
                     "prompts/builder.md", "models.builder", "files in the worktree, read-only git", "the owner asks for a change in chat"),

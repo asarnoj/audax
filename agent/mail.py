@@ -1,4 +1,4 @@
-"""Mail as a read-only window (docs/ARCHITECTURE.md): context on what is happening in the owner's life.
+"""Mail as a read-only window (docs/MODEL.md): context on what is happening in the owner's life.
 
 Gmail through its API with an OAuth token whose only scope is gmail.readonly, so the key itself can't send,
 delete or change anything. The engine refuses a token with any wider scope. Set up once with

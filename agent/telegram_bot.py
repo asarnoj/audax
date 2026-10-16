@@ -212,7 +212,7 @@ class TelegramBot:
             if out is None:
                 await self.send("Manager kunde inte köras just nu, se loggen.", origin="command")
             else:
-                await self.send("Manager klar.\n\n" + (out.get("changelog") or "Inga ändringar."), origin="command")
+                await self.send("Manager klar.\n\n" + (out.get("summary") or "Inga ändringar."), origin="command")
 
         task = asyncio.create_task(go())
         self._background.add(task)

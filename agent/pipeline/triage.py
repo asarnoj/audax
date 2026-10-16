@@ -1,4 +1,4 @@
-"""Triage: untriaged events -> value features + a brief for the chat -> outbox candidates (docs/ATTENTION.md §4.1).
+"""Triage: untriaged events -> value features + a brief for the chat -> outbox candidates (docs/archive/ATTENTION.md §4.1).
 
 One run at a time: several paths start triage (the senses, search missions), and two concurrent runs once
 judged the same events twice (12 Oct). The lock serialises them; the unique index on candidates.event_id
@@ -20,6 +20,7 @@ from agent.memory import MemoryRepo
 from agent import trail
 from agent.pipeline.outbox import add_candidate
 from agent.prompts import prompt as prompt_template
+from agent.pursuits import judged_against
 from agent.schedule import utc_iso
 
 log = logging.getLogger(__name__)
@@ -85,8 +86,8 @@ class Triage:
         events = "\n\n".join(f"[event_id {r['id']}] source: {r['source']}\n{r['payload']}" for r in rows)
         prompt = prompt_template("triage").format(
             now=f"{now:%Y-%m-%d %H:%M}",
-            memory=self.memory.read("direction/goals.md", "direction/now.md", "profile.md", "interests.md", "projects.md", "school.md"),
-            policy=self.memory.read("policy.md", "state.md"),
+            memory=await judged_against(self.db, self.memory, self.settings.timezone),
+            policy=self.memory.read("policy.md"),
             recent=await self._recent(),
             events=events,
         )

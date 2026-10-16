@@ -19,7 +19,7 @@ En ny roll behövs bara när en ny fråga behöver sin egen anteckningsbok och k
 | | Assistant | Director | Researcher | Manager |
 |---|---|---|---|---|
 | **Frågan** | Vad säger du, och hur svarar jag? | Vad spelar roll för dig, och varför? | Hur hittar vi det som finns, och vad missar vi? | Hur ska det kännas: när, hur mycket, hur det låter? |
-| **Anteckningar** | minnet om dig (det du har sagt): profil, intressen, projekt, skola, schema, vad som får störa; arbetsminne | bild av dig, läget (fakta), mål, trådar, idéer, ansökningsspåret; arbetsminne | sökuppdragen, sökkartor, frågeportföljer, ledtrådar, täckning, bevakningarna; arbetsminne | policy, stil, läget för din uppmärksamhet, experiment, schemat, det sparade; arbetsminne |
+| **Anteckningar** | minnet om dig (det du har sagt): profilen, med skola, intressen, vad som får störa, schema och vanor; arbetsminne | bild av dig, läget (fakta), målen och idéerna (#S); arbetsminne | sökuppdragen, sökkartor, frågeportföljer, ledtrådar, täckning, bevakningarna; arbetsminne | policyn (läget för din uppmärksamhet, tempo, hur chatten skriver), experiment, schemat, det sparade; arbetsminne |
 | **Långsamt** | nattpass: rensar och slår ihop minnet, skriver sitt arbetsminne och samtalssammanfattningen | genomgång (varje natt), reflektion (tre nätter i veckan) | planering (varje vecka, eller när ett uppdrag tystnar eller en ny beställning kommer) | nattgranskning: läser samtalet som en UX-granskare och planerar dagens schema |
 | **Snabbt** | samtalet, utskick, intervjun | triage: är det här värt något för dig? | sökuppdragen: letar brett och lämnar fynd | dispatchern: när ska det här nå dig? |
 | **Gör inte** | bedömer inte relevans eller tidpunkt | bestämmer inte hur det letas, eller när du störs | bestämmer inte vad som är värt något | bestämmer inte vad som är relevant |
@@ -42,7 +42,7 @@ Varje roll har ett kort arbetsminne som skrivs om vid varje långsam körning oc
 - **vad den väntar på** (svar, datum, poster)
 - **vad den har prövat** och vad den lärde sig
 
-Det är det som gör Director till samma varelse från natt till natt. Loggar och journaler finns kvar som historik för dig och webbsidan, men matas inte tillbaka till rollerna.
+Det är det som gör Director till samma varelse från natt till natt. Varje körning (#R) sparar dessutom en kort redogörelse för vad den gjorde och varför. Den är historik för dig och webbsidan och matas inte tillbaka till rollerna; några loggfiler finns inte.
 
 ## Rättigheter: alla läser, ägaren skriver
 
@@ -111,7 +111,9 @@ Tar kvoten slut stannar kedjan och fortsätter där den slutade.
 
 ## ID:n och uppslag
 
-Allt som ska gå att följa upp får ett ID: bokningar, poster, ansökningsspår, fynd, trådar och uppdrag. Meddelanden i samtalet kopplas till de ID:n de handlar om. Assistant slår upp ("vad lovade jag om Google?") i stället för att minnas. Schemat är minnet av löftena. ID:n är kökets verktyg och syns på webbsidan, inte i chatten.
+Allt som ska gå att följa upp får ett ID: poster (#P), det du satsar på (#S), fynd (#F), bokningar (#B) och körningar (#R). Meddelanden i samtalet kopplas till de ID:n de handlar om, och allt en körning skriver bär dess id.
+
+**#S** är en enda sorts post för mål, projekt, tillfällen (det du visat intresse för, sökt eller valt bort) och Directors idéer. Var och en har ett varför, en status, ett nästa steg, en deadline och anteckningar, och ett tillfälle eller en idé hör till målet det tjänar. Ett mål bär också planen för det som drivs över tid (tidigare "trådar"). Director äger målen och idéerna; Assistant för in det du säger. Assistant slår upp ("vad lovade jag om Google?") i stället för att minnas. Schemat är minnet av löftena. ID:n är kökets verktyg och syns på webbsidan, inte i chatten.
 
 ## Återkoppling: hur kontoret blir bättre
 
@@ -139,3 +141,4 @@ Allt som ska gå att följa upp får ett ID: bokningar, poster, ansökningsspår
 10. **Klart (etapp 1 och 2):** ID:n (#P, #S, #F, #B) och uppslagsverktyget.
 11. **Klart (etapp 4):** Managers rapport om dispatcherns beslut och missarna, stickprov och mått.
 12. **Klart (etapp 2–4):** promptarna är omskrivna mot den här sidan, en roll i taget. `how_i_work` läser den här sidan direkt (`self.md` är borta).
+13. **Klart (16 okt):** förenklat minne. Mål, trådar, projekt, ansökningsspår och idéer är #S-poster i databasen i stället för filer. Profilen tog upp skola, intressen, vad som får störa och schemat; policyn tog upp stilen och läget. Loggarna och journalen ersattes av en redogörelse per körning. Minnet är nio filer: profilen, bilden av dig, läget, policyn, fyra arbetsminnen och sökkartorna.

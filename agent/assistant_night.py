@@ -1,7 +1,7 @@
 """The Assistant's slow task: the night pass (docs/MODEL.md). The one who owns the memory of the owner tidies it.
 
 Once a night, as the first step of the night sweep, the Assistant reads the day's conversation and:
-- tidies its memory files (merges duplicates, removes what is no longer true, keeps the owner's own words),
+- tidies the profile (merges duplicates, removes what is no longer true, keeps the owner's own words),
 - rewrites its working memory: ongoing threads of conversation, what the owner cares about right now, open promises,
 - writes the conversation summary a new chat session starts from,
 - books promises it made during the day that aren't booked yet (agent/agenda.py).
@@ -17,6 +17,7 @@ import logging
 from datetime import datetime, timedelta
 from zoneinfo import ZoneInfo
 
+from agent import trail
 from agent.agenda import Agenda
 from agent.chat import ASSISTANT_FILES
 from agent.claude_gate import ClaudeGate, ClaudeTask, Priority, QuotaPaused
@@ -55,9 +56,9 @@ SCHEMA = {
                 "required": ["when", "what"],
             },
         },
-        "log": {"type": "string", "description": "Swedish. What you tidied and why, briefly. Empty if nothing."},
+        "summary": {"type": "string", "description": "Swedish. What you tidied and why, briefly: the run's own account"},
     },
-    "required": ["working_memory_md", "conversation_summary", "promises", "log"],
+    "required": ["working_memory_md", "conversation_summary", "promises", "summary"],
 }
 
 
@@ -86,7 +87,7 @@ class AssistantNight:
             "conversation": await self._conversation(since_sql),
             "memory": self.memory.read(*[f for f in ASSISTANT_FILES if not f.startswith("arbetsminne")]),
             "planned": await self.agenda.upcoming(14) if self.agenda else "(no schedule)",
-            "pursuits": await Pursuits(self.db, self.settings.timezone).summary(),
+            "pursuits": await Pursuits(self.db, self.settings.timezone).overview(notes=False, ideas=False),
         }
         writes = [f"{verb}(./memory/{f})" for f in ASSISTANT_FILES if not f.startswith("arbetsminne") for verb in ("Edit", "Write")]
         try:
@@ -130,10 +131,7 @@ class AssistantNight:
             if await self._session_too_big():
                 await self.db.kv_set("chat.session_id", None)  # the next message starts a fresh session from the summary
                 changes.append("chattsessionen startades om med sammanfattning")
-        log_text = (out.get("log") or "").strip()
-        if log_text or changes:
-            with (self.memory.path / "changelog.md").open("a") as f:
-                f.write(f"\n## {now:%Y-%m-%d %H:%M} · Assistant\n{log_text}\n" + "".join(f"- {c}\n" for c in changes))
+        await trail.account("\n".join([(out.get("summary") or "").strip(), *(f"- {c}" for c in changes)]))
         await self.memory.commit_if_changed(f"assistant natt {now:%Y-%m-%d %H:%M}", by="assistant")
         log.info("assistant night pass: %s", "; ".join(changes) or "inga ändringar")
         return changes

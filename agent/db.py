@@ -11,7 +11,7 @@ import aiosqlite
 
 # Never edit an existing entry; add a new one instead.
 MIGRATIONS: list[str] = [
-    # 1: initial schema (see docs/PLAN.md §10 and docs/ATTENTION.md §9)
+    # 1: initial schema (see docs/archive/PLAN.md §10 and docs/archive/ATTENTION.md §9)
     """
     CREATE TABLE kv (
         key TEXT PRIMARY KEY,
@@ -215,7 +215,7 @@ MIGRATIONS: list[str] = [
         UNIQUE (mission, query)
     );
     """,
-    # 8: one voice (docs/ARCHITECTURE.md): what the chat session wrote itself, requests from
+    # 8: one voice (docs/MODEL.md): what the chat session wrote itself, requests from
     # Director/Manager, and notes routed to them with the owner's exact words
     """
     ALTER TABLE messages ADD COLUMN in_session INTEGER NOT NULL DEFAULT 0;
@@ -345,7 +345,7 @@ MIGRATIONS: list[str] = [
     UPDATE claude_runs SET cost_usd = (SELECT own FROM d WHERE d.id = claude_runs.id)
     WHERE id IN (SELECT id FROM d WHERE own IS NOT NULL AND own >= 0);
     """,
-    # 17: pursuits (docs/ATTENTION.md, "Ansökningsspåret"): everything the owner has shown interest in, applied
+    # 17: pursuits (docs/archive/ATTENTION.md, "Ansökningsspåret"): everything the owner has shown interest in, applied
     # to or turned down, with a deadline and a next step, so Audax can nudge at the right time and follow up.
     """
     CREATE TABLE pursuits (
@@ -453,10 +453,21 @@ MIGRATIONS: list[str] = [
         data TEXT NOT NULL DEFAULT '{}'
     );
     """,
+    # 21: one kind of record for what the owner goes for (agent/pursuits.py): goals, projects, opportunities and
+    # Director's ideas are all #S, an opportunity or idea under the goal it serves. And one account per run, on the
+    # run, instead of the logs and the journal in memory.
+    """
+    ALTER TABLE pursuits ADD COLUMN kind TEXT NOT NULL DEFAULT 'pursuit';   -- goal|project|pursuit|idea
+    ALTER TABLE pursuits ADD COLUMN parent_id INTEGER REFERENCES pursuits(id);
+    ALTER TABLE pursuits ADD COLUMN why TEXT;
+    ALTER TABLE pursuits ADD COLUMN about TEXT;
+    ALTER TABLE pursuits ADD COLUMN run_id INTEGER;
+    ALTER TABLE claude_runs ADD COLUMN summary TEXT;
+    """,
 ]
 
 # Tables whose rows carry the id of the run that wrote them (agent/trail.py).
-STAMPED = {"posts", "decisions", "candidates", "messages", "bookings", "events", "pursuit_log", "feedback"}
+STAMPED = {"posts", "decisions", "candidates", "messages", "bookings", "events", "pursuits", "pursuit_log", "feedback"}
 
 
 class Database:

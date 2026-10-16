@@ -145,21 +145,27 @@ def build_chat_tools(
 
     @tool(
         "track_pursuit",
-        "Keep track of what {owner} goes for: when they show interest in an opportunity, start preparing, apply, hear "
-        "back, or decide against it. target=replied links it to the message they replied to (a tip you sent), "
-        "last_sent to your latest message; or give title (and organization, url, deadline) yourself. To update one, "
-        "give its id from the list in your context. Set remind_at when {owner} asks to be reminded on a given day; "
-        "otherwise the system queues one nudge shortly before the deadline, and the dispatcher picks the moment.",
+        "Keep track of what {owner} goes for (#S): when they show interest in an opportunity, start preparing, apply, hear "
+        "back, or decide against it; a project they start or stop; a goal they drop, pause or reach. target=replied links "
+        "it to the message they replied to (a tip you sent), last_sent to your latest message; or give title (and "
+        "organization, url, deadline) yourself. To update one, give its id from the list in your context. New goals and "
+        "what they mean are Director's: pass {owner_s} words on with send_post. Set remind_at when {owner} asks to be "
+        "reminded on a given day; otherwise the system queues one nudge shortly before the deadline, and the dispatcher "
+        "picks the moment.",
         {
             "type": "object",
             "properties": {
                 "target": {"type": "string", "enum": ["replied", "last_sent", "none"]},
                 "id": {"type": "integer"},
+                "kind": {"type": "string", "enum": ["pursuit", "project", "goal"], "description": "pursuit (default): an opportunity; goal: only an existing one, by id"},
+                "parent": {"type": "integer", "description": "The goal or project it serves (#S number), if clear"},
                 "title": {"type": "string"},
                 "organization": {"type": "string"},
                 "url": {"type": "string"},
                 "deadline": {"type": "string", "description": "YYYY-MM-DD"},
-                "status": {"type": "string", "enum": ["interested", "preparing", "applied", "interviewing", "offer", "accepted", "rejected", "declined"]},
+                "status": {"type": "string", "enum": ["interested", "preparing", "applied", "interviewing", "offer", "accepted", "rejected", "declined",
+                                                      "active", "paused", "done", "dropped"],
+                           "description": "An opportunity: interested … declined. A project or goal: active, paused, done, dropped"},
                 "next_step": {"type": "string", "description": "Swedish, short"},
                 "remind_at": {"type": "string", "description": "YYYY-MM-DD, only when {owner} asked for a reminder that day"},
                 "note": {"type": "string", "description": "Swedish: what happened, in {owner_s} words where possible"},
@@ -168,10 +174,12 @@ def build_chat_tools(
         },
     )
     async def track_pursuit(args: dict[str, Any]) -> dict[str, Any]:
-        from agent.pursuits import LABEL, Pursuits, candidates_of_message
+        from agent.pursuits import KIND_LABEL, LABEL, Pursuits, candidates_of_message
 
         pursuits = Pursuits(db, schedule.settings.timezone if schedule is not None else "Europe/Stockholm")
-        fields = {k: args.get(k) for k in ("id", "title", "organization", "url", "deadline", "status", "next_step", "remind_at", "note")}
+        fields = {k: args.get(k) for k in ("id", "kind", "parent", "title", "organization", "url", "deadline", "status", "next_step", "remind_at", "note")}
+        if fields.get("kind") == "goal" and not fields.get("id"):
+            return _text("[internal] A new goal is Director's: pass " + personalize("{owner_s}") + " words on with send_post.")
         if args["target"] in ("replied", "last_sent") and not args.get("id"):
             mid = turn.replied_to_message_id
             if args["target"] == "last_sent":
@@ -191,7 +199,7 @@ def build_chat_tools(
         row = await db.fetchone("SELECT * FROM pursuits WHERE id = ?", (pid,))
         turn.refs.add(f"#S{pid}")
         return _text(
-            f"[internal] {'Tracked' if created else 'Updated'} #S{pid}: {row['title']} · {LABEL.get(row['status'], row['status'])}"
+            f"[internal] {'Tracked' if created else 'Updated'} #S{pid} ({KIND_LABEL[row['kind']]}): {row['title']} · {LABEL.get(row['status'], row['status'])}"
             + (f" · deadline {row['deadline']}" if row["deadline"] else " · no deadline known")
             + (f" · reminder {row['remind_at']}" if row["remind_at"] else "")
         )

@@ -31,6 +31,23 @@ class MemoryRepo:
                 parts.append(f"--- {name} ---\n{text}")
         return "\n\n".join(parts)
 
+    def section(self, name: str, heading: str) -> str:
+        """One section of a memory file: the heading that contains these words, down to the next heading of its level
+        or above. The whole file if no heading matches, so a renamed heading loses nothing."""
+        text = self.read(name)
+        lines = text.splitlines()
+        for i, line in enumerate(lines):
+            m = re.match(r"(#+)\s+(.*)", line)
+            if m and heading.casefold() in m.group(2).casefold():
+                level, out = len(m.group(1)), [line]
+                for rest in lines[i + 1:]:
+                    n = re.match(r"(#+)\s", rest)
+                    if n and len(n.group(1)) <= level:
+                        break
+                    out.append(rest)
+                return "\n".join(out).strip()
+        return text
+
     async def _git(self, *args: str) -> tuple[int, str]:
         proc = await asyncio.create_subprocess_exec(
             "git", "-C", str(self.path), "-c", "user.name=agent", "-c", "user.email=agent@localhost", *args,

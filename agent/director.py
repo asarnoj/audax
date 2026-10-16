@@ -1,12 +1,13 @@
-"""Director: what matters to the owner, and what does Audax see that they don't? (docs/ARCHITECTURE.md)
+"""Director: what matters to the owner, and what does Audax see that they don't? (docs/MODEL.md)
 
 Two loops, both in the background, never talking to the owner directly:
-- understand (daily, Sonnet): keeps direction/ current (now, goals, threads) and steers missions and senses
+- understand (daily, Sonnet): keeps the picture (person, now), the goals and what the owner goes for (#S) current,
+  and steers the search
 - reflect (2-3x/week, Opus, high effort, web search): thinks deeply, checks ideas, and occasionally
   shares one through the outbox, where the dispatcher and Manager's policy still decide when
 
-Python gathers the facts, Claude judges, Python applies the result: direction files, missions and senses
-via direction_ops, posts to the other roles and questions for the owner via the internal mail (agent/posts.py),
+Python gathers the facts, Claude judges, Python applies the result: the direction files, the #S records
+(agent/pursuits.py), posts to the other roles and questions for the owner via the internal mail (agent/posts.py),
 ideas as outbox candidates. Its working memory (memory/arbetsminne/director.md) is what makes it the same mind
 from night to night: read first, rewritten every run (docs/MODEL.md).
 """
@@ -20,8 +21,7 @@ from collections import defaultdict
 from datetime import datetime, timedelta
 from zoneinfo import ZoneInfo
 
-from agent import direction_ops as ops
-from agent import search_map
+from agent import search_map, trail
 from agent.pursuits import Pursuits
 from agent.claude_gate import ClaudeGate, ClaudeTask, Priority, QuotaPaused
 from agent.config import Settings
@@ -44,20 +44,6 @@ SCHEMA = {
     "properties": {
         "person_md": {"type": ["string", "null"], "description": "Swedish. The whole new person.md, or null if unchanged"},
         "now_md": {"type": ["string", "null"], "description": "Swedish. The whole new now.md, or null if unchanged"},
-        "goals_md": {"type": ["string", "null"], "description": "Swedish. The whole new goals.md, or null"},
-        "threads": {
-            "type": "array",
-            "description": "Only threads that changed",
-            "items": {
-                "type": "object",
-                "properties": {
-                    "slug": {"type": "string"},
-                    "status": {"type": "string", "enum": ["active", "paused", "done", "dropped"]},
-                    "content_md": {"type": "string", "description": "Swedish. The whole thread file"},
-                },
-                "required": ["slug", "status", "content_md"],
-            },
-        },
         "questions": {
             "type": "array",
             "description": "At most one, in Swedish",
@@ -78,7 +64,6 @@ SCHEMA = {
             },
         },
         "working_memory_md": {"type": "string", "description": "Swedish. Your whole new working memory (see the prompt)"},
-        "ideas_md": {"type": ["string", "null"], "description": "Swedish. The whole new ideas.md, or null"},
         "share": {
             "type": "array",
             "description": "Reflection only: checked, truly valuable ideas for the owner. Usually empty.",
@@ -95,30 +80,35 @@ SCHEMA = {
                 "required": ["title", "brief", "why", "time_sensitivity"],
             },
         },
-        "pursuit_updates": {
+        "records": {
             "type": "array",
-            "description": "Keep what the owner pursues true: add missing ones, update status, deadline, next step, reminder day",
+            "description": "Only the #S records that are new or changed: goals, projects, opportunities, ideas",
             "items": {
                 "type": "object",
                 "properties": {
-                    "id": {"type": ["integer", "null"], "description": "Existing pursuit id; null to add"},
+                    "id": {"type": ["integer", "null"], "description": "The record's #S number; null to add one"},
+                    "kind": {"type": "string", "enum": ["goal", "project", "pursuit", "idea"]},
                     "title": {"type": "string"},
+                    "parent": {"type": ["integer", "null"], "description": "The goal or project it serves (#S number)"},
+                    "status": {"type": "string", "description": "goal/project: active, paused, done, dropped. pursuit: interested, preparing, "
+                               "applied, interviewing, offer, accepted, rejected, declined. idea: exploring, shared, dismissed"},
+                    "why": {"type": ["string", "null"], "description": "Swedish: why it matters to the owner"},
+                    "about": {"type": ["string", "null"], "description": "Swedish: the whole new notes (a goal: what helps, what is noise, "
+                              "the plan and where it stands; an idea: what it is, what you checked, why dismissed). Null keeps them"},
+                    "next_step": {"type": ["string", "null"], "description": "Swedish, short"},
+                    "deadline": {"type": ["string", "null"], "description": "YYYY-MM-DD"},
+                    "remind_at": {"type": ["string", "null"], "description": "YYYY-MM-DD: an opportunity not yet applied to, when a nudge would help most"},
                     "organization": {"type": ["string", "null"]},
                     "url": {"type": ["string", "null"]},
-                    "deadline": {"type": ["string", "null"], "description": "YYYY-MM-DD"},
-                    "status": {"type": "string", "enum": ["interested", "preparing", "applied", "interviewing", "offer", "accepted", "rejected", "declined"]},
-                    "next_step": {"type": ["string", "null"], "description": "Swedish, short"},
-                    "remind_at": {"type": ["string", "null"], "description": "YYYY-MM-DD: when a nudge would help most"},
                     "note": {"type": ["string", "null"], "description": "Swedish: what changed and how you know"},
                 },
-                "required": ["title", "status"],
+                "required": ["kind", "title", "status"],
             },
         },
-        "log": {"type": "string", "description": "Swedish. What you changed and why, briefly. Empty if nothing."},
+        "summary": {"type": "string", "description": "Swedish. What you did in this run and why, briefly: the run's own account"},
     },
-    "required": ["person_md", "now_md", "goals_md", "pursuit_updates", "working_memory_md", "log"],
+    "required": ["person_md", "now_md", "records", "working_memory_md", "summary"],
 }
-MEMORY_FILES = ("profile.md", "projects.md", "interests.md", "school.md", "schedule.md")
 
 
 class Director:
@@ -164,7 +154,7 @@ class Director:
             "now": f"{now:%Y-%m-%d %H:%M} ({['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'][now.weekday()]})",
             "working_memory": self.memory.read(WORKING_MEMORY) or "(empty: this is your first run with a working memory)",
             "direction": self._direction(),
-            "memory": self.memory.read(*MEMORY_FILES),
+            "memory": self.memory.read("profile.md"),
             "time": await self._time(now),
             "conversation": (
                 "[person.md is empty. Build a first picture of the person from the whole history below and the memory above: "
@@ -176,8 +166,7 @@ class Director:
             "notes": Posts.format(inbox),
             "missions": await self._search_report(),
             "windows": await self._windows(mode),
-            "state": self.memory.read("state.md"),
-            "pursuits": await Pursuits(self.db, self.settings.timezone).summary() + "\n" + await Pursuits(self.db).stats(),
+            "records": await Pursuits(self.db, self.settings.timezone).overview() + "\n\n" + await Pursuits(self.db).stats(),
         }
         if mode == "reflect":
             context["idea_feedback"] = await self._idea_feedback()
@@ -224,24 +213,15 @@ class Director:
     async def apply(self, out: dict, mode: str, now: datetime) -> list[str]:
         changes: list[str] = []
         self.dir.mkdir(exist_ok=True)
-        (self.dir / "threads").mkdir(exist_ok=True)
-        for name, key in (("person.md", "person_md"), ("now.md", "now_md"), ("goals.md", "goals_md"), ("ideas.md", "ideas_md")):
+        for name, key in (("person.md", "person_md"), ("now.md", "now_md")):
             if out.get(key):
                 (self.dir / name).write_text(out[key].strip() + "\n")
                 changes.append(f"{name} uppdaterad")
-        for t in out.get("threads") or []:
-            slug = ops.slug(t["slug"])
-            text = t["content_md"].strip()
-            if f"Status: {t['status']}" not in text:
-                text = f"Status: {t['status']}\n\n{text}"
-            (self.dir / "threads" / f"{slug}.md").write_text(text + "\n")
-            changes.append(f"tråd {slug} ({t['status']})")
-
         pursuits = Pursuits(self.db, self.settings.timezone)
-        for u in out.get("pursuit_updates") or []:
+        for u in out.get("records") or []:
             try:
                 pid, created = await pursuits.upsert(u, "director")
-                changes.append(f"{'nytt spår' if created else 'spår'} #{pid}: {u['title']} ({u['status']})")
+                changes.append(f"{'ny' if created else 'ändrad'} #S{pid}: {u['title']} ({u['status']})")
             except ValueError:
                 continue
         for q in (out.get("questions") or [])[:1]:
@@ -285,10 +265,7 @@ class Director:
             path.write_text(wm + "\n")
         await self.posts.handled(self._seen_posts, f"läst av Director ({mode} {now:%Y-%m-%d})")
         self._seen_posts = []
-        log_text = (out.get("log") or "").strip()
-        if log_text or changes:
-            with (self.dir / "log.md").open("a") as f:
-                f.write(f"\n## {now:%Y-%m-%d %H:%M} · {mode}\n{log_text}\n" + "".join(f"- {c}\n" for c in changes))
+        await trail.account("\n".join([(out.get("summary") or "").strip(), *(f"- {c}" for c in changes)]))
         await self.memory.commit_if_changed(f"director {mode} {now:%Y-%m-%d %H:%M}", by="director")
         log.info("director %s: %s", mode, "; ".join(changes) or "inga ändringar")
         return changes
@@ -313,10 +290,7 @@ class Director:
         return not any(line.strip().startswith(("-", "*")) or (line.strip() and not line.startswith("#")) for line in text.splitlines())
 
     def _direction(self) -> str:
-        parts = [self.memory.read("direction/person.md", "direction/now.md", "direction/goals.md", "direction/ideas.md")]
-        threads = sorted((self.dir / "threads").glob("*.md")) if (self.dir / "threads").exists() else []
-        parts += [f"--- direction/threads/{t.name} ---\n{t.read_text().strip()}" for t in threads]
-        return "\n\n".join(p for p in parts if p) or "Empty."
+        return self.memory.read("direction/person.md", "direction/now.md") or "Empty."
 
     async def _time(self, now: datetime) -> str:
         """Where the owner's time went last week and where it's going, by kind of session."""

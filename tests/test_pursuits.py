@@ -74,3 +74,28 @@ async def test_stats_show_whether_a_nudge_was_followed(db):
     await p.upsert({"id": pid, "status": "applied"}, "chat")
     text = await p.stats()
     assert "Nudges: 1, followed by preparing or applying: 1" in text and "sökt 1" in text
+
+
+async def test_goals_hold_what_serves_them_and_only_opportunities_are_nudged(db):
+    p = FixedDay(db)
+    goal, _ = await p.upsert({"kind": "goal", "title": "Sommarjobb 2027", "why": "Komma in i branschen", "about": "Hjälper: scaleups\nBrus: banker",
+                              "next_step": "Armada", "deadline": "2026-10-21"}, "director")
+    google, _ = await p.upsert({"title": "Google SRE", "organization": "Google", "deadline": "2026-10-23", "parent": goal}, "chat")
+    idea, _ = await p.upsert({"kind": "idea", "title": "Mässor är en färdig ram", "status": "dismissed", "parent": goal}, "director")
+    await p.upsert({"kind": "project", "title": "Spel med storebror", "parent": google}, "chat")   # only a goal or project holds others
+    assert (await db.fetchone("SELECT parent_id FROM pursuits WHERE kind = 'project'"))["parent_id"] is None
+    assert (await db.fetchone("SELECT status FROM pursuits WHERE id = ?", (goal,)))["status"] == "active"   # each kind its own statuses
+    same, created = await p.upsert({"kind": "goal", "title": "Google SRE"}, "director")   # titles match within a kind
+    assert created
+
+    full = await p.overview()
+    assert full.index("#S1 Mål: Sommarjobb 2027") < full.index("  - #S2 Tillfälle: Google SRE (Google)")
+    assert "Varför: Komma in i branschen" in full and "Brus: banker" in full and "Spel med storebror" in full
+    assert full.index("Avslutat") < full.index("#S3 Idé: Mässor är en färdig ram · avfärdad")   # closed, but kept in view
+    brief = await p.overview(notes=False, ideas=False)
+    assert "Brus" not in brief and "nästa: Armada" in brief and "Idé" not in brief
+
+    p.day = date(2026, 10, 22)
+    assert await p.tick() == 1   # the opportunity is nudged; the goal's own deadline is not
+    assert (await db.fetchone("SELECT status FROM pursuits WHERE id = ?", (goal,)))["status"] == "active"
+    assert idea and google

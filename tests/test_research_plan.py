@@ -20,7 +20,6 @@ NOW = datetime(2026, 10, 14, 5, 45, tzinfo=ZoneInfo("Europe/Stockholm"))
 async def env(tmp_path, monkeypatch):
     mem = tmp_path / "memory"
     (mem / "direction").mkdir(parents=True)
-    (mem / "direction" / "goals.md").write_text("# Mål\nSommarpraktik 2027\n")
     subprocess.run(["git", "init", "-q"], cwd=mem, check=True)
     from agent.config import instance_config
 
@@ -34,6 +33,7 @@ async def env(tmp_path, monkeypatch):
         monkeypatch.setattr(ops, name, path)
     db = Database(tmp_path / "t.db")
     await db.open()
+    await db.execute("INSERT INTO pursuits (kind, title, status, about) VALUES ('goal', 'Sommarpraktik 2027', 'active', 'Brus: banker')")
     yield db, MemoryRepo(mem), research, sources
     await db.close()
 
@@ -68,7 +68,7 @@ async def test_researcher_turns_an_order_into_missions_queries_sources_maps_and_
         "posts": [{"to": "director", "kind": "report", "body": "Partneruppdraget är igång"}],
         "owner_updates": [{"kind": "difficulty", "title": "Sommarpraktik", "brief": "Inget öppet än; de flesta öppnar i nov."}],
         "working_memory_md": "Fokus: partneruppdraget.",
-        "log": "Satte upp partneruppdraget.",
+        "summary": "Satte upp partneruppdraget.",
     }
     changes = await p.apply(out, NOW)
     assert [r["id"] for r in yaml.safe_load(research.read_text())] == ["jobs", "partner"]
@@ -88,7 +88,7 @@ async def test_researcher_turns_an_order_into_missions_queries_sources_maps_and_
 async def test_researcher_plans_when_needed_with_the_web_but_never_mail(env, tmp_path):
     db, memory, *_ = env
     calls = []
-    empty = {"missions": [], "queries": [], "senses": [], "lead_decisions": [], "working_memory_md": "Fokus.", "log": ""}
+    empty = {"missions": [], "queries": [], "senses": [], "lead_decisions": [], "working_memory_md": "Fokus.", "summary": ""}
     p = planner(db, memory, tmp_path, structured=empty, calls=calls)
 
     class Web:
@@ -101,7 +101,7 @@ async def test_researcher_plans_when_needed_with_the_web_but_never_mail(env, tmp
     [task] = calls
     assert task.kind == "researcher_plan" and "mcp__web__web_read" in task.allowed_tools
     assert not any("mail" in t for t in task.allowed_tools)
-    assert "Sommarpraktik 2027" in task.prompt  # Director's brief
+    assert "#S1 Mål: Sommarpraktik 2027" in task.prompt and "Brus: banker" in task.prompt  # Director's brief
     assert await p.due() == "thin portfolio: jobs"  # no queries yet: plan again
     for i in range(6):
         await db.execute("INSERT INTO scout_queries (mission, query) VALUES ('jobs', ?)", (f"q{i}",))

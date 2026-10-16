@@ -198,7 +198,7 @@ Varje steg byter bara ut en modul bakom samma gränssnitt, så att resten av sys
 
 ## Ansökningsspåret
 
-Att hitta möjligheter är halva jobbet. Den andra halvan är att hjälpa ägaren förbi tvekan, så att hen faktiskt söker ([agent/pursuits.py](../agent/pursuits.py)).
+Att hitta möjligheter är halva jobbet. Den andra halvan är att hjälpa ägaren förbi tvekan, så att hen faktiskt söker ([agent/pursuits.py](../../agent/pursuits.py)).
 
 - **Spåret:** allt ägaren visar intresse för (en 👍 på ett tips räknas), förbereder, söker, får svar på eller väljer bort, med deadline och nästa steg. Chatten för in det ägaren säger, Director håller det sant utifrån samtalet och mejlen (bekräftelser, svar, intervjuer), och systemet markerar missade deadlines.
 - **En knuff, i rätt tid:** för det ägaren inte har sökt än blir en knuff en kandidat i utkorgen på den dag Director bedömt hjälper mest (beroende på hur mycket jobb ansökan är), annars tre dagar före deadline. Dispatchern väljer stunden och chatten skriver den, en mening. En knuff per sak, aldrig mot något ägaren sagt nej till.

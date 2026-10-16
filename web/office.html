@@ -1315,6 +1315,8 @@ function render(name, d) {
     if (!d.work.length) html += "<p class='muted'>Nothing yet.</p>";
     html += `<h3>Its notes</h3>` + (d.memory ? `<div class="notes">${notes(d.memory)}</div>` : "<p class='muted'>Empty.</p>");
   } else if (name === "archive") {
+    const KIND = { goal: "Goal", project: "Project", pursuit: "Opportunity", idea: "Idea" };
+    html += "<h3>Goals, and what you go for</h3>" + list(d.records, r => `<li class="row"><span class="when">${esc(r.ref)}</span><span>${esc(r.title)}<div class="muted">${KIND[r.kind] || r.kind} · ${esc(r.status)}${r.deadline ? " · by " + esc(fmt(r.deadline, { day: "numeric", month: "short" })) : ""}</div></span></li>`);
     for (const dr of d.drawers) html += `<h3>${esc(dr.name)}'s drawer</h3>` + list(dr.files, f => `<li class="row"><span class="when">${esc(ago(f.changed))}</span><span>${esc(f.path)}</span></li>`);
   } else if (name === "bin") {
     html += list(d.items, i => `<li class="row"><span class="when">${esc(clock(i.at))}</span><span>${esc(i.title)}<div class="muted">${esc(i.by)}${i.why ? ": " + esc(i.why) : ""}</div></span></li>`);
@@ -1341,6 +1343,7 @@ async function openWork(id) {
   if (!w) { box.innerHTML = "<p class='muted'>Couldn't load it.</p>"; return; }
   let html = "";
   if (w.failed) html += `<p class="muted">It didn't finish: ${esc(w.error)}</p>`;
+  if (w.account) html += `<h3>In its own words</h3><div class="notes">${notes(w.account)}</div>`;
   if (w.about.length) html += "<h3>What it was about</h3><ul class='plain'>" + w.about.map(a =>
     `<li><div class="muted">${esc(a.label)}</div><span class="text">${esc(a.text)}</span>${a.note ? `<div class="muted">${esc(a.note)}</div>` : ""}</li>`).join("") + "</ul>";
   if (w.answer) html += `<h3>Its answer</h3><div class="notes">${notes(w.answer)}</div>`;

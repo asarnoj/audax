@@ -18,7 +18,7 @@ from datetime import datetime, timedelta
 from zoneinfo import ZoneInfo
 
 from agent import direction_ops as ops
-from agent import search_map
+from agent import search_map, trail
 from agent.claude_gate import ClaudeGate, ClaudeTask, Priority, QuotaPaused
 from agent.config import Settings
 from agent.db import Database
@@ -26,6 +26,7 @@ from agent.memory import MemoryRepo
 from agent.pipeline.outbox import add_candidate
 from agent.posts import ROLES, Posts
 from agent.prompts import prompt as prompt_template
+from agent.pursuits import judged_against
 from agent.research import BATCH, load_research
 from agent.tools import build_web_tools
 
@@ -33,7 +34,6 @@ log = logging.getLogger(__name__)
 
 LAST_KEY = "researcher.last_plan"
 WORKING_MEMORY = "arbetsminne/researcher.md"
-LOG_FILE = "research/log.md"
 DEEP_KEY = "research.deep_requested.{id}"
 PLAN_EVERY = timedelta(days=7)
 QUIET_AFTER = timedelta(days=14)  # a mission with nothing kept this long is looked at (mechanics; the judgement is Researcher's)
@@ -140,9 +140,9 @@ SCHEMA = {
             },
         },
         "working_memory_md": {"type": "string", "description": "Swedish. Your whole new working memory"},
-        "log": {"type": "string", "description": "Swedish. What you changed and why, briefly. Empty if nothing."},
+        "summary": {"type": "string", "description": "Swedish. What you did in this run and why, briefly: the run's own account"},
     },
-    "required": ["missions", "queries", "senses", "lead_decisions", "working_memory_md", "log"],
+    "required": ["missions", "queries", "senses", "lead_decisions", "working_memory_md", "summary"],
 }
 
 
@@ -203,7 +203,7 @@ class ResearchPlanner:
             "trigger": trigger,
             "working_memory": self.memory.read(WORKING_MEMORY) or "(empty: this is your first run with a working memory)",
             "notes": Posts.format(inbox),
-            "goals": self.memory.read("direction/goals.md", "direction/now.md", "interests.md") or "(Director has no goals written yet)",
+            "goals": await judged_against(self.db, self.memory, self.settings.timezone),
             "missions": await self._missions(),
             "senses": await self._senses(),
         }
@@ -298,12 +298,7 @@ class ResearchPlanner:
             path.write_text(wm + "\n")
         await self.posts.handled(self._seen_posts, f"läst av Researcher {now:%Y-%m-%d}")
         self._seen_posts = []
-        log_text = (out.get("log") or "").strip()
-        if log_text or changes:
-            path = self.memory.path / LOG_FILE
-            path.parent.mkdir(parents=True, exist_ok=True)
-            with path.open("a") as f:
-                f.write(f"\n## {now:%Y-%m-%d %H:%M}\n{log_text}\n" + "".join(f"- {c}\n" for c in changes))
+        await trail.account("\n".join([(out.get("summary") or "").strip(), *(f"- {c}" for c in changes)]))
         await self.memory.commit_if_changed(f"researcher {now:%Y-%m-%d %H:%M}", by="researcher")
         log.info("researcher planned: %s", "; ".join(changes) or "inga ändringar")
         return changes

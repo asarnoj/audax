@@ -18,11 +18,11 @@ from agent.db import Database
 from agent.memory import MemoryRepo
 from agent import search_map
 from agent.prompts import prompt as prompt_template
+from agent.pursuits import judged_against
 from agent.tools import build_web_tools
 
 log = logging.getLogger(__name__)
 
-MEMORY_FILES = ("direction/goals.md", "direction/now.md", "profile.md", "interests.md", "projects.md", "school.md")
 
 FINDINGS_SCHEMA = {
     "type": "object",
@@ -231,7 +231,7 @@ class Researcher:
             goal=task.goal,
             scope=task.scope,
             today=datetime.now(self.tz).date().isoformat(),
-            memory=self.memory.read(*MEMORY_FILES),
+            memory=await judged_against(self.db, self.memory, self.settings.timezone),
             seen="\n".join(seen_lines) or "(nothing yet)",
             gaps=await search_map.gaps(self.memory.path, task.id) or "(no map yet: explore freely)",
         )

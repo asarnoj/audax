@@ -6,6 +6,7 @@ import pytest
 import yaml
 
 from agent import direction_ops as ops
+from agent import trail
 from agent.claude_gate import ClaudeGate, RunResult
 from agent.config import load_settings
 from agent.db import Database
@@ -48,11 +49,13 @@ def director(db, memory, tmp_path, structured=None, calls=None):
     return Director(load_settings(), db, ClaudeGate(db, tmp_path, runner=runner), memory, Schedule(load_settings(), db, []))
 
 
-BASE = {"person_md": None, "now_md": None, "goals_md": None, "log": ""}
+BASE = {"person_md": None, "now_md": None, "records": [], "summary": ""}
 
 
-async def test_apply_writes_direction_threads_missions_senses_questions_ideas(env, tmp_path):
+async def test_apply_writes_the_picture_records_posts_questions_ideas_and_its_account(env, tmp_path):
     db, memory, research, sources = env
+    trail.attach(db)
+    trail.current_run.set(await db.execute("INSERT INTO claude_runs (kind) VALUES ('director_understand')"))
     d = director(db, memory, tmp_path)
     await Posts(db).send("assistant", "director", "note", "partner behövs", verbatim="jag söker en affärspartner till sidoprojektet", from_owner=True)
     d._seen_posts = [p["id"] for p in await Posts(db).inbox("director")]
@@ -63,20 +66,24 @@ async def test_apply_writes_direction_threads_missions_senses_questions_ideas(en
         changes = await d.apply({
             **BASE,
             "now_md": "# Nu\nTenta torsdag, flytt.",
-            "goals_md": "# Mål\n1. Partner till sidoprojektet",
-            "threads": [{"slug": "Partner", "status": "active", "content_md": "Mål: hitta affärspartner"}],
+            "records": [{"kind": "goal", "title": "Partner till sidoprojektet", "status": "active", "why": "Hen vill släppa appen",
+                         "about": "Hjälper: matchningsevent. Brus: stora mässor.", "next_step": "Be Researcher leta"},
+                        {"id": 1, "kind": "goal", "title": "Partner till sidoprojektet", "status": "active", "next_step": "Vänta på Researcher"}],
             "posts": [{"to": "researcher", "kind": "order", "body": "Ny beställning: hitta affärspartner för studentstartup", "urgent": True}],
             "questions": [{"what": "Vilken sorts partner?", "why": "styr sökandet"}, {"what": "extra", "why": "x"}],
             "share": [{"title": "Pitcha appen på Startup", "brief": "Startup har en matchningskväll 20/10.", "url": "https://sses/x",
                        "why": "partner", "time_sensitivity": "medium", "expires": "2026-10-20"}],
-            "log": "Startade partnertråden.",
+            "summary": "Startade partnermålet.",
         }, "understand", NOW)
     finally:
         Posts.waker = None
+        trail.attach(None)
+        trail.current_run.set(None)
 
     assert (memory.path / "direction" / "now.md").read_text().startswith("# Nu\nTenta")
-    thread = (memory.path / "direction" / "threads" / "partner.md").read_text()
-    assert thread.startswith("Status: active")
+    goal = await db.fetchone("SELECT * FROM pursuits")
+    assert (goal["kind"], goal["status"], goal["next_step"]) == ("goal", "active", "Vänta på Researcher") and "Brus" in goal["about"]
+    assert [r["note"] for r in await db.fetchall("SELECT note FROM pursuit_log")] == ["lades till", "ändrade next_step"]
     [order] = await Posts(db).inbox("researcher")  # Director orders; Researcher owns missions and sources
     assert order["kind"] == "order" and order["from_owner"] == 1 and woken == ["researcher"]  # the owner's words started it
     assert [r["id"] for r in yaml.safe_load(research.read_text())] == ["jobs"]
@@ -85,7 +92,9 @@ async def test_apply_writes_direction_threads_missions_senses_questions_ideas(en
     assert (idea["kind"], idea["status"], idea["url"]) == ("insight", "pending", "https://sses/x")
     assert idea["expires_at"].startswith("2026-10-20")
     assert await Posts(db).inbox("director") == []
-    assert "Startade partnertråden." in (memory.path / "direction" / "log.md").read_text()
+    account = (await db.fetchone("SELECT summary FROM claude_runs"))["summary"]
+    assert account.startswith("Startade partnermålet.") and "ny #S1" in account
+    assert not (memory.path / "direction" / "log.md").exists()
     assert await memory.changed_files() == []
     assert any(c.startswith("idé till") for c in changes)
 

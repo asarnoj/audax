@@ -14,7 +14,7 @@ from agent.schedule import Schedule, utc_iso
 log = logging.getLogger(__name__)
 
 SendText = Callable[..., Awaitable[list[int]]]  # (text) -> messages.id rows
-Speak = Callable[[str], Awaitable[list[int]]]  # the chat session writes and sends (docs/ARCHITECTURE.md)
+Speak = Callable[[str], Awaitable[list[int]]]  # the chat session writes and sends (docs/MODEL.md)
 SendPoll = Callable[[str, list[str]], Awaitable[tuple[str, int | None]]]  # -> (poll_id, messages.id)
 # Mechanical sanity bound, not UX policy (Manager owns pacing): more proactive messages than this in an hour
 # means something is looping, so delivery holds (candidates stay pending) and the health check says so.

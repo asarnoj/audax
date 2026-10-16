@@ -24,6 +24,9 @@ class FakeMemory:
     def read(self, *names):
         return "(minne)"
 
+    def section(self, name, heading):
+        return "(minne)"
+
 
 class Clock(Schedule):
     at = None  # a test can move the clock

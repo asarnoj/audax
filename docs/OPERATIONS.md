@@ -1,6 +1,6 @@
 # Drift: vad som kör, vad det kostar, vad som händer när något går fel
 
-Status: granskad 2026-10-11 · hör till [ARCHITECTURE.md](ARCHITECTURE.md)
+Status: granskad 2026-10-11 · hör till [MODEL.md](MODEL.md)
 
 ## Vad som kör
 

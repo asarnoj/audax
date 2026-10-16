@@ -7,7 +7,7 @@ Title: {title}
 {request}
 
 ## How to work
-- First read `README.md`, `docs/ARCHITECTURE.md` and the files involved. Follow the existing structure, naming and style. Change what is needed and nothing more.
+- First read `README.md`, `docs/MODEL.md` and the files involved. Follow the existing structure, naming and style. Change what is needed and nothing more.
 - You change the **engine** (this code), which is generic and public. {owner_s} own settings (sources, missions, watchlist) live in the instance outside this repository, and the chat and Director change those directly. Never put anything personal about {owner} into the code, the prompts or the example files.
 - Common places:
   - prompts and behaviour: `agent/prompts/*.md`, in English; the owner's name is filled in through the placeholders already in the prompts, so never write out a name

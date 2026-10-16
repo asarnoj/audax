@@ -1,16 +1,20 @@
-"""Pursuits (docs/ATTENTION.md, "Ansökningsspåret"): what the owner is going for, so Audax can push at the right time.
+"""What the owner goes for (docs/MODEL.md, "ID:n och uppslag"): one kind of record, #S, instead of free-text files.
 
-Audax is good at finding opportunities; what the owner asked for just as much is help past hesitation. A pursuit is
-anything they have shown interest in, applied to or turned down: with a deadline, a next step and a status. From it:
+Four kinds, each with a title, why, status, next step, deadline and free notes (`about`, Swedish):
+- **goal** (mål): what the owner wants and why, what helps and what is noise. Triage, Researcher and Director read
+  them for everything they judge. What Director drives over time is the goal's plan, in its notes and next step.
+- **project** (projekt): something the owner builds or does.
+- **pursuit** (tillfälle): an opportunity they have shown interest in, applied to or turned down, under the goal it
+  serves. Audax is good at finding these; what the owner asked for just as much is help past hesitation:
+  - a nudge at the right time: something not yet applied to becomes, near its deadline (or on the day they asked
+    to be reminded), an outbox candidate. The dispatcher decides when it goes out and the chat writes it. One
+    nudge per pursuit; no nagging.
+  - follow-up after applying: Director keeps statuses true from the conversation and the mail.
+- **idea** (idé): Director's ideas between reflections, with whether they are being looked into, were shared or
+  were dismissed (and why), under the goal they serve.
 
-- **a nudge at the right time**: something they were interested in but haven't applied to becomes, near its deadline
-  (or on the day they asked to be reminded), an outbox candidate. The dispatcher decides when it goes out and the
-  chat writes it, in one sentence. One nudge per pursuit; no nagging.
-- **follow-up after applying**: Director keeps statuses true from the conversation and the mail (replies, interviews).
-- **learning**: what the owner pursues, lets go of and acts on after a nudge is visible to Director and Manager.
-
-Who writes: the chat (what the owner says, and reactions), Director (conversation and mail), and Python (a nudge
-was queued; a deadline passed without applying).
+Who writes: the chat (what the owner says, and reactions), Director (everything, above all goals and ideas), and
+Python (a nudge was queued; a deadline passed without applying). Every change is logged per record.
 """
 
 from __future__ import annotations
@@ -27,19 +31,28 @@ from agent.schedule import utc_iso
 
 log = logging.getLogger(__name__)
 
-STATUSES = ["interested", "preparing", "applied", "interviewing", "offer", "accepted", "rejected", "declined", "missed"]
-OPEN = ("interested", "preparing", "applied", "interviewing", "offer")
+KINDS = ("goal", "project", "pursuit", "idea")
+KIND_LABEL = {"goal": "Mål", "project": "Projekt", "pursuit": "Tillfälle", "idea": "Idé"}
+STATUSES = {
+    "goal": ["active", "paused", "done", "dropped"],
+    "project": ["active", "paused", "done", "dropped"],
+    "pursuit": ["interested", "preparing", "applied", "interviewing", "offer", "accepted", "rejected", "declined", "missed"],
+    "idea": ["exploring", "shared", "dismissed"],
+}
+OPEN = ("active", "paused", "interested", "preparing", "applied", "interviewing", "offer", "exploring", "shared")
 NOT_YET_APPLIED = ("interested", "preparing")
 LABEL = {
+    "active": "aktivt", "paused": "pausat", "done": "klart", "dropped": "släppt",
     "interested": "intresserad", "preparing": "förbereder", "applied": "sökt", "interviewing": "intervju", "offer": "erbjudande",
     "accepted": "tackat ja", "rejected": "fick nej", "declined": "valde bort", "missed": "missade deadline",
+    "exploring": "undersöks", "shared": "delad", "dismissed": "avfärdad",
 }
 # Mechanical fallback when nobody set a reminder day: a nudge becomes a candidate this long before the deadline.
 # When it actually goes out is the dispatcher's judgement under Manager's policy.
 DEFAULT_LEAD = timedelta(days=3)
 POSITIVE_REACTIONS = {"👍", "❤", "❤️", "🔥", "🤩", "👏", "💯", "😍", "🥰", "🎉", "⚡", "🙏", "❤‍🔥"}
 PURSUABLE = ("opportunity", "event", "insight", "search_update")
-FIELDS = ("title", "organization", "url", "status", "deadline", "remind_at", "next_step", "note")
+FIELDS = ("title", "organization", "url", "status", "deadline", "remind_at", "next_step", "note", "why", "about", "parent_id")
 
 
 def _day(value: str | None) -> str | None:
@@ -69,28 +82,37 @@ class Pursuits:
     async def upsert(self, fields: dict, by: str) -> tuple[int, bool]:
         """Updates the pursuit given by id, by candidate, or by a matching title among open ones; else adds one."""
         fields = {k: v for k, v in fields.items() if v not in (None, "")}
+        if "parent" in fields:
+            fields["parent_id"] = fields.pop("parent")
         for k in ("deadline", "remind_at"):
             if k in fields:
                 fields[k] = _day(fields[k])
-        if fields.get("status") not in STATUSES:
-            fields.pop("status", None)
         row = None
         if fields.get("id"):
             row = await self.db.fetchone("SELECT * FROM pursuits WHERE id = ?", (fields["id"],))
+        kind = row["kind"] if row else fields.get("kind") if fields.get("kind") in KINDS else "pursuit"
+        if fields.get("status") not in STATUSES[kind]:
+            fields.pop("status", None)
+        if fields.get("parent_id") == fields.get("id"):
+            fields.pop("parent_id", None)
+        if fields.get("parent_id") and not await self.db.fetchone("SELECT 1 FROM pursuits WHERE id = ? AND kind IN ('goal', 'project')", (fields["parent_id"],)):
+            fields.pop("parent_id")   # only a goal or a project holds other records
         if row is None and fields.get("candidate_id"):
             row = await self.db.fetchone("SELECT * FROM pursuits WHERE candidate_id = ?", (fields["candidate_id"],))
         if row is None and fields.get("title"):
-            for r in await self.db.fetchall(f"SELECT * FROM pursuits WHERE status IN ({','.join('?' * len(OPEN))})", OPEN):
+            for r in await self.db.fetchall(f"SELECT * FROM pursuits WHERE kind = ? AND status IN ({','.join('?' * len(OPEN))})", (kind, *OPEN)):
                 if _same(r["title"], fields["title"]) and (not fields.get("organization") or not r["organization"] or _same(r["organization"], fields["organization"])):
                     row = r
                     break
         if row is None:
             if not fields.get("title"):
-                raise ValueError("a new pursuit needs a title")
-            pid = await self.db.insert("pursuits", title=fields["title"], organization=fields.get("organization"), url=fields.get("url"),
-                                       candidate_id=fields.get("candidate_id"), status=fields.get("status", "interested"), deadline=fields.get("deadline"),
-                                       remind_at=fields.get("remind_at"), next_step=fields.get("next_step"), note=fields.get("note"), source=by)
-            await self._log(pid, fields.get("status", "interested"), fields.get("note") or "lades till", by)
+                raise ValueError("a new record needs a title")
+            status = fields.get("status", STATUSES[kind][0])
+            pid = await self.db.insert("pursuits", kind=kind, title=fields["title"], organization=fields.get("organization"), url=fields.get("url"),
+                                       candidate_id=fields.get("candidate_id"), status=status, deadline=fields.get("deadline"),
+                                       remind_at=fields.get("remind_at"), next_step=fields.get("next_step"), note=fields.get("note"),
+                                       why=fields.get("why"), about=fields.get("about"), parent_id=fields.get("parent_id"), source=by)
+            await self._log(pid, status, fields.get("note") or "lades till", by)
             return pid, True
         changes = {k: fields[k] for k in FIELDS if k in fields and fields[k] != row[k]}
         if fields.get("candidate_id") and not row["candidate_id"]:
@@ -100,8 +122,11 @@ class Pursuits:
         if changes:
             sets = ", ".join(f"{k} = ?" for k in changes)
             await self.db.execute(f"UPDATE pursuits SET {sets}, updated_at = datetime('now') WHERE id = ?", (*changes.values(), row["id"]))
-            if "status" in changes or "note" in changes:
-                await self._log(row["id"], changes.get("status"), changes.get("note"), by)
+            if changes.keys() - {"note"}:
+                what = "status" if changes.keys() == {"status"} else ", ".join(k for k in changes if k not in ("status", "note", "nudged_at"))
+                await self._log(row["id"], changes.get("status"), changes.get("note") or (f"ändrade {what}" if what != "status" else None), by)
+            elif "note" in changes:
+                await self._log(row["id"], None, changes["note"], by)
         return row["id"], False
 
     async def from_candidate(self, candidate_id: int, by: str, status: str = "interested") -> int | None:
@@ -131,13 +156,14 @@ class Pursuits:
         today = self.today()
         marks = ",".join("?" * len(NOT_YET_APPLIED))
         for r in await self.db.fetchall(
-            f"SELECT id FROM pursuits WHERE status IN ({marks}) AND deadline IS NOT NULL AND deadline < ?", (*NOT_YET_APPLIED, today.isoformat())
+            f"SELECT id FROM pursuits WHERE kind = 'pursuit' AND status IN ({marks}) AND deadline IS NOT NULL AND deadline < ?",
+            (*NOT_YET_APPLIED, today.isoformat()),
         ):
             await self.db.execute("UPDATE pursuits SET status = 'missed', updated_at = datetime('now') WHERE id = ?", (r["id"],))
             await self._log(r["id"], "missed", "deadline passerade utan ansökan", "system")
         queued = 0
         for r in await self.db.fetchall(
-            f"SELECT * FROM pursuits WHERE status IN ({marks}) AND nudged_at IS NULL AND (deadline IS NOT NULL OR remind_at IS NOT NULL)",
+            f"SELECT * FROM pursuits WHERE kind = 'pursuit' AND status IN ({marks}) AND nudged_at IS NULL AND (deadline IS NOT NULL OR remind_at IS NOT NULL)",
             NOT_YET_APPLIED,
         ):
             remind = date.fromisoformat(r["remind_at"]) if r["remind_at"] else date.fromisoformat(r["deadline"]) - DEFAULT_LEAD
@@ -169,28 +195,61 @@ class Pursuits:
 
     # --- reading ----------------------------------------------------------
 
-    async def summary(self, closed_days: int = 30) -> str:
-        """Open pursuits, then recently closed ones: for the chat, Director and the owner."""
+    async def overview(self, notes: bool = True, ideas: bool = True, closed_days: int = 30) -> str:
+        """Everything open, grouped under its goal or project, then what closed lately (and every dismissed idea, so
+        nothing is thought through twice). With notes: each record's why, next step and notes too (for the roles that
+        judge by them); without: one line each."""
+        marks = ",".join("?" * len(OPEN))
         rows = await self.db.fetchall(
-            f"SELECT * FROM pursuits WHERE status IN ({','.join('?' * len(OPEN))}) OR updated_at >= datetime('now', ?) "
-            "ORDER BY status IN ('interested', 'preparing') DESC, COALESCE(deadline, '9999') , id",
+            f"SELECT * FROM pursuits WHERE status IN ({marks}) OR updated_at >= datetime('now', ?) OR kind = 'idea' "
+            "ORDER BY kind != 'goal', kind != 'project', COALESCE(deadline, '9999'), id",
             (*OPEN, f"-{closed_days} days"),
         )
-        return "\n".join(
-            f"- [{r['id']}] {r['title']}" + (f" ({r['organization']})" if r["organization"] else "")
-            + f" · {LABEL.get(r['status'], r['status'])}"
-            + (f" · sista dag {r['deadline']}" if r["deadline"] else "")
-            + (f" · påminn {r['remind_at']}" if r["remind_at"] else "")
-            + (" · knuffad" if r["nudged_at"] else "")
-            + (f" · nästa: {r['next_step']}" if r["next_step"] else "")
-            + (f" · {r['url']}" if r["url"] else "")
-            for r in rows
-        ) or "(nothing yet)"
+        rows = [r for r in rows if ideas or r["kind"] != "idea"]
+        is_open = {r["id"] for r in rows if r["status"] in OPEN}
+
+        def line(r) -> str:
+            return (
+                f"#S{r['id']} {KIND_LABEL[r['kind']]}: {r['title']}" + (f" ({r['organization']})" if r["organization"] else "")
+                + f" · {LABEL.get(r['status'], r['status'])}"
+                + (f" · sista dag {r['deadline']}" if r["deadline"] else "")
+                + (f" · påminn {r['remind_at']}" if r["remind_at"] else "")
+                + (" · knuffad" if r["nudged_at"] else "")
+                + (f" · {r['url']}" if r["url"] else "")
+            )
+
+        def block(r, indent: str) -> list[str]:
+            out = [indent + line(r)]
+            if notes:
+                out += [" " * len(indent) + "  " + text for text in (
+                    (f"Varför: {r['why']}" if r["why"] else ""), (f"Nästa: {r['next_step']}" if r["next_step"] else ""),
+                    *(r["about"] or "").strip().splitlines()) if text.strip()]
+            elif r["next_step"]:
+                out[0] += f" · nästa: {r['next_step']}"
+            return out
+
+        lines: list[str] = []
+        heads = [r for r in rows if r["kind"] in ("goal", "project") and r["id"] in is_open]
+        held = {r["id"] for r in heads}
+        for h in heads:
+            lines += block(h, "")
+            for c in rows:
+                if c["parent_id"] == h["id"] and c["id"] in is_open:
+                    lines += block(c, "  - ")
+            lines.append("")
+        loose = [r for r in rows if r["id"] in is_open and r["id"] not in held and r["parent_id"] not in held]
+        if loose:
+            lines += ["Utan mål:"] + [x for r in loose for x in block(r, "- ")] + [""]
+        closed = [r for r in rows if r["id"] not in is_open]
+        if closed:
+            lines += [f"Avslutat (senaste {closed_days} dagarna; idéer alltid):"]
+            lines += [x for r in closed for x in (block(r, "- ") if r["kind"] == "idea" else ["- " + line(r)])]
+        return "\n".join(lines).strip() or "(nothing yet)"
 
     async def stats(self, days: int = 30) -> str:
         """How pursuits and nudges turn out: for Manager and Director (learning, not a target)."""
         since = f"-{days} days"
-        by_status = await self.db.fetchall("SELECT status, count(*) AS n FROM pursuits WHERE updated_at >= datetime('now', ?) GROUP BY status", (since,))
+        by_status = await self.db.fetchall("SELECT status, count(*) AS n FROM pursuits WHERE kind = 'pursuit' AND updated_at >= datetime('now', ?) GROUP BY status", (since,))
         nudged = await self.db.fetchone("SELECT count(*) AS n FROM pursuits WHERE nudged_at >= datetime('now', ?)", (since,))
         acted = await self.db.fetchone(
             "SELECT count(DISTINCT p.id) AS n FROM pursuits p JOIN pursuit_log l ON l.pursuit_id = p.id "
@@ -200,6 +259,13 @@ class Pursuits:
             f"Pursuits, last {days} days: " + (", ".join(f"{LABEL.get(r['status'], r['status'])} {r['n']}" for r in by_status) or "none")
             + f". Nudges: {nudged['n']}, followed by preparing or applying: {acted['n']}."
         )
+
+
+async def judged_against(db: Database, memory, tz: str) -> str:
+    """What a finding or a search is judged against: the goals (what helps, what is noise) and what serves them, the
+    situation and the profile. For triage and Researcher."""
+    return ("--- the goals, and what the owner goes for (#S) ---\n" + await Pursuits(db, tz).overview(ideas=False)
+            + "\n\n" + memory.read("direction/now.md", "profile.md"))
 
 
 async def candidates_of_message(db: Database, message_row_id: int | None) -> list[int]:

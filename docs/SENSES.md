@@ -1,6 +1,6 @@
 # Sinnen: hur agenten tar in världen
 
-Status: lager 1–3 byggda · 2026-10-10 · hör till [PLAN.md](PLAN.md)
+Status: lager 1–3 byggda · 2026-10-10 · hör till [PLAN.md](archive/PLAN.md)
 
 ## Problemet
 
