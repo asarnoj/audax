@@ -1,7 +1,7 @@
 """IDs and lookup (docs/MODEL.md, "ID:n och uppslag"): structure instead of free text.
 
-Everything worth following up has a short ID: #P posts, #S pursuits, #F findings (outbox candidates) and #B
-bookings. Messages link to the IDs they are about, so the Assistant looks things up ("what did I promise about
+Everything worth following up has a short ID: #P posts, #S what the owner goes for (goals, projects, opportunities,
+ideas), #F findings (outbox candidates) and #B bookings. Messages link to the IDs they are about, so the Assistant looks things up ("what did I promise about
 Google?") instead of trying to remember. IDs are the kitchen's tools: they are for the office and the web page, not
 for the owner's chat.
 """
@@ -39,10 +39,15 @@ async def describe(db: Database, ref: str) -> str | None:
         if p is None:
             return None
         log = await db.fetchall("SELECT created_at, status, note, by FROM pursuit_log WHERE pursuit_id = ? ORDER BY id", (n,))
+        parent = await db.fetchone("SELECT id, title FROM pursuits WHERE id = ?", (p["parent_id"],)) if p["parent_id"] else None
+        under = await db.fetchall("SELECT id, kind, title, status FROM pursuits WHERE parent_id = ? ORDER BY id", (n,))
         return (
-            f"#S{n} · {p['title']}" + (f" ({p['organization']})" if p["organization"] else "") + f" · {p['status']}"
+            f"#S{n} · {p['kind']} · {p['title']}" + (f" ({p['organization']})" if p["organization"] else "") + f" · {p['status']}"
             + (f" · deadline {p['deadline']}" if p["deadline"] else "") + (f" · reminder {p['remind_at']}" if p["remind_at"] else "")
-            + (f"\nNext: {p['next_step']}" if p["next_step"] else "") + (f"\n{p['url']}" if p["url"] else "")
+            + (f"\nUnder: #S{parent['id']} {parent['title']}" if parent else "")
+            + (f"\nWhy: {p['why']}" if p["why"] else "") + (f"\nNext: {p['next_step']}" if p["next_step"] else "")
+            + (f"\n{p['about'].strip()}" if p["about"] else "") + (f"\n{p['url']}" if p["url"] else "")
+            + ("\nHolds: " + ", ".join(f"#S{u['id']} {u['kind']} {u['title']} ({u['status']})" for u in under) if under else "")
             + "\nHistory:\n" + "\n".join(f"- {r['created_at'][:10]} {r['status'] or ''} {r['note'] or ''} ({r['by']})" for r in log)
         )
     if kind == "B":
@@ -80,9 +85,9 @@ async def lookup(db: Database, query: str, limit: int = 12) -> str:
     for p in await db.fetchall("SELECT id, created_at, sender, recipient, kind, status, body, verbatim FROM posts ORDER BY id DESC LIMIT 400"):
         if match(f"{p['body']} {p['verbatim'] or ''}"):
             hits.append((p["created_at"], f"#P{p['id']} {p['created_at'][:10]} {p['sender']}→{p['recipient']} {p['kind']} ({p['status']}): {p['body'][:140]}"))
-    for s in await db.fetchall("SELECT id, updated_at, title, organization, status, deadline, note FROM pursuits"):
-        if match(f"{s['title']} {s['organization'] or ''} {s['note'] or ''}"):
-            hits.append((s["updated_at"], f"#S{s['id']} {s['title']} · {s['status']}" + (f" · deadline {s['deadline']}" if s["deadline"] else "")))
+    for s in await db.fetchall("SELECT id, updated_at, kind, title, organization, status, deadline, note, why, about FROM pursuits"):
+        if match(f"{s['title']} {s['organization'] or ''} {s['note'] or ''} {s['why'] or ''} {s['about'] or ''}"):
+            hits.append((s["updated_at"], f"#S{s['id']} {s['kind']} · {s['title']} · {s['status']}" + (f" · deadline {s['deadline']}" if s["deadline"] else "")))
     for c in await db.fetchall(
         "SELECT id, updated_at, title, body, status FROM candidates WHERE updated_at >= datetime('now', '-90 days') ORDER BY id DESC LIMIT 600"
     ):

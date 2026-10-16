@@ -206,8 +206,8 @@ def build_chat_tools(
 
     @tool(
         "lookup",
-        "Look things up instead of trying to remember: an ID (#P12 a post, #S3 something {owner} is pursuing, #F210 a "
-        "finding) gives its details and history; a few words search posts, pursuits, findings and the conversation. Use "
+        "Look things up instead of trying to remember: an ID (#P12 a post, #S3 a goal, project or something {owner} goes for, #F210 a "
+        "finding) gives its details and history; a few words search posts, the #S records, findings and the conversation. Use "
         "it for 'vad lovade du om Google?', 'vad hände med X?', or before you answer about something from earlier.",
         {"type": "object", "properties": {"query": {"type": "string"}}, "required": ["query"]},
     )
