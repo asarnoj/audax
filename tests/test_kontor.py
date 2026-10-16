@@ -90,3 +90,17 @@ async def test_what_waits_and_what_a_click_shows(db, tmp_path):
     for name in ("desk-manager", "archive", "bin", "calendar", "board"):
         assert client.get(f"/api/kontor/objekt/{name}").status_code == 200, name
     assert client.get("/api/kontor/objekt/nothing").status_code == 404
+    desk = client.get("/api/kontor/objekt/desk-director").json()
+    assert desk["inbox"][0]["what"] == "new" and desk["about"].startswith("Works out")
+
+
+async def test_a_piece_of_work_shows_what_it_was_about_and_what_it_changed(db, tmp_path):
+    mem, git = memory(tmp_path)
+    await db.execute("INSERT INTO messages (telegram_message_id, direction, text) VALUES (1, 'in', 'Vad har du hittat?')")
+    (mem / "profile.md").write_text("Julius, KTH, gillar hackathons")
+    subprocess.run([*git, "commit", "-qam", "chat 2026-10-16 10:00"], check=True)
+    rid = await db.execute("INSERT INTO claude_runs (kind, duration_ms, output, trace) VALUES ('chat', 4000, 'Två saker.', ?)",
+                           ('[{"tool": "get_shelf", "input": "", "error": false}]',))
+    w = await Live(db, mem, "Europe/Stockholm").work(rid)
+    assert w["task"] == "Conversation" and w["about"][0]["text"] == "Vad har du hittat?"
+    assert w["tools"][0]["tool"] == "get_shelf" and "gillar hackathons" in w["edits"][0]["patch"]

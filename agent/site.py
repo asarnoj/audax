@@ -293,6 +293,10 @@ def build_app(db: Database, office: Office, roots: dict[str, Path]) -> Starlette
                 await asyncio.sleep(1)
         return StreamingResponse(events(), media_type="text/event-stream", headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"})
 
+    async def kontor_work(request: Request) -> Response:
+        w = await feed.work(request.path_params["id"])
+        return JSONResponse(w) if w else JSONResponse({"error": "no such work"}, 404)
+
     async def kontor_object(request: Request) -> Response:
         d = await feed.detail(request.path_params["name"])
         return JSONResponse(d) if d else JSONResponse({"error": "no such thing"}, 404)
@@ -304,6 +308,7 @@ def build_app(db: Database, office: Office, roots: dict[str, Path]) -> Starlette
         Route("/api/kontor/lage", kontor_state),
         Route("/api/kontor/strom", kontor_stream),
         Route("/api/kontor/objekt/{name}", kontor_object),
+        Route("/api/kontor/arbete/{id:int}", kontor_work),
         Route("/fragment/nu", now_fragment),
         Route("/fragment/tidslinje", timeline_fragment),
         Route("/roll/{role}", role_page),

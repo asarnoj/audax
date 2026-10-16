@@ -1,47 +1,61 @@
 <!doctype html>
-<html lang="sv">
+<html lang="en">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Gråskiss · Audax</title>
+<title>Audax office</title>
 <style>
   /* The office fills the window; the test settings sit in a small panel on top for now. */
   html, body { margin: 0; height: 100%; overflow: hidden; background: #f8f8f7; font: 13px/1.4 system-ui, sans-serif; }
   canvas { position: fixed; inset: 0; width: 100vw; height: 100vh; display: block; }
-  #panel { position: fixed; left: 12px; top: 12px; max-width: min(520px, calc(100vw - 24px)); padding: 8px 12px; border-radius: 8px;
+  #panel { position: fixed; left: 12px; bottom: 12px; max-width: min(520px, calc(100vw - 24px)); padding: 8px 12px; border-radius: 8px;
     background: rgba(255, 255, 255, 0.82); color: #333; box-shadow: 0 1px 4px rgba(0, 0, 0, 0.12); }
   #panel.hidden .body { display: none; }
   .controls { display: flex; flex-wrap: wrap; gap: 6px 14px; align-items: center; margin: 6px 0; }
   .controls label { display: flex; gap: 6px; align-items: center; }
   #time { width: min(300px, 60vw); }
-  #sheet { position: fixed; right: 12px; top: 12px; bottom: 12px; width: min(420px, calc(100vw - 24px)); overflow: auto; padding: 14px 16px;
-    border-radius: 10px; background: rgba(255, 255, 255, 0.96); color: #2b2b2b; box-shadow: 0 2px 12px rgba(0, 0, 0, 0.18); }
-  #sheet.hidden { display: none; }
-  #sheet h2 { margin: 0 0 4px; font-size: 18px; } #sheet h3 { margin: 14px 0 4px; font-size: 14px; }
-  #sheet ul { margin: 4px 0; padding-left: 18px; } #sheet li { margin: 3px 0; } #sheet .muted { color: #777; }
-  #sheet pre { white-space: pre-wrap; font: 12px/1.45 ui-monospace, monospace; background: #f5f3ee; padding: 8px; border-radius: 6px; }
-  #close { position: sticky; top: 0; float: right; border: 0; background: none; font-size: 20px; cursor: pointer; }
+  #veil { position: fixed; inset: 0; background: rgba(20, 20, 24, 0.28); display: flex; align-items: center; justify-content: center; padding: 16px; }
+  #veil.hidden { display: none; }
+  #sheet { width: min(760px, 100%); max-height: min(84vh, 900px); overflow: auto; padding: 22px 26px 26px; border-radius: 16px;
+    background: #fbfaf7; color: #2b2b2b; box-shadow: 0 10px 40px rgba(0, 0, 0, 0.25); position: relative; }
+  #sheet h2 { margin: 0 0 2px; font-size: 22px; font-weight: 600; } #sheet h3 { margin: 22px 0 8px; font-size: 13px; text-transform: uppercase; letter-spacing: .06em; color: #8a8478; }
+  #sheet .muted { color: #8a8478; } #sheet .status { margin: 10px 0 0; }
+  #sheet ul.plain { list-style: none; margin: 0; padding: 0; } #sheet ul.plain > li { padding: 7px 0; border-top: 1px solid #ece8e0; }
+  #sheet .row { display: flex; gap: 10px; align-items: baseline; } #sheet .when { color: #8a8478; min-width: 92px; font-variant-numeric: tabular-nums; }
+  #sheet .work { cursor: pointer; } #sheet .work:hover .what { text-decoration: underline; }
+  #sheet .detail { margin: 8px 0 4px 102px; } #sheet .day { margin: 16px 0 2px; font-weight: 600; font-size: 13px; }
+  #sheet .text { white-space: pre-wrap; } #sheet .notes { white-space: pre-wrap; background: #f3f0e9; padding: 12px 14px; border-radius: 10px; font-size: 13px; line-height: 1.5; }
+  #sheet pre.diff { white-space: pre-wrap; font: 12px/1.45 ui-monospace, Menlo, monospace; background: #f3f0e9; padding: 8px 10px; border-radius: 8px; margin: 6px 0; }
+  #sheet .add { background: #dff0d8; display: block; } #sheet .del { background: #f6dcd6; display: block; } #sheet .file { font-weight: 600; display: block; margin-top: 6px; }
+  #sheet .tag { font-size: 11px; padding: 1px 6px; border-radius: 6px; background: #ece8e0; color: #6f695e; margin-left: 6px; }
+  #sheet .dot { display: inline-block; width: 8px; height: 8px; border-radius: 50%; background: #5aa36a; margin-right: 6px; }
+  #close { position: sticky; top: 0; float: right; border: 0; background: none; font-size: 24px; line-height: 1; cursor: pointer; color: #8a8478; }
+  #roles { position: fixed; top: 12px; left: 50%; transform: translateX(-50%); display: flex; gap: 6px 18px; flex-wrap: wrap; justify-content: center;
+    max-width: calc(100vw - 24px); padding: 7px 14px; border-radius: 12px; background: rgba(255, 255, 255, 0.8); color: #2b2b2b; font-size: 13px;
+    box-shadow: 0 1px 4px rgba(0, 0, 0, 0.1); pointer-events: none; }
+  #roles .who { font-weight: 600; } #roles .ago { color: #8a8478; } #roles .busy { color: #3f8a52; }
   #info { color: #666; font-variant-numeric: tabular-nums; margin: 4px 0 0; }
   a { color: #47a; }
 </style>
 </head>
 <body>
 <canvas id="c"></canvas>
-<div id="sheet" class="hidden"><button id="close" aria-label="Stäng">×</button><div id="sheet-body"></div></div>
+<div id="roles"></div>
+<div id="veil" class="hidden"><div id="sheet" role="dialog" aria-modal="true"><button id="close" aria-label="Close">×</button><div id="sheet-body"></div></div></div>
 <div id="panel">
-  <div><a href="/">← Kontoret</a> · gråskiss · <button id="toggle">Dölj</button></div>
+  <div><a href="/">← Data</a> · test settings · <button id="toggle">Hide</button></div>
   <div class="body">
     <div class="controls">
-      <label>Tid <input id="time" type="range" min="0" max="1439" step="1"></label>
+      <label>Time <input id="time" type="range" min="0" max="1439" step="1"></label>
       <span id="clock"></span>
-      <button id="now">Nu</button>
-      <button id="play">Spela dygnet</button>
+      <button id="now">Now</button>
+      <button id="play">Play the day</button>
     </div>
     <div class="controls">
-      <label>Datum <input id="date" type="date"></label>
-      <label>Moln <input id="clouds" type="range" min="0" max="100" value="0" style="width: 110px"></label>
-      <label>Lampor <select id="lamps"><option value="auto">när det är mörkt</option><option value="on">på</option><option value="off">av</option></select></label>
-      <label>Ljus <select id="mode"><option value="band">i band</option><option value="soft">mjukt</option></select></label>
+      <label>Date <input id="date" type="date"></label>
+      <label>Clouds <input id="clouds" type="range" min="0" max="100" value="0" style="width: 110px"></label>
+      <label>Lamps <select id="lamps"><option value="auto">when it's dark</option><option value="on">on</option><option value="off">off</option></select></label>
+      <label>Light <select id="mode"><option value="band">in bands</option><option value="soft">soft</option></select></label>
     </div>
     <p id="info"></p>
   </div>
@@ -947,12 +961,12 @@ function syncNow() { // the clock follows real time, to the second
   if ($("date").value !== state.date) $("date").value = state.date;
   $("time").value = Math.floor(state.minutes);
 }
-function setPlaying(on) { state.playing = on; $("play").textContent = on ? "Stoppa" : "Spela dygnet"; }
+function setPlaying(on) { state.playing = on; $("play").textContent = on ? "Stop" : "Play the day"; }
 syncNow();
 $("time").addEventListener("input", () => { state.live = false; setPlaying(false); state.minutes = +$("time").value; });
 $("date").addEventListener("input", () => { if (/^\d{4}-\d{2}-\d{2}$/.test($("date").value)) { state.live = false; state.date = $("date").value; } });
 $("now").addEventListener("click", () => { state.live = true; setPlaying(false); syncNow(); });
-$("toggle").addEventListener("click", () => { const p = $("panel"); p.classList.toggle("hidden"); $("toggle").textContent = p.classList.contains("hidden") ? "Visa" : "Dölj"; });
+$("toggle").addEventListener("click", () => { const p = $("panel"); p.classList.toggle("hidden"); $("toggle").textContent = p.classList.contains("hidden") ? "Show" : "Hide"; });
 $("play").addEventListener("click", () => { state.live = false; setPlaying(!state.playing); });
 
 // The sun's highest point on a date, for the stylised angle (found once per date).
@@ -1050,9 +1064,9 @@ function draw(nowT) {
   ctx.setTransform(1, 0, 0, 1, 0, 0);
 
   const hh = String(Math.floor(state.minutes / 60)).padStart(2, "0"), mm = String(Math.floor(state.minutes % 60)).padStart(2, "0");
-  $("clock").textContent = `${hh}:${mm}${state.live ? " (nu)" : ""}`;
-  $("info").textContent = `${state.date} ${hh}:${mm} · ` + (L.sunStrength > 0.01 ? `dagsljus från ${Math.round(L.az)}°, ${Math.round(L.K / 100) * 100} K` : "mörkt ute") +
-    ` · skrivbordslampor ${lampsOn ? "på" : "av"}`;
+  $("clock").textContent = `${hh}:${mm}${state.live ? " (now)" : ""}`;
+  $("info").textContent = `${state.date} ${hh}:${mm} · ` + (L.sunStrength > 0.01 ? `daylight from ${Math.round(L.az)}°, ${Math.round(L.K / 100) * 100} K` : "dark outside") +
+    ` · desk lamps ${lampsOn ? "on" : "off"}`;
 }
 // --- connected to the office: the state of right now, then what happens (agent/kontor.py) -----------------
 const ROLE_SET = new Set(Object.keys(people));
@@ -1063,6 +1077,8 @@ const addBin = (d) => { counts.bin = Math.max(0, counts.bin + d); setBin(counts.
 async function fetchState() { const r = await fetch("/api/kontor/lage"); if (!r.ok) throw new Error(r.status); return r.json(); }
 function apply(state) {
   live.working = state.working || {};
+  live.last = state.last || {};
+  showRoles();
   for (const role of ROLE_SET) { counts.trays[role] = state.waiting?.[role] ?? 0; setTray(role, counts.trays[role]); }
   counts.board = (state.board || []).length; setBoard(counts.board);
   setCalendar(state.calendar || []);
@@ -1076,8 +1092,8 @@ setInterval(() => { if (quiet()) refresh(); }, 30000);   // now and then, when n
 // What happened, acted out (docs/KONTORET.md, "Från systemet till kontoret").
 function happen(h) {
   switch (h.type) {
-    case "start": live.working[h.role] = { kind: h.kind }; break;
-    case "end": delete live.working[h.role]; break;
+    case "start": live.working[h.role] = { kind: h.kind, task: TASK[h.kind] || h.kind }; showRoles(); break;
+    case "end": delete live.working[h.role]; (live.last ||= {})[h.role] = new Date().toISOString(); showRoles(); break;
     case "out": if (h.role === "director") errand("director", { key: "computer", stops: [{ place: "computer", act: 3, until: () => !live.working.director }] }); break;
     case "print": printout(true); setTimeout(() => { printout(false); addTray("director", h.n); }, 2200); break;
     case "drop": people.director.throwT = 0.8; setTimeout(() => { addTray("director", -h.n); addBin(h.n); }, 450); break;
@@ -1138,35 +1154,98 @@ canvas.addEventListener("mousemove", (e) => {
 });
 canvas.addEventListener("mouseleave", () => { hover = null; });
 canvas.addEventListener("click", () => { if (hover) openSheet(hover); });
-$("close").addEventListener("click", () => $("sheet").classList.add("hidden"));
+// --- the window: what a piece of furniture holds --------------------------------------------------------
+const TASK = { chat: "Conversation", assistant_night: "Night review", director_understand: "Daily review", director_reflect: "Reflection",
+  triage: "Triage", researcher_plan: "Planning", research: "Search mission", research_deep: "Wide search", page_extract: "Reading a watched page",
+  manager: "Daily review", dispatcher: "Dispatcher" };
+const NAME = { assistant: "Assistant", director: "Director", researcher: "Researcher", manager: "Manager" };
+const closeSheet = () => $("veil").classList.add("hidden");
+$("close").addEventListener("click", closeSheet);
+$("veil").addEventListener("click", (e) => { if (e.target.id === "veil") closeSheet(); });
+addEventListener("keydown", (e) => { if (e.key === "Escape") closeSheet(); });
 
 const esc = (v) => String(v ?? "").replace(/[&<>"]/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" })[c]);
-const when = (iso) => iso ? new Date(iso).toLocaleString("sv-SE", { weekday: "short", day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" }) : "";
+const fmt = (iso, o) => iso ? new Date(iso).toLocaleString("en-GB", o) : "";
+const clock = (iso) => fmt(iso, { hour: "2-digit", minute: "2-digit" });
+const dayOf = (iso) => fmt(iso, { weekday: "long", day: "numeric", month: "long" });
+const when = (iso) => fmt(iso, { weekday: "short", day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" });
+function ago(iso) {
+  if (!iso) return "not yet";
+  const m = Math.round((Date.now() - new Date(iso)) / 60000);
+  if (m < 1) return "just now"; if (m < 60) return `${m} min ago`; if (m < 24 * 60) return `${Math.round(m / 60)} h ago`;
+  return "last " + when(iso);
+}
+// The roles' notes are Markdown: bold and headings shown as such, the rest as written.
+const notes = (md) => esc(md).replace(/^#+\s*(.*)$/gm, "<strong>$1</strong>").replace(/\*\*(.+?)\*\*/g, "<strong>$1</strong>");
+const diff = (patch) => patch.split("\n").filter(l => !/^(diff --git|index |--- |\+\+\+ |@@)/.test(l) || l.startsWith("+++ ")).map(l =>
+  l.startsWith("+++ ") ? `<span class="file">${esc(l.slice(6))}</span>` : l.startsWith("+") ? `<span class="add">${esc(l)}</span>` : l.startsWith("-") ? `<span class="del">${esc(l)}</span>` : esc(l)).join("\n");
+
+// Along the top: the four roles, and whether they are at work now or when they last were.
+function showRoles() {
+  $("roles").innerHTML = ["assistant", "director", "researcher", "manager"].map(r => {
+    const w = live.working[r];
+    return `<span><span class="who">${NAME[r]}</span> ` + (w ? `<span class="busy"><span class="dot"></span>${esc(w.task || TASK[w.kind] || "working")}</span>`
+      : `<span class="ago">${ago(live.last?.[r])}</span>`) + "</span>";
+  }).join("");
+}
+setInterval(showRoles, 30000);
+showRoles();
+
+async function getJSON(url) { const r = await fetch(url); if (!r.ok) throw new Error(r.status); return r.json(); }
 async function openSheet(name) {
   const body = $("sheet-body");
-  $("sheet").classList.remove("hidden");
-  body.innerHTML = "<p class='muted'>Hämtar…</p>";
+  $("veil").classList.remove("hidden");
+  body.innerHTML = "<p class='muted'>Loading…</p>";
   let d;
-  try { const r = await fetch("/api/kontor/objekt/" + name); d = await r.json(); }
-  catch { body.innerHTML = "<p class='muted'>Det här finns bara på Pi:n, där kontoret är kopplat.</p>"; return; }
-  const list = (items, f) => items && items.length ? "<ul>" + items.map(f).join("") + "</ul>" : "<p class='muted'>Inget.</p>";
+  try { d = await getJSON("/api/kontor/objekt/" + name); }
+  catch { body.innerHTML = "<p class='muted'>This only works on the Pi, where the office is connected.</p>"; return; }
+  const list = (items, f) => items && items.length ? "<ul class='plain'>" + items.map(f).join("") + "</ul>" : "<p class='muted'>Nothing.</p>";
   let html = `<h2>${esc(d.title)}</h2><p class="muted">${esc(d.about)}</p>`;
   if (name.startsWith("desk-")) {
-    html += `<p>${d.working ? "Arbetar nu: " + esc(d.working.task) : "Ledig just nu."} · ${d.waiting} väntar i inkorgen.</p>`;
-    html += `<h3>Arbetsminne</h3>${d.memory ? `<pre>${esc(d.memory)}</pre>` : "<p class='muted'>Tomt.</p>"}`;
-    html += `<h3>Senaste arbetet</h3>` + list(d.runs, r => `<li>${esc(when(r.at))} · ${esc(r.task)} (${r.seconds} s)</li>`);
-    html += `<h3>Post</h3>` + list(d.posts, p => `<li>${esc(when(p.at))} · ${esc(p.from)} → ${esc(p.to)} (${esc(p.kind)}): ${esc(p.text)}</li>`);
+    html += `<p class="status">${d.working ? `<span class="dot"></span>Working now: ${esc(d.working.task)}` : `Idle · last active ${esc(ago(d.last))}`}</p>`;
+    html += `<h3>Inbox · ${d.inbox.length}</h3>` + list(d.inbox, i =>
+      `<li class="row"><span class="when">${esc(clock(i.at))}</span><span><span class="text">${esc(i.text)}</span><span class="tag">${esc(i.what)}${i.from ? " · from " + esc(i.from) : ""}</span></span></li>`);
+    html += "<h3>Work</h3>";
+    let day = "";
+    for (const w of d.work) {
+      const dd = dayOf(w.at);
+      if (dd !== day) { html += `<div class="day">${esc(dd)}</div>`; day = dd; }
+      html += `<div class="work row" data-id="${w.id}"><span class="when">${esc(clock(w.at))}</span><span><span class="what">${esc(w.task)}</span>` +
+        `<span class="tag">${w.seconds} s${w.failed ? " · failed" : ""}</span></span></div><div class="detail" id="work-${w.id}" hidden></div>`;
+    }
+    if (!d.work.length) html += "<p class='muted'>Nothing yet.</p>";
+    html += `<h3>Notes</h3>` + (d.memory ? `<div class="notes">${notes(d.memory)}</div>` : "<p class='muted'>Empty.</p>");
   } else if (name === "archive") {
-    for (const dr of d.drawers) html += `<h3>${esc(dr.name)}s låda</h3>` + list(dr.files, f => `<li>${esc(f.path)} <span class="muted">· ändrad ${esc(when(f.changed))}</span></li>`);
+    for (const dr of d.drawers) html += `<h3>${esc(dr.name)}'s drawer</h3>` + list(dr.files, f => `<li class="row"><span class="when">${esc(when(f.changed))}</span><span>${esc(f.path)}</span></li>`);
   } else if (name === "bin") {
-    html += list(d.items, i => `<li>${esc(i.title)} <span class="muted">· ${esc(when(i.at))} · ${esc(i.by)}${i.why ? ": " + esc(i.why) : ""}</span></li>`);
+    html += list(d.items, i => `<li class="row"><span class="when">${esc(when(i.at))}</span><span>${esc(i.title)}<span class="tag">${esc(i.by)}</span>${i.why ? `<div class="muted">${esc(i.why)}</div>` : ""}</span></li>`);
   } else if (name === "calendar") {
-    html += "<h3>Planerat</h3>" + list(d.planned, i => `<li>${esc(when(i.at))} · ${esc(i.title)}</li>`);
-    html += "<h3>Dina pass</h3>" + list(d.yours, i => `<li>${esc(when(i.start))} · ${esc(i.title)}</li>`);
+    html += "<h3>Planned</h3>" + list(d.planned, i => `<li class="row"><span class="when">${esc(when(i.at))}</span><span>${esc(i.title)}<span class="tag">${esc(i.kind)}</span></span></li>`);
+    html += "<h3>Your sessions</h3>" + list(d.yours, i => `<li class="row"><span class="when">${esc(when(i.start))}</span><span>${esc(i.title)}</span></li>`);
   } else if (name === "board") {
-    html += list(d.items, i => `<li>${i.url ? `<a href="${esc(i.url)}" target="_blank" rel="noopener">${esc(i.title)}</a>` : esc(i.title)} <span class="muted">· ${esc(when(i.at))}</span></li>`);
+    html += list(d.items, i => `<li class="row"><span class="when">${esc(when(i.at))}</span><span>${i.url ? `<a href="${esc(i.url)}" target="_blank" rel="noopener">${esc(i.title)}</a>` : esc(i.title)}</span></li>`);
   }
   body.innerHTML = html;
+  body.querySelectorAll(".work").forEach(el => el.addEventListener("click", () => openWork(el.dataset.id)));
+}
+
+// One piece of work, opened in place: what it was about, what it used, what it wrote, what it changed.
+async function openWork(id) {
+  const box = $("work-" + id);
+  if (!box.hidden) { box.hidden = true; return; }
+  box.hidden = false;
+  box.innerHTML = "<p class='muted'>Loading…</p>";
+  let w;
+  try { w = await getJSON("/api/kontor/arbete/" + id); } catch { box.innerHTML = "<p class='muted'>Couldn't load it.</p>"; return; }
+  let html = "";
+  if (w.failed) html += `<p class="muted">It failed: ${esc(w.error)}</p>`;
+  if (w.about.length) html += "<h3>What it was about</h3><ul class='plain'>" + w.about.map(a =>
+    `<li><span class="tag">${esc(a.label)}</span> <span class="text">${esc(a.text)}</span>${a.note ? `<div class="muted">${esc(a.note)}</div>` : ""}</li>`).join("") + "</ul>";
+  if (w.tools.length) html += "<h3>What it did</h3><ul class='plain'>" + w.tools.map(t => `<li>${esc(t.tool)} <span class="muted">${esc(t.input)}</span>${t.failed ? '<span class="tag">failed</span>' : ""}</li>`).join("") + "</ul>";
+  if (w.wrote) html += `<h3>What it wrote</h3><div class="notes">${notes(w.wrote)}${w.wrote.length >= 600 ? "…" : ""}</div>`;
+  if (w.posts.length) html += "<h3>What it sent</h3><ul class='plain'>" + w.posts.map(p => `<li><span class="tag">${esc(p.kind)} · to ${esc(p.to)}</span> <span class="text">${esc(p.text)}</span></li>`).join("") + "</ul>";
+  if (w.edits.length) html += "<h3>What it changed</h3>" + w.edits.map(e => `<pre class="diff">${diff(e.patch)}</pre>`).join("");
+  box.innerHTML = html || "<p class='muted'>Nothing more recorded.</p>";
 }
 
 resize();

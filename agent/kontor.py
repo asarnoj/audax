@@ -3,6 +3,8 @@
 Read only, from what the office already records: new events from the senses (the printer), triage and dispatcher
 decisions, posts between the roles, messages, bookings, what was taken from the board, memory saves, and the
 runs in progress. The page opens on the state of right now and then follows the stream; there is no replay.
+
+The page's own words are English; what the roles write is Swedish, because the owner writes Swedish.
 """
 
 from __future__ import annotations
@@ -16,14 +18,21 @@ from zoneinfo import ZoneInfo
 
 from agent.claude_gate import RUNNING
 from agent.db import Database
-from agent.office import FILES, NAMES, ROLES, TASKS, role_of
+from agent.office import FILES, NAMES, ROLES, role_of
 
 ABOUT = {
-    "assistant": "Pratar med dig. Den enda som gör det, och den som minns vad du har sagt.",
-    "director": "Förstår vad som spelar roll för dig och varför. Går igenom allt nytt som kommer in (triage).",
-    "researcher": "Letar efter det som finns och ser vad som missas: sökuppdragen, kartorna och bevakningarna.",
-    "manager": "Bestämmer när och hur något ska nå dig, och håller schemat.",
+    "assistant": "Talks with you: the only one who does, and the one who remembers what you have said.",
+    "director": "Works out what matters to you, and why. Goes through everything new that comes in (triage).",
+    "researcher": "Finds what is out there and what the search is missing: the search missions, the maps, the watched sources.",
+    "manager": "Decides when and how something reaches you, and keeps the schedule.",
 }
+TASK = {
+    "chat": "Conversation", "assistant_night": "Night review",
+    "director_understand": "Daily review", "director_reflect": "Reflection", "triage": "Triage",
+    "researcher_plan": "Planning", "research": "Search mission", "research_deep": "Wide search", "page_extract": "Reading a watched page",
+    "scout_queries": "Search queries", "manager": "Daily review", "dispatcher": "Dispatcher", "builder": "Code change",
+}
+KINDS = {r: [k for k in TASK if role_of(k) == r] for r in ROLES}
 OUT_TOOLS = ("mail_", "web_read", "WebSearch", "github")   # going out of the office: Director borrows Researcher's computer
 DRAWERS = ("assistant", "manager", "director", "researcher")  # the archive's drawers, left to right
 SAVE_ROLE = {"chat": "assistant", "assistant": "assistant", "director": "director", "manager": "manager", "researcher": "researcher"}
@@ -48,7 +57,7 @@ class Live:
         for task, started in list(RUNNING.values()):
             role = role_of(task.kind)
             if role in ROLES:
-                out[role] = {"kind": task.kind, "task": TASKS.get(task.kind, task.kind), "seconds": int(time.time() - started),
+                out[role] = {"kind": task.kind, "task": TASK.get(task.kind, task.kind), "seconds": int(time.time() - started),
                              "out": any(t["tool"].startswith(OUT_TOOLS) for t in task.trace)}
         return out
 
@@ -85,9 +94,18 @@ class Live:
         return await self._count("SELECT count(*) FROM decisions d WHERE d.created_at >= ? AND (d.tier = 'drop' OR d.tier = 'släppt')",
                                  (start.strftime("%Y-%m-%d %H:%M:%S"),))
 
+    async def last_active(self) -> dict:
+        """When each role last finished some work."""
+        out = {}
+        for role in ROLES:
+            row = await self.db.fetchone(f"SELECT max(created_at) AS t FROM claude_runs WHERE kind IN ({','.join('?' * len(KINDS[role]))})", tuple(KINDS[role]))
+            out[role] = self._local(row["t"]) if row and row["t"] else None
+        return out
+
     async def state(self) -> dict:
         return {
             "working": self.working(),
+            "last": await self.last_active(),
             "waiting": await self.waiting(),
             "board": await self.board(),
             "calendar": await self.calendar(),
@@ -225,12 +243,13 @@ class Live:
                             files.append({"path": p.relative_to(self.memory).as_posix(),
                                           "changed": datetime.fromtimestamp(p.stat().st_mtime, self.tz).isoformat(timespec="minutes")})
                 drawers.append({"role": role, "name": NAMES[role], "files": files})
-            return {"title": "Arkivet", "about": "Minnet: en låda per roll. Alla läser allt, varje roll skriver bara i sin egen låda.", "drawers": drawers}
+            return {"title": "Archive", "about": "The memory: one drawer per role. Everyone reads everything; each role writes only in its own drawer.",
+                    "drawers": drawers}
         if name == "bin":
             rows = await self.db.fetchall(
                 "SELECT c.id, c.title, d.module, d.reason, d.created_at FROM decisions d JOIN candidates c ON c.id = d.candidate_id "
                 "WHERE d.tier = 'drop' OR d.tier = 'släppt' ORDER BY d.id DESC LIMIT 25")
-            return {"title": "Papperskorgen", "about": f"Det som sorterats bort. {await self.binned_today()} i dag.",
+            return {"title": "Waste bin", "about": f"What was sorted away. {await self.binned_today()} today.",
                     "items": [{"ref": f"#F{r['id']}", "title": r["title"], "at": self._local(r["created_at"]),
                                "by": "Director (triage)" if r["module"].startswith("triage") else "Manager", "why": r["reason"]} for r in rows]}
         if name == "calendar":
@@ -238,29 +257,101 @@ class Live:
             own = await self.db.fetchall(
                 "SELECT summary, start, end, all_day FROM calendar_events WHERE status = 'active' AND start >= ? AND start <= ? ORDER BY start LIMIT 40",
                 (datetime.now(self.tz).isoformat(), until))
-            return {"title": "Kalendern", "about": "Det kontoret planerar att ta upp med dig, och dina egna pass som det planerar runt.",
+            return {"title": "Calendar", "about": "What the office plans to bring up with you, and your own sessions it plans around.",
                     "planned": await self.calendar(), "yours": [{"title": r["summary"], "start": r["start"], "end": r["end"]} for r in own]}
         if name == "board":
-            return {"title": "Board", "about": "Fynd som är värda att ha men inte värda att störa dig för. Assistant tar härifrån när du frågar.",
+            return {"title": "Board", "about": "Findings worth keeping but not worth interrupting you for. The Assistant takes from here when you ask.",
                     "items": await self.board()}
         return None
+
+    async def inbox(self, role: str) -> list[dict]:
+        """What lies in a role's inbox, oldest first."""
+        items = []
+        for p in await self.db.fetchall(
+            "SELECT id, sender, kind, body, created_at FROM posts WHERE recipient = ? AND status IN ('new', 'asked') ORDER BY id", (role,)):
+            items.append({"ref": f"#P{p['id']}", "what": p["kind"], "from": NAMES.get(p["sender"], p["sender"]), "text": p["body"], "at": self._local(p["created_at"])})
+        if role == "director":
+            for e in await self.db.fetchall("SELECT id, source, payload, created_at FROM events WHERE triaged_at IS NULL ORDER BY id LIMIT 40"):
+                try:
+                    payload = json.loads(e["payload"])
+                except ValueError:
+                    payload = {}
+                items.append({"what": "new", "from": e["source"].split(":", 1)[-1], "text": payload.get("title") or payload.get("summary") or e["source"],
+                              "at": self._local(e["created_at"])})
+        if role == "manager":
+            for c in await self.db.fetchall("SELECT id, title, created_at FROM candidates WHERE status = 'pending' ORDER BY id"):
+                items.append({"ref": f"#F{c['id']}", "what": "finding", "from": "Director", "text": c["title"], "at": self._local(c["created_at"])})
+        return items
 
     async def _desk(self, role: str) -> dict:
         wm = self.memory / "arbetsminne" / f"{role}.md"
         runs = await self.db.fetchall(
-            f"SELECT id, kind, created_at, duration_ms FROM claude_runs WHERE kind IN ({','.join('?' * len([k for k in TASKS if role_of(k) == role]))}) "
-            "ORDER BY id DESC LIMIT 12", tuple(k for k in TASKS if role_of(k) == role))
-        posts = await self.db.fetchall(
-            "SELECT id, sender, recipient, kind, body, status, created_at FROM posts WHERE recipient = ? OR sender = ? ORDER BY id DESC LIMIT 12", (role, role))
+            f"SELECT id, kind, created_at, duration_ms, is_error FROM claude_runs WHERE kind IN ({','.join('?' * len(KINDS[role]))}) ORDER BY id DESC LIMIT 60",
+            tuple(KINDS[role]))
         return {
-            "title": NAMES[role], "about": ABOUT[role],
+            "role": role, "title": NAMES[role], "about": ABOUT[role],
             "working": self.working().get(role),
-            "waiting": (await self.waiting())[role],
+            "last": (await self.last_active())[role],
+            "inbox": await self.inbox(role),
             "memory": wm.read_text() if wm.is_file() else None,
-            "runs": [{"id": r["id"], "task": TASKS.get(r["kind"], r["kind"]), "at": self._local(r["created_at"]),
-                      "seconds": (r["duration_ms"] or 0) // 1000} for r in runs],
-            "posts": [{"ref": f"#P{p['id']}", "from": NAMES.get(p["sender"], p["sender"]), "to": NAMES.get(p["recipient"], p["recipient"]),
-                       "kind": p["kind"], "text": p["body"], "status": p["status"], "at": self._local(p["created_at"])} for p in posts],
+            "work": [{"id": r["id"], "task": TASK.get(r["kind"], r["kind"]), "at": self._local(r["created_at"]),
+                      "seconds": (r["duration_ms"] or 0) // 1000, "failed": bool(r["is_error"])} for r in runs],
+        }
+
+    async def _git(self, *args: str) -> str:
+        proc = await asyncio.create_subprocess_exec("git", "-C", str(self.memory), *args, stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.DEVNULL)
+        out, _ = await proc.communicate()
+        return out.decode(errors="replace")
+
+    async def work(self, run_id: int) -> dict | None:
+        """One piece of work: what it was about, how it went about it, what it wrote, and what it changed."""
+        r = await self.db.fetchone("SELECT * FROM claude_runs WHERE id = ?", (run_id,))
+        if r is None:
+            return None
+        role = role_of(r["kind"])
+        end = datetime.fromisoformat(r["created_at"]).replace(tzinfo=ZoneInfo("UTC"))
+        start = end - timedelta(milliseconds=r["duration_ms"] or 0)
+        sql = lambda d: d.strftime("%Y-%m-%d %H:%M:%S")  # noqa: E731
+        window = (sql(start - timedelta(seconds=5)), sql(end + timedelta(seconds=60)))
+        about: list[dict] = []
+        if r["kind"] == "chat":
+            m = await self.db.fetchone("SELECT text FROM messages WHERE direction = 'in' AND created_at <= ? ORDER BY id DESC LIMIT 1", (sql(end),))
+            if m:
+                about.append({"label": "You wrote", "text": m["text"]})
+        elif r["kind"] == "triage":
+            for c in await self.db.fetchall("SELECT id, title, status, tier FROM candidates WHERE created_at BETWEEN ? AND ? ORDER BY id", window):
+                why = await self.db.fetchone("SELECT reason FROM decisions WHERE candidate_id = ? ORDER BY id LIMIT 1", (c["id"],))
+                kept = not (c["status"] == "dropped" and c["tier"] == "drop")
+                about.append({"label": "Kept" if kept else "Thrown away", "text": c["title"], "ref": f"#F{c['id']}", "note": why["reason"] if why and not kept else None})
+        elif r["kind"] == "dispatcher":
+            for d in await self.db.fetchall(
+                "SELECT d.tier, d.reason, c.id, c.title FROM decisions d JOIN candidates c ON c.id = d.candidate_id "
+                "WHERE d.module LIKE 'dispatcher%' AND d.created_at BETWEEN ? AND ? ORDER BY d.id", window):
+                about.append({"label": d["tier"], "text": d["title"], "ref": f"#F{d['id']}", "note": d["reason"]})
+        elif r["kind"] in ("research", "research_deep"):
+            for e in await self.db.fetchall("SELECT payload FROM events WHERE source LIKE 'research%' AND created_at BETWEEN ? AND ? ORDER BY id", window):
+                try:
+                    about.append({"label": "Found", "text": json.loads(e["payload"]).get("title", "")})
+                except ValueError:
+                    pass
+        posts = await self.db.fetchall(
+            "SELECT id, recipient, kind, body FROM posts WHERE sender = ? AND created_at BETWEEN ? AND ? ORDER BY id", (role, *window))
+        edits = []
+        log = await self._git("log", "--format=%H %ct %s", f"--since={int(start.timestamp()) - 5}", f"--until={int(end.timestamp()) + 60}")
+        for line in log.splitlines():
+            sha, _, msg = line.split(" ", 2)
+            if SAVE_ROLE.get(msg.split()[0] if msg else "") != role:
+                continue
+            patch = await self._git("show", "--format=", "--unified=1", "--no-color", sha)
+            edits.append({"message": msg, "patch": patch[:12000] + ("\n…" if len(patch) > 12000 else "")})
+        return {
+            "id": r["id"], "task": TASK.get(r["kind"], r["kind"]), "role": role, "at": self._local(r["created_at"]),
+            "seconds": (r["duration_ms"] or 0) // 1000, "failed": bool(r["is_error"]), "error": r["error"],
+            "about": about[:40],
+            "tools": [{"tool": t["tool"], "input": t["input"], "failed": t.get("error", False)} for t in (json.loads(r["trace"]) if r["trace"] else [])],
+            "wrote": r["output"],
+            "posts": [{"ref": f"#P{p['id']}", "to": NAMES.get(p["recipient"], p["recipient"]), "kind": p["kind"], "text": p["body"]} for p in posts],
+            "edits": edits,
         }
 
 
