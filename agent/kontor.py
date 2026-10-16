@@ -348,8 +348,11 @@ class Live:
             "id": r["id"], "task": TASK.get(r["kind"], r["kind"]), "role": role, "at": self._local(r["created_at"]),
             "seconds": (r["duration_ms"] or 0) // 1000, "failed": bool(r["is_error"]), "error": r["error"],
             "about": about[:40],
-            "tools": [{"tool": t["tool"], "input": t["input"], "failed": t.get("error", False)} for t in (json.loads(r["trace"]) if r["trace"] else [])],
-            "wrote": r["output"],
+            # The tools it used, without the engine's own plumbing (handing back a structured answer).
+            "tools": [{"tool": t["tool"].removeprefix("agent__"), "input": t["input"], "failed": t.get("error", False)}
+                      for t in (json.loads(r["trace"]) if r["trace"] else []) if t["tool"] != "StructuredOutput"],
+            # What it wrote, when it wrote prose; a structured answer shows as what it changed and sent instead.
+            "wrote": None if (r["output"] or "").lstrip().startswith("{") else r["output"],
             "posts": [{"ref": f"#P{p['id']}", "to": NAMES.get(p["recipient"], p["recipient"]), "kind": p["kind"], "text": p["body"]} for p in posts],
             "edits": edits,
         }
