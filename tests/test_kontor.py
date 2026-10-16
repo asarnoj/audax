@@ -103,4 +103,5 @@ async def test_a_piece_of_work_shows_what_it_was_about_and_what_it_changed(db, t
                            ('[{"tool": "get_shelf", "input": "", "error": false}]',))
     w = await Live(db, mem, "Europe/Stockholm").work(rid)
     assert w["task"] == "Conversation" and w["about"][0]["text"] == "Vad har du hittat?"
-    assert w["tools"][0]["tool"] == "get_shelf" and "gillar hackathons" in w["edits"][0]["patch"]
+    assert w["tools"][0]["tool"] == "Looked at the board" and "gillar hackathons" in w["edits"][0]["patch"]
+    assert w["edits"][0]["file"] == "profile.md" and w["edits"][0]["added"] == 1

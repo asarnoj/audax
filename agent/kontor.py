@@ -33,6 +33,26 @@ TASK = {
     "scout_queries": "Search queries", "manager": "Daily review", "dispatcher": "Dispatcher", "builder": "Code change",
 }
 KINDS = {r: [k for k in TASK if role_of(k) == r] for r in ROLES}
+# The tools, in words a person reads.
+TOOL = {
+    "web_read": "Read a web page", "WebSearch": "Searched the web", "WebFetch": "Read a web page", "Read": "Read a note", "Edit": "Edited a note",
+    "Write": "Wrote a note", "send_post": "Sent a post", "get_shelf": "Looked at the board", "shelf_told": "Took from the board",
+    "lookup": "Looked something up", "book": "Booked a time", "change_booking": "Moved a booking", "get_agenda": "Looked at the calendar",
+    "get_schedule": "Looked at your schedule", "mail_search": "Searched your mail", "mail_read": "Read a mail", "github": "Looked at GitHub",
+    "track_pursuit": "Noted what you're going for", "record_feedback": "Noted your feedback", "watch_source": "Started watching a source",
+    "change_watch": "Changed a watched source", "mark_question_asked": "Asked you a question", "how_i_work": "Looked up how the office works",
+    "run_research": "Started a search", "report_problem": "Reported a problem", "pause_messages": "Paused messages", "interview_guide": "Opened the interview guide",
+    "search_overview": "Looked at how a search is done", "source_overview": "Looked at the watched sources", "explain_message": "Looked up why a message was sent",
+    "activity_report": "Looked at today's activity", "request_change": "Asked for a change to Audax",
+}
+# The dispatcher's decisions, in words.
+def decision(label: str) -> str:
+    if label.startswith("planerad"):
+        return "To the calendar, " + label.removeprefix("planerad ").strip()
+    if label.startswith("väntar"):
+        return "Moved on the calendar, " + label.removeprefix("väntar till ").strip()
+    return {"nu": "Sent to you now", "sparad till senare": "Saved to the board", "släppt": "Dropped"}.get(label, label)
+
 OUT_TOOLS = ("mail_", "web_read", "WebSearch", "github")   # going out of the office: Director borrows Researcher's computer
 DRAWERS = ("assistant", "manager", "director", "researcher")  # the archive's drawers, left to right
 SAVE_ROLE = {"chat": "assistant", "assistant": "assistant", "director": "director", "manager": "manager", "researcher": "researcher"}
@@ -283,19 +303,70 @@ class Live:
                 items.append({"ref": f"#F{c['id']}", "what": "finding", "from": "Director", "text": c["title"], "at": self._local(c["created_at"])})
         return items
 
+    async def _summaries(self, role: str, runs: list) -> dict[int, str]:
+        """One line per piece of work saying what happened, from a few queries over the whole span."""
+        if not runs:
+            return {}
+        spans = {}
+        for r in runs:
+            end = datetime.fromisoformat(r["created_at"]).replace(tzinfo=ZoneInfo("UTC"))
+            spans[r["id"]] = (end - timedelta(milliseconds=r["duration_ms"] or 0) - timedelta(seconds=5), end + timedelta(seconds=60))
+        oldest = min(a for a, _ in spans.values()).strftime("%Y-%m-%d %H:%M:%S")
+        ts = lambda v: datetime.fromisoformat(v).replace(tzinfo=ZoneInfo("UTC"))  # noqa: E731
+        posts = [ts(p["created_at"]) for p in await self.db.fetchall("SELECT created_at FROM posts WHERE sender = ? AND created_at >= ?", (role, oldest))]
+        cands = [(ts(c["created_at"]), c["status"] == "dropped" and c["tier"] == "drop")
+                 for c in await self.db.fetchall("SELECT created_at, status, tier FROM candidates WHERE created_at >= ?", (oldest,))]
+        decs = [(ts(d["created_at"]), d["tier"]) for d in await self.db.fetchall(
+            "SELECT created_at, tier FROM decisions WHERE module LIKE 'dispatcher%' AND created_at >= ?", (oldest,))]
+        found = [ts(e["created_at"]) for e in await self.db.fetchall("SELECT created_at FROM events WHERE source LIKE 'research%' AND created_at >= ?", (oldest,))]
+        saves = []
+        since = int(min(a for a, _ in spans.values()).timestamp())
+        for line in (await self._git("log", "--format=%ct %s", f"--since={since}")).splitlines():
+            ct, _, msg = line.partition(" ")
+            if ct.isdigit() and SAVE_ROLE.get(msg.split()[0] if msg else "") == role:
+                saves.append(datetime.fromtimestamp(int(ct), ZoneInfo("UTC")))
+        out = {}
+        for r in runs:
+            a, b = spans[r["id"]]
+            inside = lambda ts_list: [t for t in ts_list if a <= t <= b]  # noqa: E731
+            n_posts, n_saves = len(inside(posts)), len(inside(saves))
+            extra = ([f"sent {n_posts} post{'s' if n_posts != 1 else ''}"] if n_posts else []) + (["changed its notes"] if n_saves else [])
+            k = r["kind"]
+            if k == "chat":
+                m = await self.db.fetchone("SELECT text FROM messages WHERE direction = 'in' AND created_at <= ? ORDER BY id DESC LIMIT 1", (r["created_at"],))
+                line = f"Answered you: “{(m['text'][:70] + '…') if m and len(m['text']) > 70 else (m['text'] if m else '')}”" if m else "Wrote to you"
+            elif k == "triage":
+                got = [d for t, d in cands if a <= t <= b]
+                line = f"Went through {len(got)} new item{'s' if len(got) != 1 else ''} · kept {sum(1 for d in got if not d)}"
+            elif k == "dispatcher":
+                got = [decision(lbl) for t, lbl in decs if a <= t <= b]
+                parts = {}
+                for g in got:
+                    key = g.split(",")[0]
+                    parts[key] = parts.get(key, 0) + 1
+                line = f"Decided on {len(got)} finding{'s' if len(got) != 1 else ''}" + (": " + ", ".join(f"{n} {k.lower()}" for k, n in parts.items()) if parts else "")
+            elif k in ("research", "research_deep"):
+                n = len(inside(found))
+                line = f"{TASK[k]} · found {n}"
+            else:
+                line = TASK.get(k, k)
+            out[r["id"]] = " · ".join([line, *extra]) + (" · failed" if r["is_error"] else "")
+        return out
+
     async def _desk(self, role: str) -> dict:
         wm = self.memory / "arbetsminne" / f"{role}.md"
         runs = await self.db.fetchall(
             f"SELECT id, kind, created_at, duration_ms, is_error FROM claude_runs WHERE kind IN ({','.join('?' * len(KINDS[role]))}) ORDER BY id DESC LIMIT 60",
             tuple(KINDS[role]))
+        summary = await self._summaries(role, runs)
         return {
             "role": role, "title": NAMES[role], "about": ABOUT[role],
             "working": self.working().get(role),
             "last": (await self.last_active())[role],
             "inbox": await self.inbox(role),
             "memory": wm.read_text() if wm.is_file() else None,
-            "work": [{"id": r["id"], "task": TASK.get(r["kind"], r["kind"]), "at": self._local(r["created_at"]),
-                      "seconds": (r["duration_ms"] or 0) // 1000, "failed": bool(r["is_error"])} for r in runs],
+            "work": [{"id": r["id"], "kind": r["kind"], "task": TASK.get(r["kind"], r["kind"]), "summary": summary.get(r["id"]),
+                      "at": self._local(r["created_at"]), "seconds": (r["duration_ms"] or 0) // 1000, "failed": bool(r["is_error"])} for r in runs],
         }
 
     async def _git(self, *args: str) -> str:
@@ -327,7 +398,7 @@ class Live:
             for d in await self.db.fetchall(
                 "SELECT d.tier, d.reason, c.id, c.title FROM decisions d JOIN candidates c ON c.id = d.candidate_id "
                 "WHERE d.module LIKE 'dispatcher%' AND d.created_at BETWEEN ? AND ? ORDER BY d.id", window):
-                about.append({"label": d["tier"], "text": d["title"], "ref": f"#F{d['id']}", "note": d["reason"]})
+                about.append({"label": decision(d["tier"]), "text": d["title"], "ref": f"#F{d['id']}", "note": d["reason"]})
         elif r["kind"] in ("research", "research_deep"):
             for e in await self.db.fetchall("SELECT payload FROM events WHERE source LIKE 'research%' AND created_at BETWEEN ? AND ? ORDER BY id", window):
                 try:
@@ -343,13 +414,19 @@ class Live:
             if SAVE_ROLE.get(msg.split()[0] if msg else "") != role:
                 continue
             patch = await self._git("show", "--format=", "--unified=1", "--no-color", sha)
-            edits.append({"message": msg, "patch": patch[:12000] + ("\n…" if len(patch) > 12000 else "")})
+            for part in patch.split("diff --git ")[1:]:   # one entry per note it changed
+                lines = part.splitlines()
+                name = next((ln[6:] for ln in lines if ln.startswith("+++ b/")), lines[0].split(" b/")[-1] if lines else "?")
+                added = sum(1 for ln in lines if ln.startswith("+") and not ln.startswith("+++"))
+                removed = sum(1 for ln in lines if ln.startswith("-") and not ln.startswith("---"))
+                body = "\n".join(ln for ln in lines if ln[:1] in "+- " and not ln.startswith(("+++", "---")))
+                edits.append({"file": name, "added": added, "removed": removed, "patch": body[:8000] + ("\n…" if len(body) > 8000 else "")})
         return {
             "id": r["id"], "task": TASK.get(r["kind"], r["kind"]), "role": role, "at": self._local(r["created_at"]),
             "seconds": (r["duration_ms"] or 0) // 1000, "failed": bool(r["is_error"]), "error": r["error"],
             "about": about[:40],
             # The tools it used, without the engine's own plumbing (handing back a structured answer).
-            "tools": [{"tool": t["tool"].removeprefix("agent__"), "input": t["input"], "failed": t.get("error", False)}
+            "tools": [{"tool": TOOL.get(t["tool"].removeprefix("agent__"), t["tool"].removeprefix("agent__")), "input": t["input"], "failed": t.get("error", False)}
                       for t in (json.loads(r["trace"]) if r["trace"] else []) if t["tool"] != "StructuredOutput"],
             # What it wrote, when it wrote prose; a structured answer shows as what it changed and sent instead.
             "wrote": None if (r["output"] or "").lstrip().startswith("{") else r["output"],

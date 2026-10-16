@@ -22,6 +22,7 @@
   #sheet .muted { color: #8a8478; } #sheet .status { margin: 10px 0 0; }
   #sheet ul.plain { list-style: none; margin: 0; padding: 0; } #sheet ul.plain > li { padding: 7px 0; border-top: 1px solid #ece8e0; }
   #sheet .row { display: flex; gap: 10px; align-items: baseline; } #sheet .when { color: #8a8478; min-width: 92px; font-variant-numeric: tabular-nums; }
+  #sheet details { margin: 4px 0; } #sheet summary { cursor: pointer; }
   #sheet .work { cursor: pointer; } #sheet .work:hover .what { text-decoration: underline; }
   #sheet .detail { margin: 8px 0 4px 102px; } #sheet .day { margin: 16px 0 2px; font-weight: 600; font-size: 13px; }
   #sheet .text { white-space: pre-wrap; } #sheet .notes { white-space: pre-wrap; background: #f3f0e9; padding: 12px 14px; border-radius: 10px; font-size: 13px; line-height: 1.5; }
@@ -606,6 +607,11 @@ function stepPerson(p, dt) {
   }
   if (p.mode === "walking") {
     const target = p.path[p.seg + 1], dir = Math.atan2(target[1] - p.pos[1], target[0] - p.pos[0]);
+    if (p.speed < 5 && Math.abs(angleTo(p.heading, dir)) > 0.6) { // facing the wrong way: turn on the spot first
+      p.heading += angleTo(p.heading, dir) * Math.min(1, dt * 7);
+      p.speed = 0;
+      return;
+    }
     let left = dist(p.pos, target);
     for (let i = p.seg + 1; i < p.path.length - 1; i++) left += dist(p.path[i], p.path[i + 1]);
     const want = VMAX * hurry * clamp(Math.min(left / 70, 1) + 0.15, 0.15, 1);
@@ -658,8 +664,8 @@ function peopleParts(nowT) {
       const moving = p.gait, S = p.stride || STRIDE;
       const offL = footOffset(p.phase, S) * moving, offR = footOffset((p.phase + 0.5) % 1, S) * moving, reach = 20 * p.reachT;
       const bob = 1 + 0.014 * moving * (1 - Math.cos(4 * Math.PI * p.phase)) / 2;
-      const carry = p.carry ? 14 : 0;
-      all.push(...person(id, look, p.pos[0], p.pos[1], p.heading, { offL, offR, swingL: 0.55 * offR + reach + carry, swingR: 0.55 * offL + reach + carry, bob, carry: p.carry }, true));
+      // The arms swing gently, opposite to the feet; reaching out at a stop; still while holding a paper.
+      all.push(...person(id, look, p.pos[0], p.pos[1], p.heading, { offL, offR, swingL: 0.4 * offR + reach, swingR: 0.4 * offL + reach, bob, carry: p.carry }, true));
     }
   }
   return all;
@@ -678,42 +684,34 @@ function footOffset(phase, S) {
 function person(id, look, x, y, h, pose, moves = false) {
   const f = [Math.cos(h), Math.sin(h)], s = [-Math.sin(h), Math.cos(h)];
   const at = (side, fwd) => [x + s[0] * side + f[0] * fwd, y + s[1] * side + f[1] * fwd];
-  const oval = (side, fwd, a, b, n = 18) => Array.from({ length: n }, (_, i) => at(side + a * Math.cos(2 * Math.PI * i / n), fwd + b * Math.sin(2 * Math.PI * i / n)));
+  const oval = (side, fwd, a, b, n = 20) => Array.from({ length: n }, (_, i) => at(side + a * Math.cos(2 * Math.PI * i / n), fwd + b * Math.sin(2 * Math.PI * i / n)));
   const dot = (side, fwd, r, n = 12) => oval(side, fwd, r, r, n);
-  const parts = [], P = (pid, o) => parts.push(Object.assign({ id: `${id}-${pid}`, group: id, moves }, o));
-  const sit = !!pose.seated, top = sit ? 112 : 140, hip = sit ? 58 : 90, bob = pose.bob || 1;
-  if (sit) { // thighs forward from the seat (mostly hidden under the desk)
-    for (const sd of [-9, 9]) P(`thigh${sd}`, { poly: hull(dot(sd, 0, 7).concat(dot(sd * 0.9, 34, 6.5))), z0: 44, z1: hip, color: look.suit });
-  } else { // legs and shoes, stepping
-    for (const [sd, off] of [[-10, pose.offL], [10, pose.offR]]) {
-      const foot = [sd, off + 4];
-      P(`shoe${sd}`, { poly: oval(foot[0], foot[1], 5.5, 12, 10), z0: 0, z1: 9, color: look.shoe });
-      P(`leg${sd}`, { bottom: dot(foot[0], foot[1], 6), top: dot(sd * 0.9, off * 0.25, 7.5), z0: 9, z1: hip, color: look.suit });
-    }
+  // Only a few plain shapes cast the shadow (body, head, legs): enough to read as a person, cheap to work out.
+  const parts = [], P = (pid, o) => parts.push(Object.assign({ group: id, moves, occludes: false }, o, { id: `${id}-${pid}` }));
+  const sit = !!pose.seated, top = sit ? 112 : 140, hip = sit ? 58 : 88, bob = pose.bob || 1;
+  if (!sit) for (const [sd, off] of [[-9, pose.offL], [9, pose.offR]]) { // legs and shoes, stepping
+    P(`shoe${sd}`, { poly: oval(sd, off + 4, 5, 11, 10), z0: 0, z1: 9, color: look.shoe });
+    P(`leg${sd}`, { bottom: dot(sd, off + 4, 6), top: dot(sd * 0.9, off * 0.25, 7.5), z0: 9, z1: hip, color: look.suit, occludes: true });
   }
-  for (const sd of [-1, 1]) { // arms
-    if (sit) { // forward to the desk, hands on it
-      const reach = (sd < 0 ? pose.reachL : pose.reachR) ?? pose.reach ?? 40, elbow = [sd * 19, reach * 0.5], hand = [sd * 10, reach];
-      P(`upperarm${sd}`, { bottom: dot(...elbow, 5), top: dot(sd * 21, 0, 6), z0: 90, z1: top - 2, color: look.suit });
-      P(`forearm${sd}`, { bottom: dot(hand[0], hand[1] - 3, 4.5), top: dot(...elbow, 5), z0: 78, z1: 90, color: look.suit });
-      P(`hand${sd}`, { poly: dot(hand[0], hand[1], 4.2), z0: 76, z1: 80, color: look.skin });
-    } else { // hanging, swinging with the opposite foot
-      const swing = sd < 0 ? pose.swingL : pose.swingR, hand = [sd * 25, swing];
-      P(`arm${sd}`, { bottom: dot(...hand, 5), top: dot(sd * 22, 0, 6), z0: 84, z1: top - 2, color: look.suit });
-      P(`hand${sd}`, { poly: dot(hand[0], hand[1], 4.4), z0: 80, z1: 84, color: look.skin });
-    }
+  for (const sd of [-1, 1]) { // one arm each side, shoulder to hand
+    let hand;
+    if (sit) hand = [sd * 10, (sd < 0 ? pose.reachL : pose.reachR) ?? 40];            // on the desk
+    else if (pose.carry) hand = [sd * 9.5, 26];                                          // holding the paper in front
+    else hand = [sd * 24, sd < 0 ? pose.swingL : pose.swingR];                           // swinging gently
+    P(`arm${sd}`, { bottom: dot(hand[0], hand[1] - 3, 4.6), top: dot(sd * 22, 2, 6), z0: sit ? 78 : 86, z1: top - 4, color: look.suit });
+    P(`hand${sd}`, { poly: dot(hand[0], hand[1], 4.2), z0: sit ? 76 : 84, z1: sit ? 80 : 88, color: look.skin });
   }
-  if (pose.carry) P("paper", { poly: [at(-10, 22), at(10, 22), at(10, 36), at(-10, 36)], z0: top - 30, z1: top - 29, color: "#f4f0e7", occludes: false });
-  // The body: a jacket, its front showing; the shirt's V and the tie on it.
-  P("jacket", { poly: oval(0, 1, 24 * bob, 14 * bob, 22), z0: hip, z1: top, color: look.suit });
-  P("shirt", { poly: [at(-6.5, -1), at(6.5, -1), at(0, 13)], z0: top - 1, z1: top + 0.2, color: look.shirt, occludes: false });
-  if (look.tie) P("tie", { poly: [at(-1.7, 1), at(1.7, 1), at(1.3, 11.5), at(0, 14), at(-1.3, 11.5)], z0: top - 1, z1: top + 0.4, color: look.tie, occludes: false });
-  if (look.long) P("hairback", { poly: oval(0, -10, 12.5, 9, 16), z0: top - 4, z1: top + 1.5, color: look.hair });
-  // The head behind the chest, the hair covering its top and leaving a little face at the front.
-  P("head", { poly: dot(0, -4, 10.5, 18), z0: top, z1: top + 24, color: look.skin });
-  const hair = look.messy ? hull(Array.from({ length: 14 }, (_, i) => { const a = 2 * Math.PI * i / 14, r = 10.6 + (i % 3) * 0.9; return at(r * Math.cos(a), -6.5 + r * Math.sin(a)); }))
-    : dot(0, -6.2, 10.2, 18);
-  P("hair", { poly: hair, z0: top + 23, z1: top + 24.4, color: look.hair, occludes: false });
+  if (pose.carry) P("paper", { poly: [at(-10.5, 20), at(10.5, 20), at(10.5, 34), at(-10.5, 34)], z0: top - 6, z1: top - 3, color: "#f4f0e7" });
+  // The body, leaning a little forward so its front shows: the jacket, the shirt's V and the tie on it.
+  P("jacket", { poly: oval(0, 4, 25 * bob, 18 * bob, 24), z0: hip, z1: top, color: look.suit, occludes: true });
+  P("shirt", { poly: [at(-8, 2), at(8, 2), at(0, 20)], z0: top - 1, z1: top + 0.2, color: look.shirt });
+  if (look.tie) P("tie", { poly: [at(-2, 3), at(2, 3), at(1.6, 16), at(0, 20), at(-1.6, 16)], z0: top - 1, z1: top + 0.4, color: look.tie });
+  if (look.long) P("hairback", { poly: oval(0, -15, 12.5, 8, 16), z0: top - 4, z1: top + 1.5, color: look.hair });
+  // The head at the back, the hair over its top leaving a little of the face at the front.
+  P("head", { poly: dot(0, -9, 10.5, 18), z0: top, z1: top + 24, color: look.skin, occludes: true });
+  const hair = look.messy ? hull(Array.from({ length: 14 }, (_, i) => { const a = 2 * Math.PI * i / 14, r = 10.6 + (i % 3) * 0.9; return at(r * Math.cos(a), -11.5 + r * Math.sin(a)); }))
+    : dot(0, -11.3, 10.2, 18);
+  P("hair", { poly: hair, z0: top + 23, z1: top + 24.4, color: look.hair });
   return parts;
 }
 
@@ -1002,6 +1000,47 @@ function lighting(minutes) {
 let last = performance.now(), lastSync = 0, failed = false;
 let shownBg = null, lampLayerKey = null, screenFlash = 0, hover = null;
 
+// The people move, so they aren't in the lamps' kept light; their shadows from the lamps are taken out of it here:
+// their shadow shapes on the floor, kept only where lamp light falls and not over the people themselves, and that
+// much lamp light subtracted from the picture ("difference", as the light is always there to take away).
+function lampShadowsOfPeople(all, warm) {
+  const casters = all.filter(o => o.moves && o.occludes), g = M.getContext("2d");
+  g.setTransform(1, 0, 0, 1, 0, 0); g.globalCompositeOperation = "source-over"; g.clearRect(0, 0, M.width, M.height); toWorld(g);
+  g.fillStyle = "#fff"; g.beginPath();
+  let any = false;
+  for (const l of lamps) {
+    const R = (l.z) * Math.tan(l.cone * Math.PI / 180), box = rect(l.x - R, l.y - R, 2 * R, 2 * R);
+    for (const o of casters) {
+      if (dist(o.poly ? o.poly[0] : o.top[0], [l.x, l.y]) > R + 60) continue;
+      const sh = shadow(o, { z: 0, plane: null }, lampProject(l), l.z - 1), cut = sh && clip(sh, box);
+      if (cut && cut.length >= 3) { subpath(g, cut); any = true; }
+    }
+  }
+  if (!any) return;
+  g.fill();
+  g.globalCompositeOperation = "destination-out";
+  for (const o of all) if (o.moves) { path(g, silhouette(o)); g.fill(); }
+  g.setTransform(1, 0, 0, 1, 0, 0); g.globalCompositeOperation = "destination-in"; g.drawImage(A, 0, 0); g.globalCompositeOperation = "source-over";
+  const t = T.getContext("2d");
+  t.setTransform(1, 0, 0, 1, 0, 0); t.globalCompositeOperation = "source-over"; t.clearRect(0, 0, T.width, T.height); t.drawImage(B, 0, 0);
+  t.globalCompositeOperation = "multiply"; t.fillStyle = css(warm, 1.05); t.fillRect(0, 0, T.width, T.height);
+  t.globalCompositeOperation = "destination-in"; t.drawImage(M, 0, 0); t.globalCompositeOperation = "source-over";
+  ctx.setTransform(1, 0, 0, 1, 0, 0); ctx.globalCompositeOperation = "difference"; ctx.drawImage(T, 0, 0); ctx.globalCompositeOperation = "source-over";
+}
+
+// How much lamp light reaches a point (summed over the lamps, in the same bands as their light on the room).
+function lampLightAt(x, y, z, soft, size = 0) {
+  let total = 0;
+  for (const l of lamps) {
+    const h = l.z - z, r = Math.max(0, Math.hypot(x - l.x, y - l.y) - size);
+    if (h <= 2 || r > h * Math.tan(l.cone * Math.PI / 180)) continue;
+    const rel = (h / Math.pow(h * h + r * r, 1.5)) * l.href * l.href;
+    if (soft) total += Math.min(1, rel);
+    else total += (l.bands.find(([t]) => rel >= t) || [0, 0])[1];
+  }
+  return Math.min(1, total);
+}
+
 // All desk lamps' light, against the still room only, into one layer (A).
 function buildLampLayer(soft) {
   const still = objects.slice().sort((a, b) => a.z1 - b.z1), surfaces = still.filter(o => o.receives !== false);
@@ -1041,7 +1080,21 @@ function draw(nowT) {
   const lampKey = `${A.width}x${A.height}|${soft}`;
   if (lampKey !== lampLayerKey) { buildLampLayer(soft); lampLayerKey = lampKey; }
   if (lampsOn) {
-    addLight(warm, 1.05, A);
+    // The kept light is the still room's; over each person it would show the furniture beneath them, so each
+    // person gets one even lamp light instead, worked out for where they are.
+    const g = M.getContext("2d");
+    g.setTransform(1, 0, 0, 1, 0, 0); g.globalCompositeOperation = "source-over"; g.clearRect(0, 0, M.width, M.height); g.drawImage(A, 0, 0); toWorld(g);
+    const movers = all.filter(o => o.moves);
+    g.globalCompositeOperation = "destination-out"; g.fillStyle = "#000";
+    for (const o of movers) { path(g, silhouette(o)); g.fill(); }
+    g.globalCompositeOperation = "lighter";
+    for (const p of Object.values(people)) {
+      g.fillStyle = `rgba(255,255,255,${lampLightAt(p.pos[0], p.pos[1], 74, soft, 24).toFixed(3)})`;   // from the side of them nearest the lamp
+      for (const o of movers) if (o.group === p.role + "-person") { path(g, silhouette(o)); g.fill(); }
+    }
+    g.globalCompositeOperation = "source-over";
+    addLight(warm, 1.05, M);
+    lampShadowsOfPeople(all, warm);
     toWorld(ctx);   // a shade open at the top shows its lit inside
     for (const l of lamps) if (l.glow) { path(ctx, circle(l.glow[0], l.glow[1], l.glow[2], 24)); ctx.fillStyle = css(warm.map(v => v * 0.98)); ctx.fill(); }
     ctx.setTransform(1, 0, 0, 1, 0, 0);
@@ -1091,6 +1144,7 @@ setInterval(() => { if (quiet()) refresh(); }, 30000);   // now and then, when n
 
 // What happened, acted out (docs/KONTORET.md, "Från systemet till kontoret").
 function happen(h) {
+  fetchSoon();
   switch (h.type) {
     case "start": live.working[h.role] = { kind: h.kind, task: TASK[h.kind] || h.kind }; showRoles(); break;
     case "end": delete live.working[h.role]; (live.last ||= {})[h.role] = new Date().toISOString(); showRoles(); break;
@@ -1159,7 +1213,7 @@ const TASK = { chat: "Conversation", assistant_night: "Night review", director_u
   triage: "Triage", researcher_plan: "Planning", research: "Search mission", research_deep: "Wide search", page_extract: "Reading a watched page",
   manager: "Daily review", dispatcher: "Dispatcher" };
 const NAME = { assistant: "Assistant", director: "Director", researcher: "Researcher", manager: "Manager" };
-const closeSheet = () => $("veil").classList.add("hidden");
+const closeSheet = () => { $("veil").classList.add("hidden"); openName = null; };
 $("close").addEventListener("click", closeSheet);
 $("veil").addEventListener("click", (e) => { if (e.target.id === "veil") closeSheet(); });
 addEventListener("keydown", (e) => { if (e.key === "Escape") closeSheet(); });
@@ -1177,8 +1231,7 @@ function ago(iso) {
 }
 // The roles' notes are Markdown: bold and headings shown as such, the rest as written.
 const notes = (md) => esc(md).replace(/^#+\s*(.*)$/gm, "<strong>$1</strong>").replace(/\*\*(.+?)\*\*/g, "<strong>$1</strong>");
-const diff = (patch) => patch.split("\n").filter(l => !/^(diff --git|index |--- |\+\+\+ |@@)/.test(l) || l.startsWith("+++ ")).map(l =>
-  l.startsWith("+++ ") ? `<span class="file">${esc(l.slice(6))}</span>` : l.startsWith("+") ? `<span class="add">${esc(l)}</span>` : l.startsWith("-") ? `<span class="del">${esc(l)}</span>` : esc(l)).join("\n");
+const diff = (patch) => patch.split("\n").map(l => l.startsWith("+") ? `<span class="add">${esc(l.slice(1))}</span>` : l.startsWith("-") ? `<span class="del">${esc(l.slice(1))}</span>` : esc(l.slice(1))).join("\n");
 
 // Along the top: the four roles, and whether they are at work now or when they last were.
 function showRoles() {
@@ -1191,61 +1244,107 @@ function showRoles() {
 setInterval(showRoles, 30000);
 showRoles();
 
+// Everything a click can show is fetched ahead and kept fresh, so a window opens at once. The latest pieces of
+// work on each desk are fetched ahead too (a finished piece of work doesn't change).
+const OBJECTS = ["desk-assistant", "desk-director", "desk-researcher", "desk-manager", "archive", "bin", "calendar", "board"];
+const ahead = {}, works = {};
+let openName = null;
 async function getJSON(url) { const r = await fetch(url); if (!r.ok) throw new Error(r.status); return r.json(); }
-async function openSheet(name) {
-  const body = $("sheet-body");
+async function fetchObject(name) {
+  try {
+    const d = await getJSON("/api/kontor/objekt/" + name);
+    ahead[name] = d;
+    if (openName === name && !document.querySelector("#sheet .detail:not([hidden])")) render(name, d);
+    if (d.work) for (const w of d.work.slice(0, 12)) if (!works[w.id]) works[w.id] = getJSON("/api/kontor/arbete/" + w.id).catch(() => { delete works[w.id]; return null; });
+  } catch { /* not on the Pi: nothing to show */ }
+}
+const fetchAll = () => OBJECTS.reduce((p, n) => p.then(() => fetchObject(n)), Promise.resolve());
+let soon = null;
+const fetchSoon = () => { clearTimeout(soon); soon = setTimeout(fetchAll, 2500); };   // after something happened
+fetchAll();
+setInterval(fetchAll, 60000);
+
+function openSheet(name) {
+  openName = name;
   $("veil").classList.remove("hidden");
-  body.innerHTML = "<p class='muted'>Loading…</p>";
-  let d;
-  try { d = await getJSON("/api/kontor/objekt/" + name); }
-  catch { body.innerHTML = "<p class='muted'>This only works on the Pi, where the office is connected.</p>"; return; }
-  const list = (items, f) => items && items.length ? "<ul class='plain'>" + items.map(f).join("") + "</ul>" : "<p class='muted'>Nothing.</p>";
+  if (ahead[name]) render(name, ahead[name]);
+  else $("sheet-body").innerHTML = location.protocol === "file:" || !navigator.onLine ? "<p class='muted'>This only works on the Pi.</p>" : "<p class='muted'>Loading…</p>";
+  fetchObject(name);
+}
+
+// Short, readable bits of a tool's input: a web address as its site, the rest cut short.
+function short(input) {
+  const s = String(input ?? "");
+  const url = s.match(/https?:\/\/([^/\s"]+)/);
+  if (url) return url[1].replace(/^www\./, "");
+  return s.replace(/[{}"]/g, "").slice(0, 90);
+}
+const plural = (n, w) => `${n} ${w}${n === 1 ? "" : "s"}`;
+
+function render(name, d) {
+  const body = $("sheet-body");
+  const list = (items, f) => items && items.length ? "<ul class='plain'>" + items.map(f).join("") + "</ul>" : "<p class='muted'>Nothing here.</p>";
   let html = `<h2>${esc(d.title)}</h2><p class="muted">${esc(d.about)}</p>`;
   if (name.startsWith("desk-")) {
-    html += `<p class="status">${d.working ? `<span class="dot"></span>Working now: ${esc(d.working.task)}` : `Idle · last active ${esc(ago(d.last))}`}</p>`;
-    html += `<h3>Inbox · ${d.inbox.length}</h3>` + list(d.inbox, i =>
-      `<li class="row"><span class="when">${esc(clock(i.at))}</span><span><span class="text">${esc(i.text)}</span><span class="tag">${esc(i.what)}${i.from ? " · from " + esc(i.from) : ""}</span></span></li>`);
-    html += "<h3>Work</h3>";
-    let day = "";
+    html += `<p class="status">${d.working ? `<span class="dot"></span>Working now: ${esc(d.working.task)}` : `Not working right now · last active ${esc(ago(d.last))}`}</p>`;
+    html += `<h3>Inbox${d.inbox.length ? " · " + d.inbox.length : ""}</h3>` + (d.inbox.length ? list(d.inbox, i =>
+      `<li class="row"><span class="when">${esc(clock(i.at))}</span><span><span class="text">${esc(i.text)}</span><div class="muted">${esc(i.what)}${i.from ? " from " + esc(i.from) : ""}</div></span></li>`)
+      : "<p class='muted'>Empty: nothing is waiting.</p>");
+    html += "<h3>Recent work</h3>";
+    // Repeated small jobs in a row (reading watched pages) become one line.
+    const rows = [];
     for (const w of d.work) {
+      const prev = rows[rows.length - 1];
+      if (w.kind === "page_extract" && prev && prev.kind === "page_extract" && dayOf(prev.at) === dayOf(w.at)) { prev.count++; prev.first = w.at; continue; }
+      rows.push({ ...w, count: 1, first: w.at });
+    }
+    let day = "";
+    for (const w of rows) {
       const dd = dayOf(w.at);
       if (dd !== day) { html += `<div class="day">${esc(dd)}</div>`; day = dd; }
-      html += `<div class="work row" data-id="${w.id}"><span class="when">${esc(clock(w.at))}</span><span><span class="what">${esc(w.task)}</span>` +
-        `<span class="tag">${w.seconds} s${w.failed ? " · failed" : ""}</span></span></div><div class="detail" id="work-${w.id}" hidden></div>`;
+      if (w.kind === "page_extract") {
+        html += `<div class="row"><span class="when">${esc(w.count > 1 ? clock(w.first) + "–" + clock(w.at) : clock(w.at))}</span><span class="muted">Read ${w.count > 1 ? plural(w.count, "watched page") : "a watched page"}</span></div>`;
+        continue;
+      }
+      html += `<div class="work row" data-id="${w.id}"><span class="when">${esc(clock(w.at))}</span><span class="what">${esc(w.summary || w.task)}</span></div><div class="detail" id="work-${w.id}" hidden></div>`;
     }
     if (!d.work.length) html += "<p class='muted'>Nothing yet.</p>";
-    html += `<h3>Notes</h3>` + (d.memory ? `<div class="notes">${notes(d.memory)}</div>` : "<p class='muted'>Empty.</p>");
+    html += `<h3>Its notes</h3>` + (d.memory ? `<div class="notes">${notes(d.memory)}</div>` : "<p class='muted'>Empty.</p>");
   } else if (name === "archive") {
-    for (const dr of d.drawers) html += `<h3>${esc(dr.name)}'s drawer</h3>` + list(dr.files, f => `<li class="row"><span class="when">${esc(when(f.changed))}</span><span>${esc(f.path)}</span></li>`);
+    for (const dr of d.drawers) html += `<h3>${esc(dr.name)}'s drawer</h3>` + list(dr.files, f => `<li class="row"><span class="when">${esc(ago(f.changed))}</span><span>${esc(f.path)}</span></li>`);
   } else if (name === "bin") {
-    html += list(d.items, i => `<li class="row"><span class="when">${esc(when(i.at))}</span><span>${esc(i.title)}<span class="tag">${esc(i.by)}</span>${i.why ? `<div class="muted">${esc(i.why)}</div>` : ""}</span></li>`);
+    html += list(d.items, i => `<li class="row"><span class="when">${esc(clock(i.at))}</span><span>${esc(i.title)}<div class="muted">${esc(i.by)}${i.why ? ": " + esc(i.why) : ""}</div></span></li>`);
   } else if (name === "calendar") {
-    html += "<h3>Planned</h3>" + list(d.planned, i => `<li class="row"><span class="when">${esc(when(i.at))}</span><span>${esc(i.title)}<span class="tag">${esc(i.kind)}</span></span></li>`);
-    html += "<h3>Your sessions</h3>" + list(d.yours, i => `<li class="row"><span class="when">${esc(when(i.start))}</span><span>${esc(i.title)}</span></li>`);
+    const byDay = (items, at) => { let out = "", day = ""; for (const i of items) { const dd = dayOf(at(i)); if (dd !== day) { out += `<div class="day">${esc(dd)}</div>`; day = dd; } out += `<div class="row"><span class="when">${esc(clock(at(i)))}</span><span>${esc(i.title)}</span></div>`; } return out || "<p class='muted'>Nothing.</p>"; };
+    html += "<h3>Planned to bring up with you</h3>" + byDay(d.planned, i => i.at);
+    html += "<h3>Your sessions</h3>" + byDay(d.yours, i => i.start);
   } else if (name === "board") {
-    html += list(d.items, i => `<li class="row"><span class="when">${esc(when(i.at))}</span><span>${i.url ? `<a href="${esc(i.url)}" target="_blank" rel="noopener">${esc(i.title)}</a>` : esc(i.title)}</span></li>`);
+    html += list(d.items, i => `<li class="row"><span class="when">${esc(ago(i.at))}</span><span>${i.url ? `<a href="${esc(i.url)}" target="_blank" rel="noopener">${esc(i.title)}</a>` : esc(i.title)}${i.url ? `<div class="muted">${esc(short(i.url))}</div>` : ""}</span></li>`);
   }
   body.innerHTML = html;
   body.querySelectorAll(".work").forEach(el => el.addEventListener("click", () => openWork(el.dataset.id)));
 }
 
-// One piece of work, opened in place: what it was about, what it used, what it wrote, what it changed.
+// One piece of work, opened in place: what it was about, the steps it took, its answer, what it sent and changed.
 async function openWork(id) {
   const box = $("work-" + id);
   if (!box.hidden) { box.hidden = true; return; }
   box.hidden = false;
-  box.innerHTML = "<p class='muted'>Loading…</p>";
-  let w;
-  try { w = await getJSON("/api/kontor/arbete/" + id); } catch { box.innerHTML = "<p class='muted'>Couldn't load it.</p>"; return; }
+  if (!works[id]) works[id] = getJSON("/api/kontor/arbete/" + id).catch(() => null);
+  const loading = setTimeout(() => { box.innerHTML = "<p class='muted'>Loading…</p>"; }, 150);   // only if it wasn't fetched ahead
+  const w = await works[id];
+  clearTimeout(loading);
+  if (!w) { box.innerHTML = "<p class='muted'>Couldn't load it.</p>"; return; }
   let html = "";
-  if (w.failed) html += `<p class="muted">It failed: ${esc(w.error)}</p>`;
+  if (w.failed) html += `<p class="muted">It didn't finish: ${esc(w.error)}</p>`;
   if (w.about.length) html += "<h3>What it was about</h3><ul class='plain'>" + w.about.map(a =>
-    `<li><span class="tag">${esc(a.label)}</span> <span class="text">${esc(a.text)}</span>${a.note ? `<div class="muted">${esc(a.note)}</div>` : ""}</li>`).join("") + "</ul>";
-  if (w.tools.length) html += "<h3>What it did</h3><ul class='plain'>" + w.tools.map(t => `<li>${esc(t.tool)} <span class="muted">${esc(t.input)}</span>${t.failed ? '<span class="tag">failed</span>' : ""}</li>`).join("") + "</ul>";
-  if (w.wrote) html += `<h3>What it wrote</h3><div class="notes">${notes(w.wrote)}${w.wrote.length >= 600 ? "…" : ""}</div>`;
-  if (w.posts.length) html += "<h3>What it sent</h3><ul class='plain'>" + w.posts.map(p => `<li><span class="tag">${esc(p.kind)} · to ${esc(p.to)}</span> <span class="text">${esc(p.text)}</span></li>`).join("") + "</ul>";
-  if (w.edits.length) html += "<h3>What it changed</h3>" + w.edits.map(e => `<pre class="diff">${diff(e.patch)}</pre>`).join("");
-  box.innerHTML = html || "<p class='muted'>Nothing more recorded.</p>";
+    `<li><div class="muted">${esc(a.label)}</div><span class="text">${esc(a.text)}</span>${a.note ? `<div class="muted">${esc(a.note)}</div>` : ""}</li>`).join("") + "</ul>";
+  if (w.wrote) html += `<h3>Its answer</h3><div class="notes">${notes(w.wrote)}${w.wrote.length >= 600 ? "…" : ""}</div>`;
+  if (w.posts.length) html += "<h3>What it sent</h3><ul class='plain'>" + w.posts.map(p => `<li><div class="muted">${esc(p.kind)} to ${esc(p.to)}</div><span class="text">${esc(p.text)}</span></li>`).join("") + "</ul>";
+  if (w.edits.length) html += "<h3>What it changed</h3>" + w.edits.map(e =>
+    `<details><summary>${esc(e.file)} <span class="muted">+${e.added} −${e.removed} lines</span></summary><pre class="diff">${diff(e.patch)}</pre></details>`).join("");
+  if (w.tools.length) html += "<h3>Steps</h3><ul class='plain'>" + w.tools.map(t => `<li>${esc(t.tool)}${short(t.input) ? ` <span class="muted">· ${esc(short(t.input))}</span>` : ""}${t.failed ? " <span class='tag'>failed</span>" : ""}</li>`).join("") + "</ul>";
+  box.innerHTML = html || "<p class='muted'>Nothing more was recorded.</p>";
 }
 
 resize();
