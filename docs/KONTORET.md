@@ -69,6 +69,9 @@ Kontoret visar läget just nu och följer sedan det som händer, i realtid. Inge
 - **Ärenden**: varje roll har en kö. Triage som släpper fram ett fynd: Director bär det till Managers inkorg; slänger: Director kastar från stolen. Dispatchern: Manager bär fyndet till kalendern, board, Assistants inkorg eller papperskorgen. Post: avsändaren bär den till mottagarens inkorg. Leverans från kalendern: Assistant hämtar lappen. "Något nytt?": Assistant hämtar från board. Bokning: lappen sätts upp i kalendern. Sparning i minnet: en tur till den egna lådan i arkivet. Director som går ut på nätet: lånar Researchers dator tills körningen är klar. Två likadana ärenden i rad blir en tur; en lång kö gör att figuren går fortare.
 - **Gångvägar**: punkter mellan möblerna och kortaste vägen mellan dem.
 - **Klick**: en vit kontur som följer formen när man hovrar över ett skrivbord, arkivet, papperskorgen, kalendern eller board; ett klick öppnar ett fönster med innehåll och historik (arbetsminne, senaste arbetet och post för ett skrivbord; filerna i varje låda; det slängda; det planerade och dina pass; det sparade).
+- **Fönstret**: centrerat, rundade hörn, rummet dämpat bakom; stängs med ×, Esc eller ett klick utanför. Ett skrivbord visar rollen: vad den gör nu eller när den senast var aktiv, inkorgen (allt som väntar, med vad och från vem), och arbetet i ordning per dag. Varje arbete går att öppna: vad det handlade om (ditt meddelande, fynden triage bedömde, dispatcherns beslut, sökuppdragets fynd), verktygen den använde, vad den skrev, posten den skickade och vad den ändrade i minnet (en diff). Sist rollens anteckningar (arbetsminnet).
+- **Överst**: de fyra rollerna, och om de arbetar nu eller när de senast var aktiva.
+- **Språk**: sidans fasta text är engelska; det rollerna skriver är svenska, eftersom ägaren skriver svenska.
 - **Kvar**: hur en pausad kvot syns (väntar till felhanteringen).
 
 ## Vem pratar med vem (mätt, vecka 7–14 okt)
