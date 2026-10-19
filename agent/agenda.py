@@ -77,6 +77,25 @@ class Agenda:
 
     # --- bookings (reminders, promises) -------------------------------------
 
+    async def already_booked(self, at: datetime, what: str, ref: str | None = None) -> int | None:
+        """A booking that already covers this: one it refers to, or one about the same thing within a few hours of
+        the same time. So a promise is booked once, however many times it is noticed."""
+        if ref and ref.upper().startswith("#B") and ref[2:].isdigit():
+            if await self.db.fetchone("SELECT 1 FROM bookings WHERE id = ? AND status IN ('planned', 'sending', 'sent')", (int(ref[2:]),)):
+                return int(ref[2:])
+        words = lambda t: {w for w in "".join(c if c.isalnum() else " " for c in t.casefold()).split() if len(w) > 3}  # noqa: E731
+        mine = words(what)
+        lo, hi = utc_iso(at - timedelta(hours=6)), utc_iso(at + timedelta(hours=6))
+        for b in await self.db.fetchall(
+            "SELECT id, ref, title, body FROM bookings WHERE status IN ('planned', 'sending', 'sent') AND due_at BETWEEN ? AND ?", (lo, hi)
+        ):
+            if ref and b["ref"] == ref:
+                return b["id"]
+            theirs = words(f"{b['title']} {b['body']}")
+            if mine and len(mine & theirs) / len(mine) >= 0.5:
+                return b["id"]
+        return None
+
     async def book(
         self, kind: str, title: str, body: str, at: datetime, by: str, *, fixed: bool = False,
         latest: datetime | None = None, ref: str | None = None, confirm: bool = False, reason: str | None = None,

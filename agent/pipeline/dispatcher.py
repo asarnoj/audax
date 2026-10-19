@@ -257,18 +257,27 @@ class Dispatcher:
             return
         what = "a reminder the owner asked for" if b["kind"] == "reminder" else "something you promised the owner"
         ids: list[int] = []
-        if self.outbox.speak is not None:
+        if self.outbox.speak is None:   # no chat at all (tests, a bare engine): the owner's own words are all there is
+            ids = await self.outbox.send_text(b["body"])
+        else:
             try:
                 ids = await self.outbox.speak(
                     f"It is time for {what} (#B{b['id']}" + (f", about {b['ref']}" if b["ref"] else "") + f"): {b['body']}\n"
                     "Tell them now, briefly and in your own words; look things up if you need the details."
                 )
-            except AlreadySaid:
-                ids = []
+            except AlreadySaid:   # already said in the conversation: done, and nothing more goes out
+                await self.db.execute("UPDATE bookings SET status = 'sent', sent_at = datetime('now'), reason = 'redan sagt i samtalet' WHERE id = ?", (b["id"],))
+                return
             except Exception as e:
                 log.warning("couldn't deliver booking %s through the chat: %s", b["id"], e)
-        if not ids:
-            ids = await self.outbox.send_text(b["body"])
+            if not ids:   # never the booking's raw text: it is a note for the office. Try again soon, a few times.
+                tries = (await self.db.kv_get(f"booking.tries.{b['id']}", 0)) + 1
+                await self.db.kv_set(f"booking.tries.{b['id']}", tries)
+                status = "planned" if tries < 4 else "failed"
+                await self.db.execute("UPDATE bookings SET status = ?, due_at = ? WHERE id = ?",
+                                      (status, utc_iso(now + timedelta(minutes=10)), b["id"]))
+                log.warning("booking %s not delivered (try %d)%s", b["id"], tries, "; given up" if status == "failed" else "")
+                return
         await self.db.execute(
             "UPDATE bookings SET status = 'sent', sent_at = datetime('now'), message_id = ? WHERE id = ?", (ids[0] if ids else None, b["id"])
         )

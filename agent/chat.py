@@ -32,6 +32,13 @@ log = logging.getLogger(__name__)
 SESSION_KEY = "chat.session_id"
 SEEN_KEY = "chat.seen_message_id"  # highest messages.id already shown to the chat session
 PROACTIVE_LIMIT = 5
+# What the owner reads is only this field: never the text the session writes between its tool calls.
+REPLY = {
+    "type": "object",
+    "properties": {"message": {"type": "string", "description": "Swedish. Exactly the message the owner reads, nothing else. "
+                                                                 "Empty for an internal task that would only repeat what you already said."}},
+    "required": ["message"],
+}
 WEEKDAYS = ["mån", "tis", "ons", "tor", "fre", "lör", "sön"]
 MONTHS = ["jan", "feb", "mar", "apr", "maj", "jun", "jul", "aug", "sep", "okt", "nov", "dec"]
 
@@ -58,6 +65,17 @@ class Incoming:
 
 Send = Callable[..., Awaitable[list[int]]]
 Typing = Callable[[], Awaitable[None]]
+
+
+def message_of(result) -> str:
+    """The message the owner reads: the reply field. Without one (a run that ended oddly), only text that can't be
+    narration between tool calls: all of it when no tool was used, else what came after the last tool call."""
+    if isinstance(result.structured, dict) and isinstance(result.structured.get("message"), str):
+        return result.structured["message"].strip()
+    if result.structured is not None or result.trace:
+        log.warning("chat reply without its message field; using only the text after the last tool call")
+        return (result.final_text or "").strip()
+    return (result.text or "").strip()
 
 
 class ChatSession:
@@ -218,6 +236,7 @@ class ChatSession:
                 resume=resume,
                 allowed_tools=CHAT_TOOLS + tool_names,
                 mcp_servers=mcp_servers,
+                output_schema=REPLY,
                 system_prompt_append=prompt_template("chat")
                 + "\n\n# Manager's policy: the situation, pacing and how you write (follow it)\n"
                 + self.memory.read("policy.md")
@@ -254,12 +273,15 @@ class ChatSession:
             await self.db.kv_set(SESSION_KEY, result.session_id)
             await self.db.kv_set("chat.seed_summary", None)
         ids: list[int] = []
-        if internal and SKIP in (result.text.strip(), result.final_text.strip()):  # a delivery that would only repeat what was already said
+        reply = message_of(result)
+        if internal and reply in ("", SKIP):  # a delivery that would only repeat what was already said
             if batch[0].done and not batch[0].done.done():
                 batch[0].done.set_exception(AlreadySaid())
             return
-        if result.text.strip():
-            ids = await self._send(result.text.strip(), origin="proactive" if internal else "chat", in_session=True)
+        if reply:
+            ids = await self._send(reply, origin="proactive" if internal else "chat", in_session=True)
+        else:
+            log.warning("chat turn ended without a message; nothing sent")
         if turn.refs:  # link what this turn was about to its messages, so it can be looked up later
             await refs_mod.link(self.db, ids + [m.message_row_id for m in batch if m.message_row_id], turn.refs)
         if internal and batch[0].done and not batch[0].done.done():

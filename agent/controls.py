@@ -170,7 +170,7 @@ class Controls:
             await self._tell(
                 f"The search you started for the owner ({research_id}) {outcome}\nTell them what it found, concretely and "
                 "briefly, in their terms (what it is, and whether you sent it, saved it for later or left it out). If you "
-                "already said all of it, reply SKIP.",
+                "already said all of it, leave the message empty.",
                 fallback="Sökningen du bad om är klar." if outcome != "failed" else "Sökningen du bad om gick inte att köra just nu.",
             )
 

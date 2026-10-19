@@ -359,9 +359,9 @@ class TelegramBot:
                 await self.db.execute("INSERT INTO feedback (signal, value) VALUES ('poll', ?)", (f"checkin:{chosen[0]}",))
                 await self.send("Tack, det tar jag med mig.", origin="command")
             return
-        reply = await self.schedule.handle_poll_answer(answer.poll_id, list(answer.option_ids))
-        if reply:
-            await self.send(reply)
+        noted = await self.schedule.handle_poll_answer(answer.poll_id, list(answer.option_ids))
+        if noted:
+            log.info("poll answered: %s", noted)   # saved; no confirmation message, the owner just answered it
 
     async def on_text(self, update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
         msg = update.message

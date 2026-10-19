@@ -286,3 +286,17 @@ def test_memory_is_new_until_the_profile_differs_from_the_template(tmp_path):
     assert mem.is_new()  # still the template: the interview starts on /start
     (tmp_path / "profile.md").write_text("# Profil\n\n## Vem\n- Studerar på KTH\n")
     assert not mem.is_new()
+
+
+def test_only_the_reply_field_reaches_the_owner():
+    from agent.chat import message_of
+
+    narrated = RunResult(text="No URL there. Searching the conversation.\n\nHär är länken: https://g",
+                         final_text="Här är länken: https://g", trace=[{"tool": "agent__lookup"}],
+                         structured={"message": "Här är länken: https://g"})
+    assert message_of(narrated) == "Här är länken: https://g"   # 17 and 19 Oct: the narration went out too
+    no_field = RunResult(text="Tänker högt.\n\nSvaret.", final_text="Svaret.", trace=[{"tool": "agent__lookup"}])
+    assert message_of(no_field) == "Svaret."   # never the text between tool calls
+    plain = RunResult(text="hej")
+    assert message_of(plain) == "hej"
+    assert message_of(RunResult(text="", structured={"message": ""})) == ""   # an internal task with nothing new

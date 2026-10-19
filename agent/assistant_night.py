@@ -123,6 +123,9 @@ class AssistantNight:
                 at = self.agenda.parse(p.get("when") or "")
                 if at is None:
                     continue
+                if (same := await self.agenda.already_booked(at, p["what"], p.get("about"))) is not None:
+                    changes.append(f"löftet fanns redan som #B{same}: {p['what'][:60]}")
+                    continue
                 latest = self.agenda.parse(p["latest"]) if p.get("latest") else None
                 bid, conflicts = await self.agenda.book("promise", p["what"][:80], p["what"], at, "assistant", latest=latest, ref=p.get("about"))
                 changes.append(f"löfte bokat #B{bid}" if bid else f"löfte kunde inte bokas ({'; '.join(conflicts)}): {p['what'][:60]}")

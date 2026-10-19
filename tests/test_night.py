@@ -106,3 +106,28 @@ async def test_a_quota_pause_makes_the_sweep_wait_instead_of_spending_attempts(d
     assert ran == ["assistant", "director", "researcher", "manager"]
     state = await db.kv_get("night.state")
     assert state["attempts"] == {"assistant": 1, "director": 1, "researcher": 1, "manager": 1}
+
+
+async def test_a_promise_already_booked_is_not_booked_again(db, tmp_path):
+    from agent.agenda import Agenda
+    from agent.schedule import Schedule
+
+    agenda = Agenda(db, Schedule(load_settings(), db, []))
+    day = (datetime.now(TZ) + timedelta(days=3)).replace(hour=18, minute=10, second=0, microsecond=0)
+    at, later = day, (day + timedelta(days=3)).replace(hour=9, minute=0)
+    b5, _ = await agenda.book("reminder", "Rolig idé efter tentan", "Kom med en rolig idé efter tentan", at, "assistant", fixed=True)
+    out = {**OUT, "promises": [
+        {"when": f"{at:%Y-%m-%d} 18:10", "what": "Något roligt/genomarbetad idé efter tentan", "about": f"#B{b5}"},   # refers to it (B6, B9)
+        {"when": f"{at:%Y-%m-%d} 18:00", "what": "Kom med en rolig idé efter tentan"},                                # the same thing, near the same time
+        {"when": f"{later:%Y-%m-%d} 09:00", "what": "Påminna om Googles praktikansökan", "about": "#S1"},                # new
+    ]}
+    a, _ = night_pass(db, tmp_path, out)
+    a.agenda = agenda
+    changes = await a.apply(out, datetime.now(TZ))
+    titles = [r["title"] for r in await db.fetchall("SELECT title FROM bookings ORDER BY id")]
+    assert titles == ["Rolig idé efter tentan", "Påminna om Googles praktikansökan"]
+    assert sum("fanns redan" in c for c in changes) == 2
+    a2, _ = night_pass(db, tmp_path, out)   # the next night notices the same promises again
+    a2.agenda = agenda
+    await a2.apply(out, datetime.now(TZ))
+    assert len(await db.fetchall("SELECT id FROM bookings")) == 2

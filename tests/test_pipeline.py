@@ -11,7 +11,7 @@ from agent.pipeline.dispatcher import FOCUS_KEY, Dispatcher
 from agent.pipeline.outbox import Outbox, add_candidate
 from agent.pipeline.triage import Triage
 from agent.research import ResearchTask, Researcher, normalize_url
-from agent.schedule import Schedule
+from agent.schedule import Schedule, utc_iso
 from agent.telegram_bot import _parse_duration
 
 TZ = ZoneInfo("Europe/Stockholm")
@@ -222,7 +222,7 @@ def test_parse_duration():
     assert _parse_duration("imorgon") is None
 
 
-async def test_delivery_goes_through_the_voice_and_falls_back(db, tmp_path):
+async def test_delivery_goes_through_the_voice_and_never_sends_the_draft(db, tmp_path):
     a = await add_candidate(db, "event", "Hackathon", "Hackathon på Uni", {}, url="https://h")
     d, sent = await make_dispatcher(db, tmp_path, {"decisions": [{"candidate_id": a, "decision": "now", "reason": "lucka"}]})
     spoken = []
@@ -244,7 +244,8 @@ async def test_delivery_goes_through_the_voice_and_falls_back(db, tmp_path):
 
     d2.outbox.speak = broken
     await d2.run()
-    assert sent2 == ["Utkast B"]  # the draft goes out as-is
+    assert sent2 == []  # the draft is for the office, never sent as it is (the leaks of 19 Oct)
+    assert (await db.fetchone("SELECT status FROM candidates WHERE id = ?", (b,)))["status"] == "pending"  # waits for the next round
 
 
 # --- robustness: at most once, whatever runs concurrently (duplicates on 12 Oct) -------------------------
@@ -276,7 +277,7 @@ async def test_chat_can_decline_a_delivery_it_already_made(db, tmp_path):
     d, sent = await make_dispatcher(db, tmp_path, {"decisions": []})
 
     async def speak(instruction):
-        assert "SKIP" in instruction
+        assert "leave the message empty" in instruction
         raise AlreadySaid()
 
     d.outbox.speak = speak
@@ -344,3 +345,28 @@ def test_a_story_does_not_expire_on_its_publication_date():
     assert _expiry({"date": "2026-09-09"}, "Europe/Stockholm", "news") is None
     assert _expiry({"date": "2026-10-20"}, "Europe/Stockholm", "event").startswith("2026-10-20T21:59")
     assert _expiry({"deadline": "2026-10-23", "date": "2026-09-01"}, "Europe/Stockholm", "opportunity").startswith("2026-10-23")
+
+
+async def test_a_booking_is_never_sent_as_its_raw_text(db, tmp_path):
+    from agent.pipeline.outbox import AlreadySaid
+
+    d, sent = await make_dispatcher(db, tmp_path, {"decisions": []})
+    Clock.at = NOW.replace(hour=12)
+    try:
+        due = utc_iso(NOW.replace(hour=11))
+        said = await db.execute("INSERT INTO bookings (kind, title, body, due_at, requested_by, fixed) VALUES ('promise', 'Något roligt (#B5, bokad)', 'Något roligt (#B5, bokad)', ?, 'assistant', 0)", (due,))
+        broken = await db.execute("INSERT INTO bookings (kind, title, body, due_at, requested_by, fixed) VALUES ('reminder', 'R', 'Påminn om CV', ?, 'assistant', 1)", (due,))
+
+        async def speak(instruction):
+            if "#B" + str(said) in instruction:
+                raise AlreadySaid()   # the chat had already said it
+            raise RuntimeError("chat down")
+
+        d.outbox.speak = speak
+        await d.tick()
+        assert sent == []  # 19 Oct: "Något roligt/genomarbetad idé efter tentan (#B5, bokad)" went out as its own message
+        rows = {r["id"]: r for r in await db.fetchall("SELECT id, status, reason FROM bookings")}
+        assert rows[said]["status"] == "sent" and "redan sagt" in rows[said]["reason"]
+        assert rows[broken]["status"] == "planned"  # tried again soon, a few times
+    finally:
+        Clock.at = None

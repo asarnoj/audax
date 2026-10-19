@@ -117,22 +117,27 @@ class Outbox:
         log.info("delivered %d candidate(s)", len(rows))
 
     async def _send(self, rows: list) -> list[int]:
-        """The chat writes the message (one voice); if it can't, the plain draft goes out instead."""
+        """The chat writes the message (one voice). If it can't, nothing goes out and the findings wait for the next
+        round: a draft is written for the office, not for the owner, so it is never sent as it is. Only without a
+        chat at all (tests, a bare engine) is the plain draft sent."""
         if self.speak is not None:
             items = "\n".join(f"- {r['title']}: {r['body'].strip()} {r['url'] or ''}".strip() for r in rows)
             try:
                 ids = await self.speak(
                     "Deliver this to the owner now: one short message in your usual style, one line per item, links kept. "
                     "If you were just talking about something related, connect to it briefly. If you have already told "
-                    f"the owner all of this in this conversation, reply with exactly {SKIP} and nothing is sent.\n"
+                    f"the owner all of this in this conversation, leave the message empty and nothing is sent.\n"
                     f"Items:\n{items}"
                 )
                 if ids:
                     return ids
+                log.warning("the chat wrote nothing for the delivery; it waits for the next round")
+                return []
             except AlreadySaid:
                 raise
             except Exception as e:
-                log.warning("chat session couldn't deliver (%s); sending the draft as-is", e)
+                log.warning("chat session couldn't deliver (%s); it waits for the next round", e)
+                return []
         draft = render(rows[0]) if len(rows) == 1 else "\n\n".join(render(r) for r in rows)
         return await self.send_text(draft, candidate_id=rows[0]["id"] if len(rows) == 1 else None)
 

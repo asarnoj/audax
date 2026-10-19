@@ -31,7 +31,7 @@ Prenumerationen har ett tak. Det som förbrukar den är främst **hur mycket sam
 - **Mätfel, rättat 12 okt:** Claude Code rapporterar kostnaden för en återupptagen session som en löpande summa. Varje chattsvar loggades därför med alla tidigare svars kostnad, och chatten såg ut att stå för 90 % och kosta över $2 per svar. Nu loggas varje körnings egen kostnad (och historiken är omräknad). Vid kvotvarningen 11 okt (91 %) hade Audax bara använt cirka $1,70 av fönstret; resten var annan användning på kontot.
 - **Kostnad i dollar är API-ekvivalent**, alltså vad det hade kostat via API:t. Prenumerationen debiteras inte per dollar, men beloppet är ett jämförbart mått på hur mycket av kvoten något tar. Fönstren (5 timmar och vecka) delas med all annan Claude-användning på kontot, och Claude Code säger hur fulla de är först nära taket. `audax usage` visar Audax andel bredvid senast kända nivå.
 - När Claude Code varnar för att **5-timmarsfönstret** tar slut pausas bakgrundsjobben tills det återställs, och chatten fortsätter (`claude_gate.py`).
-- Varnar den för **veckan** under 90 % väntar bara det tunga och valfria (sökuppdrag, djupsvep, reflektion) tills veckan återställs. Sinnena, triage och dispatchern fortsätter, eftersom de kostar lite och ägaren annars missar saker i flera dagar. Över 90 % väntar allt i bakgrunden. Veckan delas med ägarens egen Claude-användning.
+- En varning för **veckan** under 90 % stoppar ingenting. Tidigare väntade det tunga (sökuppdrag, djupsvep, reflektion) till återställningen, och det stoppade sökandet i fem dygn i oktober. Över 90 % väntar allt i bakgrunden. Veckan delas med ägarens egen Claude-användning. En budget som fördelar efter det som återstår är på väg (granskningen 19–20 okt).
 
 ## Felvägar
 

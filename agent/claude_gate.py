@@ -265,10 +265,10 @@ class ClaudeGate:
         elif info.status == "allowed_warning":
             weekly = (info.rate_limit_type or "").startswith("seven_day")
             if weekly and (info.utilization or 0) < WEEK_STOP:
-                # The weekly window is filling but has room, and it is shared with the owner's own Claude use:
-                # hold the heavy optional work until it resets, keep the cheap pipeline (senses, triage) running.
-                self.quota.heavy_paused_until = max(self.quota.heavy_paused_until, resets_at)
-                log.warning("weekly window at %s: heavy work waits until %s", info.utilization, time.ctime(resets_at))
+                # The weekly window is filling but has room. Holding all heavy work until the reset stopped the
+                # search for days (19 Oct); until the budget (paced by what is left) exists, it keeps running and
+                # everything in the background waits only near the top of the week (below).
+                log.info("weekly window at %s: below the stop at %s, work goes on", info.utilization, WEEK_STOP)
             else:
                 # The 5-hour window is nearly full (or the week is): leave the rest to the owner.
                 self._pause(Priority.RESEARCH, resets_at)
