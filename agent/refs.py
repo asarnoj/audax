@@ -11,8 +11,11 @@ from __future__ import annotations
 import re
 
 from agent.db import Database
+from agent.forms import LETTERS
+from agent.items import Items
 
-PATTERN = re.compile(r"#?([PSFB])(\d+)\b", re.I)
+# Posts, findings and bookings have their own tables; every other letter is a form of the office's items (agent/forms.py).
+PATTERN = re.compile(r"#?([PFB" + "".join(LETTERS) + r"])(\d+)\b", re.I)
 
 
 async def link(db: Database, message_ids: list[int], refs: set[str]) -> None:
@@ -34,22 +37,11 @@ async def describe(db: Database, ref: str) -> str | None:
         text += f"\nThe owner's words: \"{p['verbatim']}\"" if p["verbatim"] else ""
         text += f"\nOutcome: {p['outcome']}" if p["outcome"] else ""
         return text
-    if kind == "S":
-        p = await db.fetchone("SELECT * FROM pursuits WHERE id = ?", (n,))
-        if p is None:
+    if kind in LETTERS:
+        item = await Items(db).get(n)
+        if item is None or item["form"] != LETTERS[kind]:
             return None
-        log = await db.fetchall("SELECT created_at, status, note, by FROM pursuit_log WHERE pursuit_id = ? ORDER BY id", (n,))
-        parent = await db.fetchone("SELECT id, title FROM pursuits WHERE id = ?", (p["parent_id"],)) if p["parent_id"] else None
-        under = await db.fetchall("SELECT id, kind, title, status FROM pursuits WHERE parent_id = ? ORDER BY id", (n,))
-        return (
-            f"#S{n} · {p['kind']} · {p['title']}" + (f" ({p['organization']})" if p["organization"] else "") + f" · {p['status']}"
-            + (f" · deadline {p['deadline']}" if p["deadline"] else "") + (f" · reminder {p['remind_at']}" if p["remind_at"] else "")
-            + (f"\nUnder: #S{parent['id']} {parent['title']}" if parent else "")
-            + (f"\nWhy: {p['why']}" if p["why"] else "") + (f"\nNext: {p['next_step']}" if p["next_step"] else "")
-            + (f"\n{p['about'].strip()}" if p["about"] else "") + (f"\n{p['url']}" if p["url"] else "")
-            + ("\nHolds: " + ", ".join(f"#S{u['id']} {u['kind']} {u['title']} ({u['status']})" for u in under) if under else "")
-            + "\nHistory:\n" + "\n".join(f"- {r['created_at'][:10]} {r['status'] or ''} {r['note'] or ''} ({r['by']})" for r in log)
-        )
+        return await Items(db).describe(n)
     if kind == "B":
         b = await db.fetchone("SELECT * FROM bookings WHERE id = ?", (n,))
         if b is None:
@@ -85,9 +77,10 @@ async def lookup(db: Database, query: str, limit: int = 12) -> str:
     for p in await db.fetchall("SELECT id, created_at, sender, recipient, kind, status, body, verbatim FROM posts ORDER BY id DESC LIMIT 400"):
         if match(f"{p['body']} {p['verbatim'] or ''}"):
             hits.append((p["created_at"], f"#P{p['id']} {p['created_at'][:10]} {p['sender']}→{p['recipient']} {p['kind']} ({p['status']}): {p['body'][:140]}"))
-    for s in await db.fetchall("SELECT id, updated_at, kind, title, organization, status, deadline, note, why, about FROM pursuits"):
-        if match(f"{s['title']} {s['organization'] or ''} {s['note'] or ''} {s['why'] or ''} {s['about'] or ''}"):
-            hits.append((s["updated_at"], f"#S{s['id']} {s['kind']} · {s['title']} · {s['status']}" + (f" · deadline {s['deadline']}" if s["deadline"] else "")))
+    for row in await db.fetchall("SELECT id, updated_at, title, data FROM items"):
+        if match(f"{row['title']} {row['data']}"):
+            item = await Items(db).get(row["id"])
+            hits.append((row["updated_at"], Items.line(item) + (f" · deadline {item['deadline']}" if item.get("deadline") else "")))
     for c in await db.fetchall(
         "SELECT id, updated_at, title, body, status FROM candidates WHERE updated_at >= datetime('now', '-90 days') ORDER BY id DESC LIMIT 600"
     ):

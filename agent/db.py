@@ -464,10 +464,65 @@ MIGRATIONS: list[str] = [
     ALTER TABLE pursuits ADD COLUMN run_id INTEGER;
     ALTER TABLE claude_runs ADD COLUMN summary TEXT;
     """,
+    # 22: the office's items (agent/forms.py, agent/items.py): one core for every form, one history, one set of links.
+    # The #S records move in with their numbers and history; their own tables go.
+    """
+    CREATE TABLE items (
+        id INTEGER PRIMARY KEY,
+        form TEXT NOT NULL,                 -- aim|step|experiment|belief|question|rule|routine
+        kind TEXT,
+        title TEXT NOT NULL,
+        status TEXT NOT NULL,
+        owner TEXT,                         -- the role that owns it
+        parent_id INTEGER REFERENCES items(id),
+        source TEXT,                        -- JSON: {"type": owner|observed|inferred|external, ...}
+        review_at TEXT,
+        valid_until TEXT,
+        data TEXT NOT NULL DEFAULT '{}',    -- the form's own fields
+        by TEXT,
+        run_id INTEGER,
+        created_at TEXT NOT NULL DEFAULT (datetime('now')),
+        updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+    );
+    CREATE INDEX items_form ON items(form, status);
+    CREATE INDEX items_parent ON items(parent_id);
+    CREATE INDEX items_review ON items(review_at);
+    CREATE TABLE item_log (
+        id INTEGER PRIMARY KEY,
+        item_id INTEGER NOT NULL REFERENCES items(id),
+        created_at TEXT NOT NULL DEFAULT (datetime('now')),
+        by TEXT,
+        run_id INTEGER,
+        status TEXT,
+        changes TEXT,
+        note TEXT
+    );
+    CREATE INDEX item_log_item ON item_log(item_id);
+    CREATE TABLE item_links (
+        from_id INTEGER NOT NULL REFERENCES items(id),
+        to_id INTEGER NOT NULL REFERENCES items(id),
+        relation TEXT NOT NULL,
+        by TEXT,
+        created_at TEXT NOT NULL DEFAULT (datetime('now')),
+        PRIMARY KEY (from_id, to_id, relation)
+    );
+    INSERT INTO items (id, form, kind, title, status, owner, parent_id, source, data, by, run_id, created_at, updated_at)
+    SELECT id, 'aim', kind, title, status, 'director', parent_id,
+           json_object('type', CASE WHEN source IN ('chat', 'reaction') THEN 'owner' ELSE 'inferred' END, 'by', source),
+           json_patch('{}', json_object('why', why, 'about', about, 'next_step', next_step, 'deadline', deadline,
+                      'remind_at', remind_at, 'organization', organization, 'url', url, 'candidate_id', candidate_id,
+                      'nudged_at', nudged_at, 'nudge_candidate_id', nudge_candidate_id)),
+           source, run_id, created_at, updated_at
+    FROM pursuits;
+    INSERT INTO item_log (item_id, created_at, by, run_id, status, note)
+    SELECT pursuit_id, created_at, by, run_id, status, note FROM pursuit_log ORDER BY id;
+    DROP TABLE pursuit_log;
+    DROP TABLE pursuits;
+    """,
 ]
 
 # Tables whose rows carry the id of the run that wrote them (agent/trail.py).
-STAMPED = {"posts", "decisions", "candidates", "messages", "bookings", "events", "pursuits", "pursuit_log", "feedback"}
+STAMPED = {"posts", "decisions", "candidates", "messages", "bookings", "events", "items", "item_log", "feedback"}
 
 
 class Database:

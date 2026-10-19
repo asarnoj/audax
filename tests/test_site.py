@@ -1,6 +1,8 @@
 from pathlib import Path
 
 import pytest
+
+from agent.items import Items
 from starlette.testclient import TestClient
 
 from agent.db import Database
@@ -28,7 +30,7 @@ def memory(tmp_path: Path) -> Path:
 
 async def test_a_case_gathers_its_posts_messages_and_bookings(db, tmp_path):
     office = Office(db, memory(tmp_path), "Europe/Stockholm")
-    await db.execute("INSERT INTO pursuits (title, organization, status) VALUES ('Sommarpraktik', 'Spotify', 'interested')")
+    await Items(db).create("aim", "Sommarpraktik", "director", kind="pursuit", data={"organization": "Spotify"}, source={"type": "inferred"})
     await Posts(db).send("director", "researcher", "order", "Leta liknande som #S1")
     mid = await db.execute("INSERT INTO messages (telegram_message_id, direction, text) VALUES (1, 'out', 'Spotify har öppnat')")
     await db.execute("INSERT INTO message_refs (message_id, ref) VALUES (?, '#S1')", (mid,))
@@ -42,7 +44,11 @@ async def test_the_pages_render_and_the_files_stay_inside_their_folders(db, tmp_
     mem = memory(tmp_path)
     await db.execute("INSERT INTO claude_runs (kind, output, finished_at) VALUES ('triage', 'Släppte #F3', datetime('now'))")
     client = TestClient(build_app(db, Office(db, mem, "Europe/Stockholm"), {"memory": mem}))
-    for url in ("/", "/data/", "/data/run/1", "/data/case/", "/data/case/?q=sommar", "/data/files/", "/data/files/memory/",
+    goal = await Items(db).create("aim", "Sommarjobb 2027", "director", kind="goal", data={"why": "Komma in i branschen"})
+    await Items(db).create("step", "Armada-listan", "director", owner="researcher", parent=goal, review_at="2026-11-01",
+                           data={"action": "research", "done_when": "Bolagen med sommarpraktik"})
+    assert "Armada-listan" in client.get("/data/items/").text and "Rymmer: <a href=\"/data/item/2\">#T2</a>" in client.get(f"/data/item/{goal}").text
+    for url in ("/", "/data/", "/data/run/1", "/data/items/?form=step", "/data/case/", "/data/case/?q=sommar", "/data/files/", "/data/files/memory/",
                 "/data/tables/", "/data/tables/posts"):
         assert client.get(url).status_code == 200, url
     assert '<a href="/data/case/F3">#F3</a>' in client.get("/data/run/1").text

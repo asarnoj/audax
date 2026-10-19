@@ -115,6 +115,20 @@ Allt som ska gå att följa upp får ett ID: poster (#P), det du satsar på (#S)
 
 **#S** är en enda sorts post för mål, projekt, tillfällen (det du visat intresse för, sökt eller valt bort) och Directors idéer. Var och en har ett varför, en status, ett nästa steg, en deadline och anteckningar, och ett tillfälle eller en idé hör till målet det tjänar. Ett mål bär också planen för det som drivs över tid (tidigare "trådar"). Director äger målen och idéerna; Assistant för in det du säger. Assistant slår upp ("vad lovade jag om Google?") i stället för att minnas. Schemat är minnet av löftena. ID:n är kökets verktyg och syns på webbsidan, inte i chatten.
 
+Allt som ska följas över tid ligger i en gemensam kärna (`agent/forms.py`, `agent/items.py`). Allt har samma grund: id, form, ägare, status, vad det tjänar, källa, när det ses över, hur länge det gäller och en historik. Varje form har dessutom egna fält som koden kontrollerar. Formerna och deras bokstäver:
+
+| Bokstav | Form | Vad det är |
+|---|---|---|
+| S | spår | mål, projekt, tillfälle, idé |
+| T | steg | en del av en plan: ägare, när, klart när |
+| E | experiment | något en roll prövar, för att förbättra eller utforska |
+| U | uppfattning | något Audax tror om dig, med källa |
+| Q | fråga | något en roll vill veta |
+| G | regel | något koden gör utan Claude |
+| N | rutin | återkommande arbete |
+
+Rollerna läser och skriver med kontorets verktyg (`agent/office_tools.py`), som kontrollerar varje skrivning mot formen och rollens rättigheter. Rådatan finns under `/data/items/`.
+
 ## Återkoppling: hur kontoret blir bättre
 
 - **Director → Researcher:** vad varje uppdrag gav, vad som behölls och hur du reagerade blir feedback inför nästa planering.

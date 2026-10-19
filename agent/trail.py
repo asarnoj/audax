@@ -2,7 +2,7 @@
 
 Every Claude run has an id (#R). While it runs, and while its caller applies what it returned, `current_run`
 holds that id; the database stamps it on the rows written then (posts, decisions, findings, messages, bookings,
-pursuits), and memory saves carry it in their commit message. So what a run did is looked up, never guessed.
+items), and memory saves carry it in their commit message. So what a run did is looked up, never guessed.
 
 The event log (office_events) records what happens in the office, in structured fields, where it happens: a run
 starting or ending, something new printed, triage keeping or throwing away, the dispatcher placing a finding, a

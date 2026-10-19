@@ -28,12 +28,14 @@ from starlette.routing import Route
 from agent import refs
 from agent.config import ROOT
 from agent.db import Database
+from agent.forms import FORMS, LETTERS
+from agent.items import Items, ref
 from agent.office import Office, sse
 from agent.vocab import NAMES, role_of, task_name
 
 TEXT_SUFFIXES = {".md", ".yaml", ".yml", ".txt", ".json", ".csv", ".log"}
 PAGE = 100  # table rows per page
-ID = re.compile(r"#([PSFBR])(\d+)\b")  # an id in running text (refs.PATTERN also takes it without the #)
+ID = re.compile(r"#([PFBR" + "".join(LETTERS) + r"])(\d+)\b")  # an id in running text (refs.PATTERN also takes it without the #)
 
 
 def e(value) -> str:
@@ -47,7 +49,12 @@ def linked(text: str | None, limit: int | None = None) -> str:
         text = text[:limit] + "…"
 
     def link(m: re.Match) -> str:
-        href = f"/data/run/{m.group(2)}" if m.group(1) == "R" else f"/data/case/{m.group(1)}{m.group(2)}"
+        if m.group(1) == "R":
+            href = f"/data/run/{m.group(2)}"
+        elif m.group(1) in LETTERS:
+            href = f"/data/item/{m.group(2)}"
+        else:
+            href = f"/data/case/{m.group(1)}{m.group(2)}"
         return f'<a href="{href}">{m.group(0)}</a>'
     return ID.sub(link, e(text))
 
@@ -56,7 +63,7 @@ def page(title: str, body: str) -> HTMLResponse:
     return HTMLResponse(
         f'<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">'
         f"<title>{e(title)} · Audax</title></head><body>"
-        '<p><a href="/">Office</a> · <a href="/data/">Data</a> · <a href="/data/case/">Cases</a> · <a href="/data/files/">Files</a> · '
+        '<p><a href="/">Office</a> · <a href="/data/">Data</a> · <a href="/data/items/">Items</a> · <a href="/data/case/">Cases</a> · <a href="/data/files/">Files</a> · '
         '<a href="/data/tables/">Tables</a></p>'
         f"<h1>{e(title)}</h1>{body}</body></html>"
     )
@@ -121,6 +128,29 @@ def build_app(db: Database, office: Office, roots: dict[str, Path]) -> Starlette
             f'<li><a href="/data/run/{r["id"]}">#R{r["id"]}</a> {e(office.local(r["finished_at"]))} · {e(NAMES.get(role_of(r["kind"]), ""))} · '
             f'{e(task_name(r["kind"]))} ({(r["duration_ms"] or 0) // 1000} s){" · failed" if r["is_error"] else ""}</li>' for r in runs) + "</ul>")
         return page("Data", "".join(parts))
+
+    async def items_page(request: Request) -> Response:
+        """Every item by form: open first, then what is over."""
+        items = Items(db)
+        want = request.query_params.get("form")
+        parts = ["<p>" + " · ".join(f'<a href="?form={n}">{e(f.label)}</a>' for n, f in FORMS.items()) + ' · <a href="?">alla</a></p>']
+        for name, form in FORMS.items():
+            if want and want != name:
+                continue
+            closed = ",".join(f"'{c}'" for c in form.closed) or "''"
+            rows = await items.find(name, order=f"status IN ({closed}), updated_at DESC", limit=300)
+            if not rows:
+                continue
+            parts.append(f"<h2>{e(form.label)} ({len(rows)})</h2><p>{e(form.help)}</p><ul>" + "".join(
+                f'<li><a href="/data/item/{i["id"]}">{e(ref(i))}</a> {e(i["kind"] or "")} · {e(i["status"])} · {e(i["title"])}'
+                + (f' · ägare {e(i["owner"])}' if i["owner"] else "") + "</li>" for i in rows) + "</ul>")
+        return page("Items", "".join(parts) if len(parts) > 1 else parts[0] + "<p>Inga än.</p>")
+
+    async def item_page(request: Request) -> Response:
+        text = await Items(db).describe(request.path_params["id"])
+        if text is None:
+            return page("Not found", "<p>No such item.</p>")
+        return page(text.splitlines()[0], f"<pre>{linked(text)}</pre>")
 
     async def run_page(request: Request) -> Response:
         r = await office.run(request.path_params["id"])
@@ -216,6 +246,8 @@ def build_app(db: Database, office: Office, roots: dict[str, Path]) -> Starlette
         Route("/api/work/{id:int}", api_work),
         Route("/data/", data_index),
         Route("/data/run/{id:int}", run_page),
+        Route("/data/items/", items_page),
+        Route("/data/item/{id:int}", item_page),
         Route("/data/case/", case_page),
         Route("/data/case/{ref}", case_page),
         Route("/data/files/", files_page),

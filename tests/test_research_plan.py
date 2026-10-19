@@ -3,6 +3,8 @@ from datetime import datetime
 from zoneinfo import ZoneInfo
 
 import pytest
+
+from agent.items import Items
 import yaml
 
 from agent import direction_ops as ops
@@ -33,7 +35,7 @@ async def env(tmp_path, monkeypatch):
         monkeypatch.setattr(ops, name, path)
     db = Database(tmp_path / "t.db")
     await db.open()
-    await db.execute("INSERT INTO pursuits (kind, title, status, about) VALUES ('goal', 'Sommarpraktik 2027', 'active', 'Brus: banker')")
+    await Items(db).create("aim", "Sommarpraktik 2027", "director", kind="goal", data={"about": "Brus: banker"}, source={"type": "inferred"})
     yield db, MemoryRepo(mem), research, sources
     await db.close()
 

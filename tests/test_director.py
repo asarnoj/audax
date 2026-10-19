@@ -81,9 +81,11 @@ async def test_apply_writes_the_picture_records_posts_questions_ideas_and_its_ac
         trail.current_run.set(None)
 
     assert (memory.path / "direction" / "now.md").read_text().startswith("# Nu\nTenta")
-    goal = await db.fetchone("SELECT * FROM pursuits")
+    from agent.items import Items
+
+    goal = (await Items(db).find("aim"))[0]
     assert (goal["kind"], goal["status"], goal["next_step"]) == ("goal", "active", "Vänta på Researcher") and "Brus" in goal["about"]
-    assert [r["note"] for r in await db.fetchall("SELECT note FROM pursuit_log")] == ["lades till", "ändrade next_step"]
+    assert [h["note"] for h in await Items(db).history(goal["id"])] == ["lades till", None]
     [order] = await Posts(db).inbox("researcher")  # Director orders; Researcher owns missions and sources
     assert order["kind"] == "order" and order["from_owner"] == 1 and woken == ["researcher"]  # the owner's words started it
     assert [r["id"] for r in yaml.safe_load(research.read_text())] == ["jobs"]

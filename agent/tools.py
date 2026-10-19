@@ -196,12 +196,14 @@ def build_chat_tools(
             pid, created = await pursuits.upsert(fields, "chat")
         except ValueError:
             return _text("[internal] Give a title (or reply to the tip it is about).")
-        row = await db.fetchone("SELECT * FROM pursuits WHERE id = ?", (pid,))
+        from agent.items import Items
+
+        row = await Items(db).get(pid)
         turn.refs.add(f"#S{pid}")
         return _text(
             f"[internal] {'Tracked' if created else 'Updated'} #S{pid} ({KIND_LABEL[row['kind']]}): {row['title']} · {LABEL.get(row['status'], row['status'])}"
-            + (f" · deadline {row['deadline']}" if row["deadline"] else " · no deadline known")
-            + (f" · reminder {row['remind_at']}" if row["remind_at"] else "")
+            + (f" · deadline {row['deadline']}" if row.get("deadline") else " · no deadline known")
+            + (f" · reminder {row['remind_at']}" if row.get("remind_at") else "")
         )
 
     @tool(

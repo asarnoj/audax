@@ -25,6 +25,7 @@ from datetime import date, datetime, timedelta
 from zoneinfo import ZoneInfo
 
 from agent.db import Database
+from agent.items import Items
 from agent.pipeline.outbox import add_candidate
 from agent.prompts import personalize
 from agent.schedule import utc_iso
@@ -32,6 +33,7 @@ from agent.schedule import utc_iso
 log = logging.getLogger(__name__)
 
 KINDS = ("goal", "project", "pursuit", "idea")
+PURSUIT = "pursuit"   # an opportunity: the one kind of aim that gets nudges
 KIND_LABEL = {"goal": "Mål", "project": "Projekt", "pursuit": "Tillfälle", "idea": "Idé"}
 STATUSES = {
     "goal": ["active", "paused", "done", "dropped"],
@@ -52,7 +54,7 @@ LABEL = {
 DEFAULT_LEAD = timedelta(days=3)
 POSITIVE_REACTIONS = {"👍", "❤", "❤️", "🔥", "🤩", "👏", "💯", "😍", "🥰", "🎉", "⚡", "🙏", "❤‍🔥"}
 PURSUABLE = ("opportunity", "event", "insight", "search_update")
-FIELDS = ("title", "organization", "url", "status", "deadline", "remind_at", "next_step", "note", "why", "about", "parent_id")
+DATA = ("organization", "url", "deadline", "remind_at", "next_step", "why", "about", "candidate_id")   # the aim's own fields
 
 
 def _day(value: str | None) -> str | None:
@@ -70,8 +72,11 @@ def _same(a: str, b: str) -> bool:
 
 
 class Pursuits:
+    """The aims (#S) on top of the office's items (agent/items.py): matching, nudges and the overview the roles read."""
+
     def __init__(self, db: Database, tz: str = "Europe/Stockholm"):
         self.db = db
+        self.items = Items(db)
         self.tz = ZoneInfo(tz)
 
     def today(self) -> date:
@@ -80,57 +85,52 @@ class Pursuits:
     # --- writing ----------------------------------------------------------
 
     async def upsert(self, fields: dict, by: str) -> tuple[int, bool]:
-        """Updates the pursuit given by id, by candidate, or by a matching title among open ones; else adds one."""
+        """Updates the aim given by id, by candidate, or by a matching title among open ones; else adds one."""
         fields = {k: v for k, v in fields.items() if v not in (None, "")}
         if "parent" in fields:
             fields["parent_id"] = fields.pop("parent")
         for k in ("deadline", "remind_at"):
             if k in fields:
                 fields[k] = _day(fields[k])
-        row = None
-        if fields.get("id"):
-            row = await self.db.fetchone("SELECT * FROM pursuits WHERE id = ?", (fields["id"],))
+        row = await self.items.get(fields["id"]) if fields.get("id") else None
+        if row is not None and row["form"] != "aim":
+            raise ValueError(f"#{fields['id']} is not an aim")
         kind = row["kind"] if row else fields.get("kind") if fields.get("kind") in KINDS else "pursuit"
         if fields.get("status") not in STATUSES[kind]:
             fields.pop("status", None)
         if fields.get("parent_id") == fields.get("id"):
             fields.pop("parent_id", None)
-        if fields.get("parent_id") and not await self.db.fetchone("SELECT 1 FROM pursuits WHERE id = ? AND kind IN ('goal', 'project')", (fields["parent_id"],)):
-            fields.pop("parent_id")   # only a goal or a project holds other records
+        if fields.get("parent_id"):
+            parent = await self.items.get(fields["parent_id"])
+            if not parent or parent["form"] != "aim" or parent["kind"] not in ("goal", "project"):
+                fields.pop("parent_id")   # only a goal or a project holds other aims
         if row is None and fields.get("candidate_id"):
-            row = await self.db.fetchone("SELECT * FROM pursuits WHERE candidate_id = ?", (fields["candidate_id"],))
+            found = await self.items.find("aim", where="json_extract(data, '$.candidate_id') = ?", args=(fields["candidate_id"],), limit=1)
+            row = found[0] if found else None
         if row is None and fields.get("title"):
-            for r in await self.db.fetchall(f"SELECT * FROM pursuits WHERE kind = ? AND status IN ({','.join('?' * len(OPEN))})", (kind, *OPEN)):
-                if _same(r["title"], fields["title"]) and (not fields.get("organization") or not r["organization"] or _same(r["organization"], fields["organization"])):
+            for r in await self.items.find("aim", kind=kind, status=OPEN):
+                if _same(r["title"], fields["title"]) and (not fields.get("organization") or not r.get("organization")
+                                                           or _same(r["organization"], fields["organization"])):
                     row = r
                     break
+        data = {k: fields[k] for k in DATA if k in fields}
         if row is None:
             if not fields.get("title"):
                 raise ValueError("a new record needs a title")
-            status = fields.get("status", STATUSES[kind][0])
-            pid = await self.db.insert("pursuits", kind=kind, title=fields["title"], organization=fields.get("organization"), url=fields.get("url"),
-                                       candidate_id=fields.get("candidate_id"), status=status, deadline=fields.get("deadline"),
-                                       remind_at=fields.get("remind_at"), next_step=fields.get("next_step"), note=fields.get("note"),
-                                       why=fields.get("why"), about=fields.get("about"), parent_id=fields.get("parent_id"), source=by)
-            await self._log(pid, status, fields.get("note") or "lades till", by)
+            source = {"type": "owner" if by in ("chat", "reaction") else "inferred", "by": by}
+            pid = await self.items.create("aim", fields["title"], _role(by), kind=kind, status=fields.get("status"), owner="director",
+                                          parent=fields.get("parent_id"), data=data, source=source, note=fields.get("note") or "lades till")
             return pid, True
-        changes = {k: fields[k] for k in FIELDS if k in fields and fields[k] != row[k]}
-        if fields.get("candidate_id") and not row["candidate_id"]:
-            changes["candidate_id"] = fields["candidate_id"]
-        if changes.get("remind_at"):
-            changes["nudged_at"] = None  # a new reminder day means a new nudge
-        if changes:
-            sets = ", ".join(f"{k} = ?" for k in changes)
-            await self.db.execute(f"UPDATE pursuits SET {sets}, updated_at = datetime('now') WHERE id = ?", (*changes.values(), row["id"]))
-            if changes.keys() - {"note"}:
-                what = "status" if changes.keys() == {"status"} else ", ".join(k for k in changes if k not in ("status", "note", "nudged_at"))
-                await self._log(row["id"], changes.get("status"), changes.get("note") or (f"ändrade {what}" if what != "status" else None), by)
-            elif "note" in changes:
-                await self._log(row["id"], None, changes["note"], by)
+        if data.get("remind_at") and data["remind_at"] != row.get("remind_at"):
+            data["nudged_at"] = None  # a new reminder day means a new nudge
+        if fields.get("candidate_id") and row.get("candidate_id"):
+            data.pop("candidate_id", None)
+        await self.items.update(row["id"], _role(by), title=fields.get("title"), status=fields.get("status"),
+                                parent=fields["parent_id"] if "parent_id" in fields else ..., data=data, note=fields.get("note"))
         return row["id"], False
 
     async def from_candidate(self, candidate_id: int, by: str, status: str = "interested") -> int | None:
-        """A pursuit for something Audax delivered (e.g. the owner reacted with 👍 to it)."""
+        """An aim for something Audax delivered (e.g. the owner reacted with 👍 to it)."""
         c = await self.db.fetchone(
             "SELECT c.*, e.payload FROM candidates c LEFT JOIN events e ON e.id = c.event_id WHERE c.id = ?", (candidate_id,)
         )
@@ -146,48 +146,41 @@ class Pursuits:
         }, by)
         return pid
 
-    async def _log(self, pid: int, status: str | None, note: str | None, by: str) -> None:
-        await self.db.insert("pursuit_log", pursuit_id=pid, status=status, note=note, by=by)
-
     # --- time -------------------------------------------------------------
 
     async def tick(self) -> int:
         """Deadlines that passed without applying become 'missed'; due reminders become nudge candidates."""
         today = self.today()
-        marks = ",".join("?" * len(NOT_YET_APPLIED))
-        for r in await self.db.fetchall(
-            f"SELECT id FROM pursuits WHERE kind = 'pursuit' AND status IN ({marks}) AND deadline IS NOT NULL AND deadline < ?",
-            (*NOT_YET_APPLIED, today.isoformat()),
-        ):
-            await self.db.execute("UPDATE pursuits SET status = 'missed', updated_at = datetime('now') WHERE id = ?", (r["id"],))
-            await self._log(r["id"], "missed", "deadline passerade utan ansökan", "system")
+        for r in await self.items.find("aim", kind=PURSUIT, status=NOT_YET_APPLIED,
+                                       where="json_extract(data, '$.deadline') < ?", args=(today.isoformat(),)):
+            await self.items.update(r["id"], "system", status="missed", note="deadline passerade utan ansökan")
         queued = 0
-        for r in await self.db.fetchall(
-            f"SELECT * FROM pursuits WHERE kind = 'pursuit' AND status IN ({marks}) AND nudged_at IS NULL AND (deadline IS NOT NULL OR remind_at IS NOT NULL)",
-            NOT_YET_APPLIED,
-        ):
-            remind = date.fromisoformat(r["remind_at"]) if r["remind_at"] else date.fromisoformat(r["deadline"]) - DEFAULT_LEAD
+        for r in await self.items.find("aim", kind=PURSUIT, status=NOT_YET_APPLIED,
+                                       where="json_extract(data, '$.nudged_at') IS NULL AND (json_extract(data, '$.deadline') IS NOT NULL "
+                                             "OR json_extract(data, '$.remind_at') IS NOT NULL)"):
+            remind = date.fromisoformat(r["remind_at"]) if r.get("remind_at") else date.fromisoformat(r["deadline"]) - DEFAULT_LEAD
             if remind > today:
                 continue
-            days_left = (date.fromisoformat(r["deadline"]) - today).days if r["deadline"] else None
+            days_left = (date.fromisoformat(r["deadline"]) - today).days if r.get("deadline") else None
             expires = None
-            if r["deadline"]:
+            if r.get("deadline"):
                 expires = utc_iso(datetime.fromisoformat(r["deadline"]).replace(hour=23, minute=59, tzinfo=self.tz))
             body = personalize(
-                f"Knuff: {{owner}} visade intresse för {r['title']}" + (f" hos {r['organization']}" if r["organization"] else "")
+                f"Knuff: {{owner}} visade intresse för {r['title']}" + (f" hos {r['organization']}" if r.get("organization") else "")
                 + f" men har inte sökt än ({LABEL[r['status']]})."
                 + (f" Sista dag {r['deadline']}, om {days_left} dag(ar)." if days_left is not None else "")
-                + (f" Nästa steg: {r['next_step']}." if r["next_step"] else "")
-                + (" {owner} bad om påminnelsen." if r["remind_at"] else "")
+                + (f" Nästa steg: {r['next_step']}." if r.get("next_step") else "")
+                + (" {owner} bad om påminnelsen." if r.get("remind_at") else "")
             )
             cid = await add_candidate(
-                self.db, kind="nudge", title=r["title"], body=body, url=r["url"],
+                self.db, kind="nudge", title=r["title"], body=body, url=r.get("url"),
                 features={"relevance": "high", "actionability": "high", "time_sensitivity": "high" if days_left is not None and days_left <= 2 else "medium",
                           "novelty": "medium", "confidence": "high", "complement": "high",
                           "reason": "Knuff före deadline för något du visat intresse för"},
                 expires_at=expires,
             )
-            await self.db.execute("UPDATE pursuits SET nudged_at = datetime('now'), nudge_candidate_id = ? WHERE id = ?", (cid, r["id"]))
+            await self.items.update(r["id"], "system", data={"nudged_at": datetime.now(ZoneInfo("UTC")).replace(tzinfo=None).isoformat(timespec="minutes"),
+                                                             "nudge_candidate_id": cid}, note="knuff köad")
             queued += 1
         if queued:
             log.info("pursuits: %d nudge(s) queued", queued)
@@ -200,31 +193,30 @@ class Pursuits:
         nothing is thought through twice). With notes: each record's why, next step and notes too (for the roles that
         judge by them); without: one line each."""
         marks = ",".join("?" * len(OPEN))
-        rows = await self.db.fetchall(
-            f"SELECT * FROM pursuits WHERE status IN ({marks}) OR updated_at >= datetime('now', ?) OR kind = 'idea' "
-            "ORDER BY kind != 'goal', kind != 'project', COALESCE(deadline, '9999'), id",
-            (*OPEN, f"-{closed_days} days"),
+        rows = await self.items.find(
+            "aim", where=f"(status IN ({marks}) OR updated_at >= datetime('now', ?) OR kind = 'idea')", args=(*OPEN, f"-{closed_days} days"),
+            order="kind != 'goal', kind != 'project', COALESCE(json_extract(data, '$.deadline'), '9999'), id",
         )
         rows = [r for r in rows if ideas or r["kind"] != "idea"]
         is_open = {r["id"] for r in rows if r["status"] in OPEN}
 
         def line(r) -> str:
             return (
-                f"#S{r['id']} {KIND_LABEL[r['kind']]}: {r['title']}" + (f" ({r['organization']})" if r["organization"] else "")
+                f"#S{r['id']} {KIND_LABEL[r['kind']]}: {r['title']}" + (f" ({r['organization']})" if r.get("organization") else "")
                 + f" · {LABEL.get(r['status'], r['status'])}"
-                + (f" · sista dag {r['deadline']}" if r["deadline"] else "")
-                + (f" · påminn {r['remind_at']}" if r["remind_at"] else "")
-                + (" · knuffad" if r["nudged_at"] else "")
-                + (f" · {r['url']}" if r["url"] else "")
+                + (f" · sista dag {r['deadline']}" if r.get("deadline") else "")
+                + (f" · påminn {r['remind_at']}" if r.get("remind_at") else "")
+                + (" · knuffad" if r.get("nudged_at") else "")
+                + (f" · {r['url']}" if r.get("url") else "")
             )
 
         def block(r, indent: str) -> list[str]:
             out = [indent + line(r)]
             if notes:
                 out += [" " * len(indent) + "  " + text for text in (
-                    (f"Varför: {r['why']}" if r["why"] else ""), (f"Nästa: {r['next_step']}" if r["next_step"] else ""),
-                    *(r["about"] or "").strip().splitlines()) if text.strip()]
-            elif r["next_step"]:
+                    (f"Varför: {r['why']}" if r.get("why") else ""), (f"Nästa: {r['next_step']}" if r.get("next_step") else ""),
+                    *(r.get("about") or "").strip().splitlines()) if text.strip()]
+            elif r.get("next_step"):
                 out[0] += f" · nästa: {r['next_step']}"
             return out
 
@@ -249,16 +241,24 @@ class Pursuits:
     async def stats(self, days: int = 30) -> str:
         """How pursuits and nudges turn out: for Manager and Director (learning, not a target)."""
         since = f"-{days} days"
-        by_status = await self.db.fetchall("SELECT status, count(*) AS n FROM pursuits WHERE kind = 'pursuit' AND updated_at >= datetime('now', ?) GROUP BY status", (since,))
-        nudged = await self.db.fetchone("SELECT count(*) AS n FROM pursuits WHERE nudged_at >= datetime('now', ?)", (since,))
+        by_status = await self.db.fetchall(
+            "SELECT status, count(*) AS n FROM items WHERE form = 'aim' AND kind = 'pursuit' AND updated_at >= datetime('now', ?) GROUP BY status", (since,))
+        nudged = await self.db.fetchone(
+            "SELECT count(*) AS n FROM items WHERE form = 'aim' AND json_extract(data, '$.nudged_at') >= date('now', ?)", (since,))
         acted = await self.db.fetchone(
-            "SELECT count(DISTINCT p.id) AS n FROM pursuits p JOIN pursuit_log l ON l.pursuit_id = p.id "
-            "WHERE p.nudged_at >= datetime('now', ?) AND l.created_at >= p.nudged_at AND l.status IN ('preparing', 'applied')", (since,),
+            "SELECT count(DISTINCT i.id) AS n FROM items i JOIN item_log l ON l.item_id = i.id WHERE i.form = 'aim' "
+            "AND json_extract(i.data, '$.nudged_at') >= date('now', ?) AND l.created_at >= datetime(json_extract(i.data, '$.nudged_at')) "
+            "AND l.status IN ('preparing', 'applied')", (since,),
         )
         return (
             f"Pursuits, last {days} days: " + (", ".join(f"{LABEL.get(r['status'], r['status'])} {r['n']}" for r in by_status) or "none")
             + f". Nudges: {nudged['n']}, followed by preparing or applying: {acted['n']}."
         )
+
+
+def _role(by: str) -> str:
+    """Who changed it, as a role: the chat and a reaction are the Assistant recording the owner's words."""
+    return "assistant" if by in ("chat", "reaction") else by
 
 
 async def judged_against(db: Database, memory, tz: str) -> str:

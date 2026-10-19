@@ -23,6 +23,7 @@ from zoneinfo import ZoneInfo
 from agent import refs
 from agent.claude_gate import RUNNING
 from agent.db import Database
+from agent.items import Items
 from agent.vocab import KINDS, NAMES, OUT_TOOLS, ROLES, kinds_of, role_of, task_name
 
 UTC = ZoneInfo("UTC")
@@ -171,12 +172,11 @@ class Office:
                             files.append({"path": p.relative_to(self.memory).as_posix(),
                                           "changed": datetime.fromtimestamp(p.stat().st_mtime, self.tz).isoformat(timespec="minutes")})
                 drawers.append({"role": role, "name": NAMES[role], "files": files})
-            goals = await self.db.fetchall(
-                "SELECT id, kind, title, status, deadline FROM pursuits WHERE status IN ('active', 'paused', 'interested', 'preparing', 'applied', "
-                "'interviewing', 'offer', 'exploring', 'shared') ORDER BY kind != 'goal', kind != 'project', coalesce(deadline, '9999'), id")
+            goals = await Items(self.db).find(
+                "aim", open_only=True, order="kind != 'goal', kind != 'project', coalesce(json_extract(data, '$.deadline'), '9999'), id")
             return {"title": "Archive", "about": "The memory: one drawer per role. Everyone reads everything; each role writes only in its own drawer.",
                     "drawers": drawers,
-                    "records": [{"ref": f"#S{g['id']}", "kind": g["kind"], "title": g["title"], "status": g["status"], "deadline": g["deadline"]} for g in goals]}
+                    "records": [{"ref": f"#S{g['id']}", "kind": g["kind"], "title": g["title"], "status": g["status"], "deadline": g.get("deadline")} for g in goals]}
         if name == "bin":
             rows = await self.db.fetchall(
                 "SELECT c.id, c.title, d.module, d.reason, d.created_at FROM decisions d JOIN candidates c ON c.id = d.candidate_id "

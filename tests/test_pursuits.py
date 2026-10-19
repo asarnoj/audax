@@ -5,6 +5,7 @@ import pytest
 
 from agent.db import Database
 from agent.pipeline.outbox import add_candidate
+from agent.items import Items
 from agent.pursuits import Pursuits, candidates_of_message
 
 
@@ -29,9 +30,10 @@ async def test_upsert_matches_by_title_and_logs_status(db):
     assert created
     same, created = await p.upsert({"title": "google sre intern 2027", "status": "applied", "note": "sökte i kväll"}, "chat")
     assert (same, created) == (pid, False)
-    row = await db.fetchone("SELECT status, deadline FROM pursuits WHERE id = ?", (pid,))
+    row = await Items(db).get(pid)
     assert (row["status"], row["deadline"]) == ("applied", "2026-10-23")
-    assert [r["status"] for r in await db.fetchall("SELECT status FROM pursuit_log ORDER BY id")] == ["interested", "applied"]
+    assert [h["status"] for h in await Items(db).history(pid)] == ["interested", "applied"]
+    assert (await Items(db).history(pid))[-1]["note"] == "sökte i kväll" and row["source"]["type"] == "owner"
 
 
 async def test_a_delivered_tip_becomes_a_pursuit_with_its_deadline(db):
@@ -42,8 +44,8 @@ async def test_a_delivered_tip_becomes_a_pursuit_with_its_deadline(db):
     await db.execute("INSERT INTO message_candidates (message_id, candidate_id) VALUES (?, ?)", (mid, cid))
     assert await candidates_of_message(db, mid) == [cid]  # chat-written deliveries link here, not in messages.candidate_id
     pid = await Pursuits(db).from_candidate(cid, "reaction")
-    row = await db.fetchone("SELECT * FROM pursuits WHERE id = ?", (pid,))
-    assert (row["organization"], row["deadline"], row["url"], row["source"]) == ("Google", "2026-10-23", "https://g", "reaction")
+    row = await Items(db).get(pid)
+    assert (row["organization"], row["deadline"], row["url"], row["source"]) == ("Google", "2026-10-23", "https://g", {"type": "owner", "by": "reaction"})
     assert await Pursuits(db).from_candidate(cid, "reaction") == pid  # once
 
 
@@ -60,7 +62,7 @@ async def test_one_nudge_before_the_deadline_and_missed_after_it(db):
     assert json.loads(nudges[0]["features"])["time_sensitivity"] == "high" and "om 2 dag" in nudges[0]["body"]
     assert "bad om påminnelsen" in nudges[1]["body"]
     assert await p.tick() == 0  # one nudge per pursuit
-    assert (await db.fetchone("SELECT status FROM pursuits WHERE id = ?", (past,)))["status"] == "missed"
+    assert (await Items(db).get(past))["status"] == "missed"
 
     p.day = date(2026, 11, 27)
     assert await p.tick() == 1  # Spotify's turn
@@ -70,7 +72,7 @@ async def test_stats_show_whether_a_nudge_was_followed(db):
     p = FixedDay(db)
     pid, _ = await p.upsert({"title": "Ideate", "deadline": "2026-10-22"}, "chat")
     await p.tick()
-    await db.execute("UPDATE pursuits SET nudged_at = datetime('now', '-1 minute') WHERE id = ?", (pid,))
+    await db.execute("UPDATE items SET data = json_set(data, '$.nudged_at', strftime('%Y-%m-%dT%H:%M', 'now', '-1 minute')) WHERE id = ?", (pid,))
     await p.upsert({"id": pid, "status": "applied"}, "chat")
     text = await p.stats()
     assert "Nudges: 1, followed by preparing or applying: 1" in text and "sökt 1" in text
@@ -83,8 +85,8 @@ async def test_goals_hold_what_serves_them_and_only_opportunities_are_nudged(db)
     google, _ = await p.upsert({"title": "Google SRE", "organization": "Google", "deadline": "2026-10-23", "parent": goal}, "chat")
     idea, _ = await p.upsert({"kind": "idea", "title": "Mässor är en färdig ram", "status": "dismissed", "parent": goal}, "director")
     await p.upsert({"kind": "project", "title": "Spel med storebror", "parent": google}, "chat")   # only a goal or project holds others
-    assert (await db.fetchone("SELECT parent_id FROM pursuits WHERE kind = 'project'"))["parent_id"] is None
-    assert (await db.fetchone("SELECT status FROM pursuits WHERE id = ?", (goal,)))["status"] == "active"   # each kind its own statuses
+    assert (await Items(db).find("aim", kind="project"))[0]["parent_id"] is None
+    assert (await Items(db).get(goal))["status"] == "active"   # each kind its own statuses
     same, created = await p.upsert({"kind": "goal", "title": "Google SRE"}, "director")   # titles match within a kind
     assert created
 
@@ -97,5 +99,5 @@ async def test_goals_hold_what_serves_them_and_only_opportunities_are_nudged(db)
 
     p.day = date(2026, 10, 22)
     assert await p.tick() == 1   # the opportunity is nudged; the goal's own deadline is not
-    assert (await db.fetchone("SELECT status FROM pursuits WHERE id = ?", (goal,)))["status"] == "active"
+    assert (await Items(db).get(goal))["status"] == "active"
     assert idea and google
