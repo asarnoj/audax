@@ -17,6 +17,9 @@ from dataclasses import dataclass, field
 from datetime import date, datetime
 
 ROLES = ("assistant", "director", "researcher", "manager")
+# The profile's sections, in order (agent/beliefs.py renders the profile from the current beliefs).
+AREAS = ("who", "compensate", "social", "limits", "school", "interests", "opportunities", "not_interested", "interrupt",
+         "schedule", "communication", "name", "other")
 SOURCE_TYPES = ("owner", "observed", "inferred", "external")   # the owner said it · seen in what happened · a role's conclusion · a source outside
 
 
@@ -122,6 +125,7 @@ FORMS: dict[str, Form] = {f.name: f for f in (
         {k: ("current", "superseded", "retracted") for k in ("preference", "fact", "pattern", "value", "hypothesis")},
         closed=("superseded", "retracted"),
         fields=(
+            Field("area", "enum", False, AREAS, "where it belongs in the profile: " + ", ".join(AREAS)),
             Field("subject", help="what it is about, a few words (\"bank\", \"utbyte\", \"meddelandelängd\")"),
             Field("confidence", "enum", False, ("low", "medium", "high")),
             Field("bubble", "enum", False, ("excludes", "maybe_limit", "never_considered"),

@@ -129,6 +129,10 @@ Allt som ska följas över tid ligger i en gemensam kärna (`agent/forms.py`, `a
 
 Rollerna läser och skriver med kontorets verktyg (`agent/office_tools.py`), som kontrollerar varje skrivning mot formen och rollens rättigheter. Rådatan finns under `/data/items/`.
 
+**Det du säger om dig själv** blir uppfattningar (#U), var och en med ditt meddelande och dina ord som källa. En ny uppfattning ersätter en äldre, och den gamla finns kvar i historiken, så det syns när du ändrade dig och varför. En tvekan sparas som en tvekan. **Profilen** (`profile.md`) är en vy som koden skriver ur de uppfattningar som gäller just nu. Ingen roll redigerar den.
+
+**Sökningen** (`agent/search.py`) går över samtalet, posten, fynden och formerna. Den klarar böjningar och visar vem som sa vad och när. Före varje svar söker koden på det du skrev och lägger med det relevanta, så att det som har sagts kommer fram även när chatten inte tänker på att leta.
+
 ## Återkoppling: hur kontoret blir bättre
 
 - **Director → Researcher:** vad varje uppdrag gav, vad som behölls och hur du reagerade blir feedback inför nästa planering.

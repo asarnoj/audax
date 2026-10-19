@@ -25,6 +25,7 @@ from agent.prompts import personalize
 from agent.pursuits import Pursuits
 from agent.prompts import prompt as prompt_template
 from agent.schedule import Schedule
+from agent.search import search
 from agent.tools import TurnContext, build_chat_tools, build_github_tools, build_mail_tools, build_web_tools
 
 log = logging.getLogger(__name__)
@@ -32,6 +33,8 @@ log = logging.getLogger(__name__)
 SESSION_KEY = "chat.session_id"
 SEEN_KEY = "chat.seen_message_id"  # highest messages.id already shown to the chat session
 PROACTIVE_LIMIT = 5
+RECALL = 4    # search hits added before an owner's turn
+RECENT = 20   # the latest messages are in the conversation already: recall looks further back
 # What the owner reads is only this field: never the text the session writes between its tool calls.
 REPLY = {
     "type": "object",
@@ -45,7 +48,7 @@ MONTHS = ["jan", "feb", "mar", "apr", "maj", "jun", "jul", "aug", "sep", "okt", 
 # Tools for the chat session; paths are relative to workspace/ and further limited by
 # workspace/.claude/settings.json (e.g. policy.md is read-only).
 # Rights follow ownership (docs/MODEL.md): the Assistant reads all of memory but writes only its own files.
-ASSISTANT_FILES = ("profile.md", "arbetsminne/assistant.md")
+ASSISTANT_FILES = ("arbetsminne/assistant.md",)   # the profile is written from the beliefs (agent/beliefs.py), not by hand
 CHAT_TOOLS = [
     "Read(./memory/**)",
     *(f"{verb}(./memory/{f})" for f in ASSISTANT_FILES for verb in ("Edit", "Write")),
@@ -163,6 +166,8 @@ class ChatSession:
                 f"mark_question_asked. When {{owner}} answers, send_post with answer_to #P{q['id']}. "
                 f"What: {q['body']} · Why: {q['context'] or '-'}]".replace("{owner}", "the owner")
             )
+        if recall := await self._recall(batch):
+            parts.append(recall)
         for m in batch:
             if m.internal:
                 parts.append(f"[internal task: not from the owner. Your reply is sent to them verbatim as a message from you]\n{m.text}")
@@ -172,6 +177,23 @@ class ChatSession:
                 parts.append(f'[replying to: "{quoted}"]')
             parts.append(m.text)
         return "\n".join(parts)
+
+    async def _recall(self, batch: list[Incoming]) -> str | None:
+        """Before the turn, without Claude: what the search finds in earlier conversation, posts and records for what
+        the owner just wrote, so what was said comes up even when the chat doesn't think to look (19 Oct: "varifrån
+        kom track 15 okt?" was answered "inte något du har sagt")."""
+        text = " ".join(m.text for m in batch if not m.internal)
+        if not text.strip():
+            return None
+        top = await self.db.fetchone("SELECT max(id) AS m FROM messages")
+        try:
+            hits = await search(self.db, text, limit=RECALL, exclude_messages_after=(top["m"] or 0) - RECENT)
+        except Exception:
+            log.exception("recall failed")
+            return None
+        if not hits:
+            return None
+        return "[minne: tidigare om det här, med vem och när]\n" + "\n".join(h.line(self.settings.timezone) for h in hits) + "\n[end]"
 
     async def _recent_conversation(self, limit: int = 30) -> str:
         """Bridges a lost session (e.g. after moving machines) with the latest messages from the database."""
@@ -208,7 +230,8 @@ class ChatSession:
         return out
 
     async def _turn(self, batch: list[Incoming]) -> None:
-        turn = TurnContext(replied_to_message_id=next((m.replied_to_message_id for m in reversed(batch) if m.replied_to_message_id), None))
+        turn = TurnContext(replied_to_message_id=next((m.replied_to_message_id for m in reversed(batch) if m.replied_to_message_id), None),
+                           message_row_id=next((m.message_row_id for m in reversed(batch) if m.message_row_id), None))
         mcp_servers, tool_names = build_chat_tools(
             self.db, turn, self.schedule, self.controls, self.builder, self.inbox, getattr(self.memory, "path", None)
         )

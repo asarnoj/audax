@@ -19,7 +19,8 @@ from zoneinfo import ZoneInfo
 
 from agent import trail
 from agent.agenda import Agenda
-from agent.chat import ASSISTANT_FILES
+from agent.beliefs import write_profile
+from agent.office_tools import build_office_tools
 from agent.claude_gate import ClaudeGate, ClaudeTask, Priority, QuotaPaused
 from agent.config import Settings
 from agent.db import Database
@@ -81,15 +82,16 @@ class AssistantNight:
         last = await self.db.kv_get(LAST_KEY)
         since = datetime.fromisoformat(last) if last else now - timedelta(days=1)
         since_sql = since.astimezone(ZoneInfo("UTC")).strftime("%Y-%m-%d %H:%M:%S")
+        await write_profile(self.db, self.memory.path, self.settings.owner or "ägaren", self.settings.timezone)  # temporary beliefs past their date leave it
         context = {
             "now": f"{now:%Y-%m-%d %H:%M}",
             "working_memory": self.memory.read(WORKING_MEMORY) or "(empty: this is your first night pass)",
             "conversation": await self._conversation(since_sql),
-            "memory": self.memory.read(*[f for f in ASSISTANT_FILES if not f.startswith("arbetsminne")]),
+            "memory": self.memory.read("profile.md"),
             "planned": await self.agenda.upcoming(14) if self.agenda else "(no schedule)",
             "pursuits": await Pursuits(self.db, self.settings.timezone).overview(notes=False, ideas=False),
         }
-        writes = [f"{verb}(./memory/{f})" for f in ASSISTANT_FILES if not f.startswith("arbetsminne") for verb in ("Edit", "Write")]
+        office, office_names = build_office_tools(self.db, "assistant")
         try:
             result = await self.gate.run(
                 ClaudeTask(
@@ -97,7 +99,8 @@ class AssistantNight:
                     prompt=prompt_template("assistant_night").format(**context),
                     priority=Priority.MANAGER,
                     model=self.settings.models.manager,
-                    allowed_tools=["Read(./memory/**)", *writes],
+                    allowed_tools=["Read(./memory/**)", *office_names],
+                    mcp_servers=office,
                     output_schema=SCHEMA,
                     max_turns=20,
                 )

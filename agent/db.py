@@ -519,6 +519,37 @@ MIGRATIONS: list[str] = [
     DROP TABLE pursuit_log;
     DROP TABLE pursuits;
     """,
+    # 23: search (agent/search.py): the conversation, the posts, the findings and the items in one full-text index
+    # that tolerates inflection (trigrams: "track" finds "trackval"), kept current by triggers.
+    """
+    CREATE VIRTUAL TABLE search USING fts5(body, kind UNINDEXED, ref UNINDEXED, who UNINDEXED, at UNINDEXED, tokenize='trigram');
+    INSERT INTO search (body, kind, ref, who, at)
+        SELECT text, 'message', id, CASE direction WHEN 'in' THEN 'owner' ELSE 'assistant' END, created_at FROM messages;
+    INSERT INTO search (body, kind, ref, who, at)
+        SELECT body || coalesce(char(10) || verbatim, ''), 'post', id, sender, created_at FROM posts;
+    INSERT INTO search (body, kind, ref, who, at)
+        SELECT title || char(10) || coalesce(body, '') || coalesce(char(10) || url, ''), 'finding', id, 'office', created_at FROM candidates;
+    INSERT INTO search (body, kind, ref, who, at)
+        SELECT title || char(10) || data, 'item', id, coalesce(owner, ''), created_at FROM items;
+    CREATE TRIGGER search_messages AFTER INSERT ON messages BEGIN
+        INSERT INTO search (body, kind, ref, who, at)
+        VALUES (new.text, 'message', new.id, CASE new.direction WHEN 'in' THEN 'owner' ELSE 'assistant' END, new.created_at);
+    END;
+    CREATE TRIGGER search_posts AFTER INSERT ON posts BEGIN
+        INSERT INTO search (body, kind, ref, who, at) VALUES (new.body || coalesce(char(10) || new.verbatim, ''), 'post', new.id, new.sender, new.created_at);
+    END;
+    CREATE TRIGGER search_candidates AFTER INSERT ON candidates BEGIN
+        INSERT INTO search (body, kind, ref, who, at)
+        VALUES (new.title || char(10) || coalesce(new.body, '') || coalesce(char(10) || new.url, ''), 'finding', new.id, 'office', new.created_at);
+    END;
+    CREATE TRIGGER search_items AFTER INSERT ON items BEGIN
+        INSERT INTO search (body, kind, ref, who, at) VALUES (new.title || char(10) || new.data, 'item', new.id, coalesce(new.owner, ''), new.created_at);
+    END;
+    CREATE TRIGGER search_items_update AFTER UPDATE OF title, data ON items BEGIN
+        DELETE FROM search WHERE kind = 'item' AND ref = old.id;
+        INSERT INTO search (body, kind, ref, who, at) VALUES (new.title || char(10) || new.data, 'item', new.id, coalesce(new.owner, ''), new.created_at);
+    END;
+    """,
 ]
 
 # Tables whose rows carry the id of the run that wrote them (agent/trail.py).

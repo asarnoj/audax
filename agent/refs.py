@@ -13,6 +13,7 @@ import re
 from agent.db import Database
 from agent.forms import LETTERS
 from agent.items import Items
+from agent.search import search, words_of
 
 # Posts, findings and bookings have their own tables; every other letter is a form of the office's items (agent/forms.py).
 PATTERN = re.compile(r"#?([PFB" + "".join(LETTERS) + r"])(\d+)\b", re.I)
@@ -61,37 +62,21 @@ async def describe(db: Database, ref: str) -> str | None:
 
 
 async def lookup(db: Database, query: str, limit: int = 12) -> str:
-    """An ID gives its details; words search posts, pursuits, findings and the conversation, newest first."""
+    """An ID gives its details; words search the conversation, posts, findings and items (agent/search.py): best
+    matches first, each with who said it and when."""
     ids = PATTERN.findall(query)
     if ids and len(query.strip()) <= 12 * len(ids):
         found = [await describe(db, f"{k}{n}") for k, n in ids]
         return "\n\n".join(f for f in found if f) or "No such ID."
-    words = [w for w in re.findall(r"\w+", query.casefold()) if len(w) > 2]
-    if not words:
-        return "Give an ID (#P12, #S3, #F210, #B4) or a few words."
+    hits = await search(db, query, limit=limit)
+    if not hits:
+        return "Nothing found." if words_of(query) else "Give an ID (#P12, #S3, #F210, #B4) or a few words."
+    lines = []
+    for h in hits:
+        tags = ""
+        if h.kind == "message":
+            row = await db.fetchone("SELECT group_concat(ref, ' ') AS refs FROM message_refs WHERE message_id = ?", (h.ref,))
+            tags = f" [{row['refs']}]" if row and row["refs"] else ""
+        lines.append(h.line() + tags)
+    return "\n".join(lines)
 
-    def match(text: str | None) -> bool:
-        return bool(text) and all(w in text.casefold() for w in words)
-
-    hits: list[tuple[str, str]] = []
-    for p in await db.fetchall("SELECT id, created_at, sender, recipient, kind, status, body, verbatim FROM posts ORDER BY id DESC LIMIT 400"):
-        if match(f"{p['body']} {p['verbatim'] or ''}"):
-            hits.append((p["created_at"], f"#P{p['id']} {p['created_at'][:10]} {p['sender']}→{p['recipient']} {p['kind']} ({p['status']}): {p['body'][:140]}"))
-    for row in await db.fetchall("SELECT id, updated_at, title, data FROM items"):
-        if match(f"{row['title']} {row['data']}"):
-            item = await Items(db).get(row["id"])
-            hits.append((row["updated_at"], Items.line(item) + (f" · deadline {item['deadline']}" if item.get("deadline") else "")))
-    for c in await db.fetchall(
-        "SELECT id, updated_at, title, body, status FROM candidates WHERE updated_at >= datetime('now', '-90 days') ORDER BY id DESC LIMIT 600"
-    ):
-        if match(f"{c['title']} {c['body']}"):
-            hits.append((c["updated_at"], f"#F{c['id']} {c['title'][:100]} ({c['status']})"))
-    for m in await db.fetchall(
-        "SELECT m.id, m.created_at, m.direction, m.text, (SELECT group_concat(ref, ' ') FROM message_refs r WHERE r.message_id = m.id) AS refs "
-        "FROM messages m WHERE m.created_at >= datetime('now', '-60 days') ORDER BY m.id DESC LIMIT 800"
-    ):
-        if match(m["text"]):
-            who = "owner" if m["direction"] == "in" else "you"
-            hits.append((m["created_at"], f"{m['created_at'][:16]} {who}: {m['text'][:160]}" + (f" [{m['refs']}]" if m["refs"] else "")))
-    hits.sort(key=lambda h: h[0], reverse=True)
-    return "\n".join(h for _, h in hits[:limit]) or "Nothing found."

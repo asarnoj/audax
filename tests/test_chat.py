@@ -111,7 +111,7 @@ async def test_record_feedback_links_to_replied_message(db, monkeypatch):
 
     monkeypatch.setattr(tools_mod, "create_sdk_mcp_server", capture)
     _, names = build_chat_tools(db, TurnContext(replied_to_message_id=msg_id))
-    assert names == ["mcp__agent__record_feedback", "mcp__agent__interview_guide", "mcp__agent__report_problem", "mcp__agent__track_pursuit", "mcp__agent__lookup"]
+    assert names == ["mcp__agent__record_feedback", "mcp__agent__interview_guide", "mcp__agent__report_problem", "mcp__agent__track_pursuit", "mcp__agent__lookup", "mcp__agent__remember"]
 
     await captured["tools"][0].handler({"target": "replied", "sentiment": "negative", "aspect": "amount", "note": "för långt"})
     row = await db.fetchone("SELECT message_id, signal, value, note FROM feedback")
@@ -273,7 +273,7 @@ def test_the_assistant_can_only_write_its_own_files():
     from agent.chat import CHAT_TOOLS
 
     writes = [t for t in CHAT_TOOLS if t.startswith(("Edit", "Write"))]
-    assert "Edit(./memory/profile.md)" in writes and not any("**" in t or "direction" in t or "policy" in t for t in writes)
+    assert writes == ["Edit(./memory/arbetsminne/assistant.md)", "Write(./memory/arbetsminne/assistant.md)"]  # the profile is a view of the beliefs
 
 
 def test_memory_is_new_until_the_profile_differs_from_the_template(tmp_path):
@@ -300,3 +300,81 @@ def test_only_the_reply_field_reaches_the_owner():
     plain = RunResult(text="hej")
     assert message_of(plain) == "hej"
     assert message_of(RunResult(text="", structured={"message": ""})) == ""   # an internal task with nothing new
+
+
+async def test_search_finds_the_owners_own_words_and_says_who_and_when(db):
+    from agent import refs
+
+    await db.execute("INSERT INTO messages (telegram_message_id, direction, text, created_at) VALUES "
+                     "(1, 'in', 'Tyvärr måste jag bestämma track 15e oktober och utbyte väldigt snart', '2026-10-12 18:17:07')")
+    await db.execute("INSERT INTO messages (telegram_message_id, direction, text) VALUES (2, 'out', 'Google: https://www.google.com/about/careers/x-intern-2027')")
+    found = await refs.lookup(db, "trackval 15 oktober deadline")   # 19 Oct: this found nothing, and the chat said it wasn't the owner's
+    assert "2026-10-12 20:17 Julius: Tyvärr måste jag bestämma track 15e oktober" in found
+    assert "careers/x-intern-2027" in await refs.lookup(db, "google careers länk")
+
+
+async def test_what_the_owner_says_becomes_a_belief_and_the_profile_follows(db, tmp_path):
+    from agent.beliefs import current, write_profile
+    from agent.items import Items
+    from agent.tools import build_chat_tools
+
+    import agent.tools as tools_mod
+
+    captured = {}
+    real = tools_mod.create_sdk_mcp_server
+    tools_mod.create_sdk_mcp_server = lambda name, version="1.0.0", tools=None: captured.setdefault("tools", tools) and real(name, version=version, tools=tools)
+    try:
+        msg = await db.execute("INSERT INTO messages (telegram_message_id, direction, text) VALUES (1, 'in', 'Jag vill inte jobba på banker')")
+        turn = TurnContext(message_row_id=msg)
+        build_chat_tools(db, turn)
+    finally:
+        tools_mod.create_sdk_mcp_server = real
+    remember = {t.name: t for t in captured["tools"]}["remember"]
+    out = await remember.handler({"statement": "Vill inte jobba på bank", "kind": "preference", "area": "not_interested",
+                                  "subject": "bank", "quote": "Jag vill inte jobba på banker", "bubble": "excludes"})
+    old = int(out["content"][0]["text"].split("#U")[1].split(".")[0].split(",")[0])
+    assert (await Items(db).get(old))["source"]["message"] == msg
+    out = await remember.handler({"statement": "Tekniska roller på bank går bra, inte rådgivning eller sälj", "kind": "preference",
+                                  "area": "not_interested", "subject": "bank", "quote": "en teknisk roll på en bank kan jag tänka mig",
+                                  "replaces": [f"#U{old}"]})
+    assert "replacing #U" in out["content"][0]["text"]
+    assert [b["title"] for b in await current(db, subject="bank")] == ["Tekniska roller på bank går bra, inte rådgivning eller sälj"]
+    await remember.handler({"statement": "Inga jobbtips den här veckan", "kind": "preference", "area": "communication",
+                            "valid_until": "2026-10-25"})
+    out = await remember.handler({"statement": "Vill inte söka utbyte", "kind": "preference", "area": "school", "confidence": "low"})
+    assert "Kept as" in out["content"][0]["text"]
+    out = await remember.handler({"statement": "", "kind": "preference"})
+    assert "Not kept" in out["content"][0]["text"]   # every problem goes back to the chat
+
+    mem = tmp_path / "memory"
+    mem.mkdir()
+    assert await write_profile(db, mem, "Julius")
+    profile = (mem / "profile.md").read_text()
+    assert "## Inte intresserad av\n- Tekniska roller på bank går bra, inte rådgivning eller sälj (Julius, " in profile
+    assert "Vill inte jobba på bank" not in profile   # superseded: in the history, not in the profile
+    assert "Vill inte söka utbyte (Julius" in profile and "osäkert" in profile
+    assert "gäller till 2026-10-25" in profile or "Inga jobbtips" not in profile   # gone once its date has passed
+    assert not await write_profile(db, mem, "Julius")   # unchanged: not written again
+
+
+async def test_the_chat_is_reminded_of_what_was_said_before_its_turn(db, tmp_path):
+    prompts = []
+
+    async def runner(task, ws, on_rl):
+        prompts.append(task.prompt)
+        return RunResult(text="ok", session_id="s")
+
+    await db.execute("INSERT INTO messages (telegram_message_id, direction, text) VALUES (0, 'in', 'Tyvärr måste jag bestämma track 15e oktober')")
+    for i in range(25):   # long ago in the conversation
+        await db.execute("INSERT INTO messages (telegram_message_id, direction, text) VALUES (?, 'out', 'småprat')", (i + 1,))
+
+    async def send(text, candidate_id=None, origin=None, in_session=False):
+        return []
+
+    async def typing():
+        pass
+
+    chat = ChatSession(load_settings(), db, ClaudeGate(db, tmp_path, runner=runner), FakeMemory(), send, typing)
+    chat.submit(Incoming(text="Varifrån fick ni att jag skulle välja track den 15 oktober?"))
+    await wait_idle(chat)
+    assert "[minne:" in prompts[0] and "Julius: Tyvärr måste jag bestämma track 15e oktober" in prompts[0]

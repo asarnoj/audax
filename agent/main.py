@@ -39,6 +39,8 @@ from agent.night import Night
 from agent import site
 from agent.config import INSTANCE
 from agent.office import Office
+from agent.beliefs import write_profile
+from agent.items import Items
 from agent.schedule import Schedule, describe_change, utc_iso
 from agent.sources.calendar import build_sources, load_calendar_configs
 from agent.telegram_bot import TelegramBot
@@ -105,6 +107,14 @@ async def run() -> None:
     memory = MemoryRepo(settings.workspace / "memory")
     if not (memory.path / ".git").exists():
         raise SystemExit("workspace/memory saknas: kör ./deploy/init-memory.sh först")
+
+    async def profile_watch(db_, item) -> None:   # the profile is a view of the beliefs (agent/beliefs.py)
+        if item["form"] == "belief":
+            await write_profile(db_, memory.path, settings.owner or "ägaren", settings.timezone)
+
+    Items.watchers.append(profile_watch)
+    if await write_profile(db, memory.path, settings.owner or "ägaren", settings.timezone):
+        await memory.commit_if_changed("profilen skriven ur uppfattningarna")
     cal_configs, cal_options = load_calendar_configs()
     schedule = Schedule(settings, db, build_sources(cal_configs, settings.timezone), cal_options.get("window_days", 21))
     bot = TelegramBot(settings, db, chat_gate, memory, schedule)

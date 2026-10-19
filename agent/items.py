@@ -31,8 +31,16 @@ def parse_ref(text: str) -> int | None:
 
 
 class Items:
+    # Called with each created or changed item, e.g. to write the profile when a belief changes (agent/beliefs.py).
+    watchers: list = []
+
     def __init__(self, db: Database):
         self.db = db
+
+    async def _changed(self, item_id: int) -> None:
+        if Items.watchers and (item := await self.get(item_id)):
+            for watch in Items.watchers:
+                await watch(self.db, item)
 
     # --- reading ------------------------------------------------------------------------------
 
@@ -103,6 +111,7 @@ class Items:
         )
         await self._log(item_id, by, status, {"created": True}, note or "skapad")
         await trail.emit("item", by, ref=f"#{FORMS[form].letter}{item_id}", form=form, action="create")
+        await self._changed(item_id)
         return item_id
 
     async def update(self, item_id: int, by: str, *, title: str | None = None, status: str | None = None, kind: str | None = None,
@@ -148,6 +157,8 @@ class Items:
             await self.db.execute(f"UPDATE items SET {sets} WHERE id = ?", (*cols.values(), json.dumps(stored, ensure_ascii=False), item_id))
         await self._log(item_id, by, cols.get("status"), changes or None, note)
         await trail.emit("item", by, ref=ref(item), form=item["form"], action="update")
+        if changes:
+            await self._changed(item_id)
         return list(changes)
 
     async def link(self, from_id: int, to_id: int, relation: str, by: str) -> None:

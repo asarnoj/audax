@@ -11,6 +11,7 @@ from claude_agent_sdk import create_sdk_mcp_server as _create_sdk_mcp_server
 from claude_agent_sdk import tool
 
 from agent.db import Database
+from agent.forms import AREAS
 from agent.prompts import personalize
 
 log = logging.getLogger(__name__)
@@ -52,6 +53,7 @@ class TurnContext:
     # so nothing written by a stranger in a mail can make Audax carry private data out in a URL.
     mail_read: bool = False
     refs: set = field(default_factory=set)  # IDs this turn touched (#P, #S, #F), linked to the messages afterwards
+    message_row_id: int | None = None  # messages.id of the owner's latest message in this turn: the source of what they said
 
 
 ISOLATED = (
@@ -218,7 +220,72 @@ def build_chat_tools(
 
         return _text("[internal] " + await refs.lookup(db, args["query"]))
 
-    tools = [record_feedback, interview_guide, report_problem, track_pursuit, lookup]
+    @tool(
+        "remember",
+        "Keep something lasting {owner} said about themself: a preference, a fact, a value (school, interests, what they "
+        "don't want, what may always interrupt, schedule and habits, how they want to be talked to, limits for Audax). It "
+        "becomes a belief with their message as its source and lands in the profile. Use their own words in `quote`. "
+        "If it changes something already held (see the profile's #U ids), list those in `replaces`; if they say something "
+        "you hold is wrong, `retract` it. Something only for now (\"inte den här veckan\") gets `valid_until`. A hesitation "
+        "(\"jag tror inte…\") is kept as such: confidence low, and it changes nothing else by itself. Say \"Noterat\" only "
+        "after this succeeded.",
+        {
+            "type": "object",
+            "properties": {
+                "statement": {"type": "string", "description": "Swedish, one line, about {owner} (\"Vill inte jobba med försvar\")"},
+                "kind": {"type": "string", "enum": ["preference", "fact", "value"]},
+                "area": {"type": "string", "enum": list(AREAS)},
+                "subject": {"type": "string", "description": "what it is about in a few words, so related beliefs are found"},
+                "quote": {"type": "string", "description": "{owner_s} own words"},
+                "confidence": {"type": "string", "enum": ["low", "medium", "high"]},
+                "bubble": {"type": "string", "enum": ["excludes", "maybe_limit"],
+                           "description": "excludes: they ruled it out; maybe_limit: sounds like uncertainty rather than what they want"},
+                "scope": {"type": "string", "description": "Swedish: when it holds, if not always"},
+                "valid_until": {"type": "string", "description": "YYYY-MM-DD, for something temporary"},
+                "replaces": {"type": "array", "items": {"type": "string"}, "description": "#U ids this replaces"},
+                "retract": {"type": "string", "description": "a #U id {owner} says is wrong; nothing else needed"},
+            },
+        },
+    )
+    async def remember(args: dict[str, Any]) -> dict[str, Any]:
+        from agent.beliefs import current
+        from agent.forms import FormError
+        from agent.items import Items, parse_ref
+
+        items = Items(db)
+        try:
+            if args.get("retract"):
+                n = parse_ref(args["retract"])
+                await items.update(n, "assistant", status="retracted", note=f"{personalize('{owner}')} sa att det inte stämmer"
+                                   + (f": \"{args['quote']}\"" if args.get("quote") else ""))
+                turn.refs.add(f"#U{n}")
+                if not args.get("statement"):
+                    return _text(f"[internal] #U{n} retracted.")
+            source = {"type": "owner", "date": __import__("datetime").date.today().isoformat()}
+            if args.get("quote"):
+                source["quote"] = args["quote"]
+            if turn.message_row_id:
+                source["message"] = turn.message_row_id
+            data = {k: args.get(k) for k in ("area", "subject", "confidence", "bubble", "scope") if args.get(k)}
+            new = await items.create("belief", args.get("statement") or "", "assistant", kind=args.get("kind") or "preference",
+                                     data=data, source=source, valid_until=args.get("valid_until"))
+            replaced = []
+            for r in args.get("replaces") or []:
+                if (old := parse_ref(r)) and old != new:
+                    await items.update(old, "assistant", status="superseded", note=f"ersatt av #U{new}")
+                    await items.link(new, old, "supersedes", "assistant")
+                    replaced.append(f"#U{old}")
+        except FormError as e:
+            return _text(f"[internal] Not kept: {e}")
+        turn.refs.add(f"#U{new}")
+        others = [b for b in await current(db, subject=args["subject"]) if b["id"] != new] if args.get("subject") else []
+        return _text(
+            f"[internal] Kept as #U{new}" + (f", replacing {', '.join(replaced)}" if replaced else "") + "."
+            + ("\nOther current beliefs about the same thing; if the new one changes them, call remember again with replaces:\n"
+               + "\n".join(f"#U{b['id']} {b['title']}" for b in others) if others else "")
+        )
+
+    tools = [record_feedback, interview_guide, report_problem, track_pursuit, lookup, remember]
 
     if memory_path is not None:
 

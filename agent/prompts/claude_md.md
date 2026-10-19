@@ -20,7 +20,7 @@ The roles never call each other. They talk through the **internal mail**: notes,
 ## Memory map (`memory/`): everyone reads everything, only the owner writes
 | Files | Owner |
 |---|---|
-| `profile.md` (who {owner} is, school, interests with "Inte intresserad av" and "Vill inte ha", "Får alltid störa", schedule and habits), `arbetsminne/assistant.md` | Assistant |
+| `arbetsminne/assistant.md`; and the beliefs about {owner} (#U) from what they said. `profile.md` (who {owner} is, school, interests, "Inte intresserad av", "Får alltid störa", schedule and habits) is written from the beliefs by the code: nobody edits it | Assistant |
 | `direction/person.md` (who {owner} is, as Director understands it), `direction/now.md` (the facts of {owner_s} situation), `arbetsminne/director.md` | Director |
 | `research/maps/` (one map per search mission), `arbetsminne/researcher.md`, and the instance config (missions, watched sources, watchlist) | Researcher |
 | `policy.md` (what the situation means for {owner_s} attention, pacing, and how the chat writes), `arbetsminne/manager.md` | Manager |
