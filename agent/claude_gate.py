@@ -106,6 +106,9 @@ async def sdk_runner(task: ClaudeTask, workspace: Path, on_rate_limit: OnRateLim
         permission_mode="dontAsk",
         # Load workspace/CLAUDE.md and workspace/.claude/settings.json only.
         setting_sources=["project"],
+        # Only the MCP servers given here: the CLI is logged in to the owner's claude.ai account, whose connectors
+        # (Gmail with send and trash, Drive, Calendar) would otherwise be loaded into every run.
+        strict_mcp_config=True,
         max_turns=task.max_turns,
         effort=task.effort,
         mcp_servers=task.mcp_servers,
