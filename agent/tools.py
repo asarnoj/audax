@@ -471,7 +471,10 @@ def _control_tools(controls: Controls, turn: TurnContext) -> list:
     async def activity_report(args: dict[str, Any]) -> dict[str, Any]:
         from agent.inspect import Inspector
 
-        return _text(await Inspector(controls.db).summary())
+        text = await Inspector(controls.db).summary()
+        if getattr(controls, "budget", None) is not None:
+            text += "\n\n" + await controls.budget.words()
+        return _text(text)
 
     @tool(
         "how_i_work",

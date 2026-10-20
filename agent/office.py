@@ -70,11 +70,12 @@ def plural(n: int, word: str) -> str:
 
 
 class Office:
-    def __init__(self, db: Database, memory: Path, tz: str, status=None):
+    def __init__(self, db: Database, memory: Path, tz: str, status=None, budget=None):
         self.db = db
         self.memory = memory
         self.tz = ZoneInfo(tz)
         self.status = status  # the gate's status() (the quota), when running inside the engine
+        self.budget = budget  # agent/budget.Budget, when running inside the engine
 
     def local(self, utc: str | None) -> str | None:
         if not utc:

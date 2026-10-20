@@ -216,3 +216,34 @@ async def test_a_reply_written_before_a_tool_call_is_not_lost(tmp_path, monkeypa
     assert r.text == "Två saker från veckan:\n- A\n- B\n\nDet är det jag har till pausen."
     assert r.final_text == "Det är det jag har till pausen."
     assert [t["tool"] for t in r.trace] == ["agent__get_shelf", "agent__shelf_told"]
+
+
+async def test_the_budget_paces_the_heavy_work_and_never_the_conversation(db, tmp_path):
+    from datetime import datetime
+    from zoneinfo import ZoneInfo
+
+    from agent.budget import Budget
+    from agent.config import load_settings
+
+    settings = load_settings()
+    settings.budget.weekly_share, settings.budget.week_usd = 0.10, 70.0   # 7 $ a week, 1 $ a day
+    budget = Budget(db, settings)
+
+    async def runner(t, ws, on_rl):
+        return RunResult(text="ok", cost_usd=0.6)
+
+    gate = ClaudeGate(db, tmp_path, runner=runner, budget=budget)
+    assert (await gate.run(task("research", Priority.RESEARCH))).text == "ok"
+    assert (await gate.run(task("director_reflect", Priority.RESEARCH))).text == "ok"   # 0.6 spent < 1 $ today
+    with pytest.raises(QuotaPaused) as e:
+        await gate.run(task("research", Priority.RESEARCH))   # today's share is used: tomorrow
+    assert "dagens andel" in e.value.why and datetime.fromtimestamp(e.value.resets_at, ZoneInfo(settings.timezone)).hour == 0
+    for kind in ("chat", "triage", "page_extract", "manager"):   # the conversation, the pipeline, the roles' week share
+        assert (await gate.run(task(kind, Priority.MANAGER))).text == "ok"
+    for _ in range(9):
+        await gate.run(task("triage", Priority.RESEARCH))
+    with pytest.raises(QuotaPaused):
+        await gate.run(task("manager", Priority.MANAGER))   # the week's share is used now too
+    assert (await gate.run(task("chat", Priority.CHAT))).text == "ok"
+    words = await budget.words()
+    assert "Audax förbrukning: i dag" in words and "väntar till" in words

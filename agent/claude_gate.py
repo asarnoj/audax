@@ -84,13 +84,33 @@ class RunResult:
 
 
 class QuotaPaused(Exception):
-    def __init__(self, resets_at: float):
-        super().__init__(f"Claude quota paused until {time.ctime(resets_at)}")
+    def __init__(self, resets_at: float, why: str = ""):
+        super().__init__(f"Claude quota paused until {time.ctime(resets_at)}" + (f": {why}" if why else ""))
         self.resets_at = resets_at
+        self.why = why
 
 
 OnRateLimit = Callable[[RateLimitInfo], None]
 Runner = Callable[[ClaudeTask, Path, OnRateLimit], Awaitable[RunResult]]
+
+
+# Claude Code's built-in tools (as its init message lists them). ToolSearch stays: without it every deferred tool is
+# loaded up front, which made a run several times bigger when tried.
+BUILTIN = (
+    "Task", "Agent", "Bash", "BashOutput", "KillShell", "KillBash", "Edit", "MultiEdit", "Write", "NotebookEdit", "Read", "Glob", "Grep",
+    "WebSearch", "WebFetch", "TodoWrite", "ExitPlanMode", "EnterPlanMode", "AskUserQuestion", "SlashCommand", "Skill", "LSP",
+    "CronCreate", "CronDelete", "CronList", "DesignSync", "EnterWorktree", "ExitWorktree", "ListAgents", "Monitor", "PushNotification",
+    "RemoteTrigger", "ReportFindings", "ScheduleWakeup", "SendMessage", "TaskStop", "TaskOutput",
+    "ListMcpResourcesTool", "ReadMcpResourceTool", "ReadMcpResourceDirTool",
+)
+
+
+def unused_builtins(allowed: list[str]) -> list[str]:
+    """The built-in tools a task isn't allowed: hidden entirely. 'Read(./memory/**)' allows Read; MCP tools are its own."""
+    used = {t.split("(", 1)[0] for t in allowed if not t.startswith("mcp__")}
+    if used & {"Edit", "Write"}:
+        used.add("MultiEdit")
+    return [t for t in BUILTIN if t not in used]
 
 
 async def sdk_runner(task: ClaudeTask, workspace: Path, on_rate_limit: OnRateLimit) -> RunResult:
@@ -100,8 +120,10 @@ async def sdk_runner(task: ClaudeTask, workspace: Path, on_rate_limit: OnRateLim
         model=task.model,
         resume=task.resume,
         allowed_tools=task.allowed_tools,
-        # WebFetch is replaced by web_read; removing it entirely stops Claude reaching for it and misreading the denial.
-        disallowed_tools=[*task.disallowed_tools, "WebFetch"],
+        # Only the built-in tools the task may use are shown at all: the descriptions of the rest were most of what every
+        # run carried (measured 19 Oct: 13 900 tokens for an empty run, 5 500 with only what it needs). WebFetch is
+        # replaced by web_read; removing it stops Claude reaching for it and misreading the denial.
+        disallowed_tools=[*task.disallowed_tools, *unused_builtins(task.allowed_tools)],
         # Non-interactive: anything not explicitly allowed is denied, never prompted.
         permission_mode="dontAsk",
         # Load workspace/CLAUDE.md and workspace/.claude/settings.json only.
@@ -184,16 +206,12 @@ class QuotaState:
     # Runs at paused_from or lower priority are refused until paused_until.
     paused_from: Priority | None = None
     paused_until: float = 0.0
-    # The heavy, optional work (search missions, deep sweeps, reflection) can pause on its own, while the cheap
-    # pipeline (triage, dispatcher, page reading) keeps the senses working.
-    heavy_paused_until: float = 0.0
     last_rate_limit: RateLimitInfo | None = None
 
 
 # The runs in progress, in every gate, for the office page (agent/office.py): id -> (task, started).
 RUNNING: dict[int, tuple[ClaudeTask, float]] = {}
 
-HEAVY_KINDS = {"research", "research_deep", "director_reflect", "researcher_plan"}
 WEEK_STOP = 0.9  # mechanical quota guard: above this share of the weekly window, all background work waits
 
 
@@ -212,8 +230,9 @@ class ClaudeGate:
     """One Claude run at a time through this gate. A second gate (e.g. the builder) gets its own
     slot but shares quota state via `quota`."""
 
-    def __init__(self, db: Database, workspace: Path, runner: Runner = sdk_runner, quota: QuotaState | None = None):
+    def __init__(self, db: Database, workspace: Path, runner: Runner = sdk_runner, quota: QuotaState | None = None, budget=None):
         self.db = db
+        self.budget = budget  # agent/budget.Budget, set by main for the background gate
         self.workspace = workspace
         self._runner = runner
         self._busy = False
@@ -287,8 +306,8 @@ class ClaudeGate:
     async def run(self, task: ClaudeTask) -> RunResult:
         if (until := self.paused_until(task.priority)) is not None:
             raise QuotaPaused(until)
-        if task.kind in HEAVY_KINDS and time.time() < self.quota.heavy_paused_until:
-            raise QuotaPaused(self.quota.heavy_paused_until)
+        if self.budget is not None and (wait := await self.budget.wait(task.kind)) is not None:
+            raise QuotaPaused(*wait)   # the budget (agent/budget.py): this skill's share is used up for now
 
         async with self._slot(task.priority):
             # The pause may have started while we were waiting for the slot.

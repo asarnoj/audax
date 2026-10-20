@@ -77,6 +77,14 @@ class Site(BaseModel):
     port: int = 8400
 
 
+class Budget(BaseModel):
+    # Audax's share of the subscription's week (agent/budget.py), loose at first: see what is used, then tune.
+    weekly_share: float = 0.10
+    # The week's size in API-equivalent dollars, an estimate: Claude only reports how full the week is near the top,
+    # and that figure includes the owner's own use. Calibrated over time.
+    week_usd: float = 250.0
+
+
 class Settings(BaseModel):
     owner: str = ""  # the person the agent is for; fills {owner} in prompts
     timezone: str = "Europe/Stockholm"
@@ -84,6 +92,7 @@ class Settings(BaseModel):
     models: Models = Models()
     paths: Paths = Paths()
     site: Site = Site()
+    budget: Budget = Budget()
 
     telegram_token: str = ""
     telegram_chat_id: int | None = None

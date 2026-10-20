@@ -12,6 +12,7 @@ from zoneinfo import ZoneInfo
 
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 
+from agent.budget import Budget
 from agent.builder import Builder
 from agent.claude_gate import ClaudeGate, Priority
 from agent.controls import Controls
@@ -102,7 +103,8 @@ async def run() -> None:
     # A run cut off by a restart never finished: say so, rather than leaving it looking like it is still running.
     await db.execute("UPDATE claude_runs SET is_error = 1, error = 'interrupted', finished_at = created_at WHERE finished_at IS NULL")
 
-    gate = ClaudeGate(db, settings.workspace)  # the background lane: roles queue here, one run at a time
+    budget = Budget(db, settings)
+    gate = ClaudeGate(db, settings.workspace, budget=budget)  # the background lane: roles queue here, one run at a time
     chat_gate = ClaudeGate(db, settings.workspace, quota=gate.quota)  # the conversation lane: never waits for background work
     memory = MemoryRepo(settings.workspace / "memory")
     if not (memory.path / ".git").exists():
@@ -165,6 +167,7 @@ async def run() -> None:
         return found
 
     controls = Controls(db, dispatcher, research_tick, notify=bot.send)
+    controls.budget = budget
     bot.controls = controls
     controls.speak = bot.chat.speak  # results the owner asked for come in the one voice
     bot.chat.controls = controls
@@ -300,7 +303,7 @@ async def run() -> None:
     watcher.start()
     web_site = None
     if settings.site.enabled:
-        office = Office(db, memory.path, settings.timezone, status=gate.status)
+        office = Office(db, memory.path, settings.timezone, status=gate.status, budget=budget)
         app = site.build_app(db, office, {"memory": memory.path, "config": INSTANCE / "config"})
         web_site = site.start(app, settings.site.host, settings.site.port)
         log.info("office page on http://%s:%d", settings.site.host, settings.site.port)

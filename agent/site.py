@@ -123,6 +123,8 @@ def build_app(db: Database, office: Office, roots: dict[str, Path]) -> Starlette
             if q.get("paused_until"):
                 line += f" · background work paused until {e(q['paused_until'])}"
             parts.append(f"<p>{line}</p>")
+        if office.budget is not None:
+            parts.append(f"<p>{e(await office.budget.words())}</p>")
         runs = await db.fetchall("SELECT id, kind, finished_at, duration_ms, is_error FROM claude_runs ORDER BY id DESC LIMIT 40")
         parts.append("<h2>Latest work</h2><ul>" + "".join(
             f'<li><a href="/data/run/{r["id"]}">#R{r["id"]}</a> {e(office.local(r["finished_at"]))} · {e(NAMES.get(role_of(r["kind"]), ""))} · '

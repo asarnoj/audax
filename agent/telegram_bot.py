@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from agent import trail
+from agent import guard, trail
 
 import asyncio
 import json
@@ -105,7 +105,7 @@ class TelegramBot:
         Returns the messages.id rows (one per chunk)."""
         if self.settings.telegram_chat_id is None:
             return []
-        text = to_plain(text)  # Telegram shows plain text: no stray Markdown symbols
+        text = to_plain(guard.clean(text))  # never the office's ids (agent/guard.py); plain text, no stray Markdown symbols
         ids = []
         for chunk in _chunks(text):
             msg = await self._send_retrying(chunk)
