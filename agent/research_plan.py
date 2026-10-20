@@ -26,6 +26,9 @@ from agent.memory import MemoryRepo
 from agent.pipeline.outbox import add_candidate
 from agent.posts import ROLES, Posts
 from agent.prompts import prompt as prompt_template
+from agent.due import describe, due_items, review
+from agent.items import Items, ref
+from agent.office_tools import build_office_tools
 from agent.pursuits import judged_against
 from agent.research import BATCH, load_research
 from agent.tools import build_web_tools
@@ -170,6 +173,8 @@ class ResearchPlanner:
             return "weekly"
         if await self.posts.inbox("researcher"):
             return "inbox"
+        if await due_items(self.db, now, "researcher"):
+            return "steps due"
         for t in load_research():
             if not t.enabled:
                 continue
@@ -206,9 +211,12 @@ class ResearchPlanner:
             "goals": await judged_against(self.db, self.memory, self.settings.timezone),
             "missions": await self._missions(),
             "senses": await self._senses(),
+            "steps": await self._steps(now),
+            "review": await review(self.db, "researcher", now),
         }
         tools = ["WebSearch", "Read(./memory/**)"]
-        mcp: dict = {}
+        mcp, names = build_office_tools(self.db, "researcher")   # steps, questions, routines, rules (agent/office_tools.py)
+        tools = tools + names
         if self.web is not None:
             w, names = build_web_tools(self.web)
             mcp, tools = {**mcp, **w}, tools + names
@@ -222,7 +230,7 @@ class ResearchPlanner:
                     allowed_tools=tools,
                     mcp_servers=mcp,
                     output_schema=SCHEMA,
-                    max_turns=30,
+                    max_turns=45,
                 )
             )
         except QuotaPaused:
@@ -234,6 +242,16 @@ class ResearchPlanner:
         await self.apply(result.structured, now)
         await self.db.kv_set(LAST_KEY, now.isoformat())
         return result.structured
+
+    async def _steps(self, now: datetime) -> str:
+        """The steps of plans that are Researcher's to do: a question with a purpose and a date."""
+        items = Items(self.db)
+        rows = await items.find("step", open_only=True, owner="researcher", order="coalesce(review_at, '9999'), id")
+        out = []
+        for s in rows:
+            parent = await items.get(s["parent_id"]) if s["parent_id"] else None
+            out.append(f"- {describe(s)}" + (f" · tjänar {ref(parent)} {parent['title']}" if parent else ""))
+        return "\n".join(out) or "None."
 
     async def apply(self, out: dict, now: datetime) -> list[str]:
         changes: list[str] = []

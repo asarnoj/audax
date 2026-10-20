@@ -265,7 +265,7 @@ async def judged_against(db: Database, memory, tz: str) -> str:
     """What a finding or a search is judged against: the goals (what helps, what is noise) and what serves them, the
     situation and the profile. For triage and Researcher."""
     return ("--- the goals, and what the owner goes for (#S) ---\n" + await Pursuits(db, tz).overview(ideas=False)
-            + "\n\n" + memory.read("direction/now.md", "profile.md"))
+            + "\n\n" + memory.read("direction/now.md", "profile.md", "lardomar.md"))
 
 
 async def candidates_of_message(db: Database, message_row_id: int | None) -> list[int]:

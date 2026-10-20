@@ -6,8 +6,9 @@ Two loops, both in the background, never talking to the owner directly:
 - reflect (2-3x/week, Opus, high effort, web search): thinks deeply, checks ideas, and occasionally
   shares one through the outbox, where the dispatcher and Manager's policy still decide when
 
-Python gathers the facts, Claude judges, Python applies the result: the direction files, the #S records
-(agent/pursuits.py), posts to the other roles and questions for the owner via the internal mail (agent/posts.py),
+Python gathers the facts, Claude judges and writes beliefs, aims, steps, experiments and questions with the office's
+tools during its run (agent/office_tools.py); Python applies the rest: the direction files, posts to the other roles
+(agent/posts.py),
 ideas as outbox candidates. Its working memory (memory/arbetsminne/director.md) is what makes it the same mind
 from night to night: read first, rewritten every run (docs/MODEL.md).
 """
@@ -15,6 +16,7 @@ from night to night: read first, rewritten every run (docs/MODEL.md).
 from __future__ import annotations
 
 import asyncio
+import json
 import logging
 import re
 from collections import defaultdict
@@ -22,6 +24,9 @@ from datetime import datetime, timedelta
 from zoneinfo import ZoneInfo
 
 from agent import search_map, trail
+from agent.due import answered_since, review, write_now
+from agent.items import Items
+from agent.office_tools import build_office_tools, describe_forms
 from agent.pursuits import Pursuits
 from agent.claude_gate import ClaudeGate, ClaudeTask, Priority, QuotaPaused
 from agent.config import Settings
@@ -44,11 +49,6 @@ SCHEMA = {
     "properties": {
         "person_md": {"type": ["string", "null"], "description": "Swedish. The whole new person.md, or null if unchanged"},
         "now_md": {"type": ["string", "null"], "description": "Swedish. The whole new now.md, or null if unchanged"},
-        "questions": {
-            "type": "array",
-            "description": "At most one, in Swedish",
-            "items": {"type": "object", "properties": {"what": {"type": "string"}, "why": {"type": "string"}}, "required": ["what", "why"]},
-        },
         "posts": {
             "type": "array",
             "description": "Notes, orders or feedback to another role (not to the owner). They read it at their next run.",
@@ -80,34 +80,11 @@ SCHEMA = {
                 "required": ["title", "brief", "why", "time_sensitivity"],
             },
         },
-        "records": {
-            "type": "array",
-            "description": "Only the #S records that are new or changed: goals, projects, opportunities, ideas",
-            "items": {
-                "type": "object",
-                "properties": {
-                    "id": {"type": ["integer", "null"], "description": "The record's #S number; null to add one"},
-                    "kind": {"type": "string", "enum": ["goal", "project", "pursuit", "idea"]},
-                    "title": {"type": "string"},
-                    "parent": {"type": ["integer", "null"], "description": "The goal or project it serves (#S number)"},
-                    "status": {"type": "string", "description": "goal/project: active, paused, done, dropped. pursuit: interested, preparing, "
-                               "applied, interviewing, offer, accepted, rejected, declined. idea: exploring, shared, dismissed"},
-                    "why": {"type": ["string", "null"], "description": "Swedish: why it matters to the owner"},
-                    "about": {"type": ["string", "null"], "description": "Swedish: the whole new notes (a goal: what helps, what is noise, "
-                              "the plan and where it stands; an idea: what it is, what you checked, why dismissed). Null keeps them"},
-                    "next_step": {"type": ["string", "null"], "description": "Swedish, short"},
-                    "deadline": {"type": ["string", "null"], "description": "YYYY-MM-DD"},
-                    "remind_at": {"type": ["string", "null"], "description": "YYYY-MM-DD: an opportunity not yet applied to, when a nudge would help most"},
-                    "organization": {"type": ["string", "null"]},
-                    "url": {"type": ["string", "null"]},
-                    "note": {"type": ["string", "null"], "description": "Swedish: what changed and how you know"},
-                },
-                "required": ["kind", "title", "status"],
-            },
-        },
+        "lessons": {"type": "array", "items": {"type": "string"},
+                    "description": "Swedish: lessons about how the office works that every role should know; usually none"},
         "summary": {"type": "string", "description": "Swedish. What you did in this run and why, briefly: the run's own account"},
     },
-    "required": ["person_md", "now_md", "records", "working_memory_md", "summary"],
+    "required": ["person_md", "now_md", "working_memory_md", "summary"],
 }
 
 
@@ -154,7 +131,7 @@ class Director:
             "now": f"{now:%Y-%m-%d %H:%M} ({['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'][now.weekday()]})",
             "working_memory": self.memory.read(WORKING_MEMORY) or "(empty: this is your first run with a working memory)",
             "direction": self._direction(),
-            "memory": self.memory.read("profile.md"),
+            "memory": self.memory.read("profile.md", "lardomar.md"),
             "time": await self._time(now),
             "conversation": (
                 "[person.md is empty. Build a first picture of the person from the whole history below and the memory above: "
@@ -167,6 +144,10 @@ class Director:
             "missions": await self._search_report(),
             "windows": await self._windows(mode),
             "records": await Pursuits(self.db, self.settings.timezone).overview() + "\n\n" + await Pursuits(self.db).stats(),
+            "review": await review(self.db, "director", now),
+            "answers": await self._answers(last),
+            "beliefs": await self._beliefs(),
+            "forms": describe_forms("director"),
         }
         if mode == "reflect":
             context["idea_feedback"] = await self._idea_feedback()
@@ -176,7 +157,8 @@ class Director:
         # never sees mail. WebSearch only sends a query to the search provider, so both keep it.
         isolated = not reflect and self.mail is not None
         tools = ["WebSearch", "Read(./memory/**)"] if reflect or self.web is not None else ["Read(./memory/**)"]
-        mcp: dict = {}
+        mcp, names = build_office_tools(self.db, "director")   # beliefs, aims, steps, experiments, questions (agent/office_tools.py)
+        tools = tools + names
         if reflect and self.github is not None:
             gh, names = build_github_tools(self.github)
             mcp, tools = {**mcp, **gh}, tools + names
@@ -197,7 +179,7 @@ class Director:
                     allowed_tools=tools,
                     mcp_servers=mcp,
                     output_schema=SCHEMA,
-                    max_turns=40 if reflect else 10,
+                    max_turns=60 if reflect else 30,
                 )
             )
         except QuotaPaused:
@@ -213,20 +195,14 @@ class Director:
     async def apply(self, out: dict, mode: str, now: datetime) -> list[str]:
         changes: list[str] = []
         self.dir.mkdir(exist_ok=True)
-        for name, key in (("person.md", "person_md"), ("now.md", "now_md")):
-            if out.get(key):
-                (self.dir / name).write_text(out[key].strip() + "\n")
-                changes.append(f"{name} uppdaterad")
-        pursuits = Pursuits(self.db, self.settings.timezone)
-        for u in out.get("records") or []:
-            try:
-                pid, created = await pursuits.upsert(u, "director")
-                changes.append(f"{'ny' if created else 'ändrad'} #S{pid}: {u['title']} ({u['status']})")
-            except ValueError:
-                continue
-        for q in (out.get("questions") or [])[:1]:
-            await self.posts.send("director", "assistant", "question", q["what"], context=q["why"])
-            changes.append(f"fråga: {q['what']}")
+        if out.get("person_md"):
+            (self.dir / "person.md").write_text(out["person_md"].strip() + "\n")
+            changes.append("person.md uppdaterad")
+        if out.get("now_md"):
+            changes.append("now.md uppdaterad")
+        await write_now(self.db, self.dir / "now.md", now, out.get("now_md"))   # with the dates from layer 2, always fresh
+        if lessons := self.memory.add_lessons("director", out.get("lessons") or [], now):
+            changes += [f"lärdom: {x}" for x in lessons]
         for idea in (out.get("share") or [])[:2]:
             expires = None
             if idea.get("expires"):
@@ -271,6 +247,32 @@ class Director:
         return changes
 
     # --- context ----------------------------------------------------------
+
+    async def reflection_due(self) -> bool:
+        """Whether tonight is a reflection: Director's own routine (#N, config {"skill": "director_reflect", "every_days":
+        N}) says how often. Without one, about every other day."""
+        every = 2.0
+        for r in await Items(self.db).find("routine", status="active", owner="director"):
+            try:
+                config = json.loads(r.get("config") or "{}")
+            except ValueError:
+                continue
+            if config.get("skill") == "director_reflect":
+                every = float(config.get("every_days") or every)
+        last = await self.db.kv_get(LAST_KEY.format(mode="reflect"))
+        return last is None or datetime.now(self.tz) - datetime.fromisoformat(last) >= timedelta(days=every) - timedelta(hours=3)
+
+    async def _answers(self, last: str | None) -> str:
+        """Questions Director asked that were answered (or went unanswered) since its last run."""
+        since = (datetime.fromisoformat(last).astimezone(ZoneInfo("UTC")) if last else datetime.now(ZoneInfo("UTC")) - timedelta(days=2))
+        found = await answered_since(self.db, "director", since.strftime("%Y-%m-%d %H:%M:%S"))
+        return "\n".join(f"- {Items.line(q)}: " + (q.get("answer") or "inget svar") for q in found) or "None."
+
+    async def _beliefs(self) -> str:
+        rows = await Items(self.db).find("belief", status="current", owner="director")
+        return "\n".join(
+            f"- {Items.line(b)}" + "".join(f" · {k} {b[k]}" for k in ("confidence", "bubble", "subject") if b.get(k))
+            for b in rows) or "None yet: your conclusions about the owner become beliefs (kind pattern, value or hypothesis, source inferred)."
 
     async def _windows(self, mode: str) -> str:
         parts = [await self.windows() if self.windows else "No windows connected yet."]

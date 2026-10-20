@@ -64,19 +64,6 @@ async def test_apply_writes_policy_keeps_its_account_on_the_run_and_commits(env,
     assert await memory.changed_files() == []  # committed
 
 
-async def test_one_active_experiment_per_area(env, tmp_path):
-    db, memory, _ = env
-    m = manager(db, memory, tmp_path)
-    exp = lambda h: {"area": "timing", "hypothesis": h, "evaluate_after": "2026-10-19"}  # noqa: E731
-    await m.apply({**BASE, "experiments_new": [exp("A"), exp("B")]}, NOW)
-    rows = await db.fetchall("SELECT hypothesis FROM experiments WHERE status = 'active'")
-    assert [r["hypothesis"] for r in rows] == ["A"]
-
-    await m.apply({**BASE, "experiments_close": [{"id": 1, "status": "kept", "outcome": "funkade"}], "experiments_new": [exp("C")]}, NOW)
-    rows = await db.fetchall("SELECT hypothesis, status FROM experiments ORDER BY id")
-    assert [(r["hypothesis"], r["status"]) for r in rows] == [("A", "kept"), ("C", "active")]
-
-
 async def test_proposal_flow_one_at_a_time(env, tmp_path):
     db, memory, _ = env
     m = manager(db, memory, tmp_path)
@@ -131,13 +118,10 @@ async def test_manager_shelf_posts_and_questions(env, tmp_path):
     note = await Posts(db).send("assistant", "manager", "note", "längd", verbatim="det där var för långt", from_owner=True)
     m = manager(db, memory, tmp_path)
     m._seen_posts = [note]
-    await m.apply({**BASE, "working_memory_md": "Fokus: längden.", "posts": [{"to": "director", "kind": "note", "body": "Julius verkar stressad"}], "resurface": [shelved, sent],
-                   "questions": [{"what": "Funkar kvällarna?", "why": "timing"}, {"what": "extra", "why": "x"}]}, NOW)
+    await m.apply({**BASE, "working_memory_md": "Fokus: längden.", "posts": [{"to": "director", "kind": "note", "body": "Julius verkar stressad"}], "resurface": [shelved, sent]}, NOW)
 
     st = {r["id"]: r["status"] for r in await db.fetchall("SELECT id, status FROM candidates")}
     assert st == {shelved: "pending", sent: "sent"}  # only shelved items can be resurfaced
-    qs = await db.fetchall("SELECT sender, recipient, body FROM posts WHERE kind = 'question'")
-    assert [(r["sender"], r["recipient"], r["body"]) for r in qs] == [("manager", "assistant", "Funkar kvällarna?")]  # at most one
     assert await Posts(db).inbox("manager") == []  # read, so handled
     assert [p["body"] for p in await Posts(db).inbox("director")] == ["Julius verkar stressad"]
     assert (memory.path / "arbetsminne" / "manager.md").read_text() == "Fokus: längden.\n"

@@ -619,9 +619,44 @@ def _post_tools(posts: Posts, turn: TurnContext | None = None) -> list:
     )
     async def mark_question_asked(args: dict[str, Any]) -> dict[str, Any]:
         m = re.search(r"\d+", str(args["id"]))
-        if m:
+        if m and str(args["id"]).lstrip("#").upper().startswith("Q"):
+            from datetime import datetime
+
+            from agent.items import Items
+
+            await Items(posts.db).update(int(m.group()), "assistant", status="asked",
+                                         data={"asked_at": datetime.now().isoformat(timespec="minutes")}, note="ställd i samtalet")
+        elif m:
             await posts.asked(int(m.group()))
         return _text("[internal] Noted.")
+
+    @tool(
+        "answer_question",
+        "When {owner} answers a question from the office (#Q): their answer goes back to the role that asked. Use their own "
+        "words. If they clearly don't want to answer, say so in `answer` and the question is closed as unanswered.",
+        {"type": "object", "properties": {"id": {"type": "string"}, "answer": {"type": "string"},
+                                          "declined": {"type": "boolean"}}, "required": ["id", "answer"]},
+    )
+    async def answer_question(args: dict[str, Any]) -> dict[str, Any]:
+        from agent.forms import FormError
+        from agent.items import Items, parse_ref
+
+        items = Items(posts.db)
+        n = parse_ref(str(args["id"]))
+        q = await items.get(n) if n else None
+        if not q or q["form"] != "question":
+            return _text("[internal] No such question.")
+        try:
+            await items.update(n, "assistant", status="unanswered" if args.get("declined") else "answered",
+                               data={"answer": args["answer"]}, note="svar från ägaren")
+        except FormError as e:
+            return _text(f"[internal] {e}")
+        if turn is not None:
+            turn.refs.add(f"#Q{n}")
+        waker = type(posts).waker
+        if q["owner"] in ("director", "manager", "researcher") and waker is not None:
+            waker(q["owner"])   # the owner's own words: the one who asked may hear it now
+        return _text(f"[internal] The answer went back to {q['owner']}.")
 
     @tool(
         "watch_source",
@@ -692,7 +727,7 @@ def _post_tools(posts: Posts, turn: TurnContext | None = None) -> list:
                          verbatim=args.get("why") or f"[bad om ändring] {sid}: {args['action']}", from_owner=True)
         return _text(result.replace("avstängt", "avstängd, inget mer därifrån").replace(": var", " kollas nu var"))
 
-    return [send_post, mark_question_asked, watch_source, change_watch]
+    return [send_post, mark_question_asked, answer_question, watch_source, change_watch]
 
 
 def build_github_tools(reader) -> tuple[dict[str, Any], list[str]]:

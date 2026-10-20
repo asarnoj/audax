@@ -40,6 +40,7 @@ from agent.night import Night
 from agent import site
 from agent.config import INSTANCE
 from agent.office import Office
+from agent.due import Calendar
 from agent.beliefs import write_profile
 from agent.items import Items
 from agent.schedule import Schedule, describe_change, utc_iso
@@ -196,8 +197,8 @@ async def run() -> None:
     # Coalesced (one queued run per role) and spaced (at most every 30 min), so a chatty day can't flood them.
     last_wake: dict[str, datetime] = {}
 
-    def wake(role: str) -> None:
-        runs = {"director": (director.run, ["understand"]), "manager": (manager.run, []), "researcher": (planner.run, ["the owner's words"])}
+    def wake(role: str, reason: str = "the owner's words") -> None:
+        runs = {"director": (director.run, ["understand"]), "manager": (manager.run, []), "researcher": (planner.run, [reason])}
         if role not in runs:
             return  # other roles read their inbox at their next run
         if role in last_wake and datetime.now() - last_wake[role] < timedelta(minutes=30):
@@ -205,7 +206,7 @@ async def run() -> None:
         last_wake[role] = datetime.now()
         job, args = runs[role]
         scheduler.add_job(job, "date", run_date=datetime.now() + timedelta(seconds=20), args=args, id=f"{role}_now", replace_existing=True)
-        log.info("woke %s on the owner's behalf", role)
+        log.info("woke %s: %s", role, reason)
 
     Posts.waker = wake
 
@@ -249,6 +250,14 @@ async def run() -> None:
 
     scheduler.add_job(health_watch, "interval", minutes=30, id="health", max_instances=1)
 
+    # The calendar (agent/due.py): wakes the owner of a step, an experiment or a question when its date comes.
+    async def quiet_now() -> bool:
+        return settings.quiet_hours.contains(datetime.now(ZoneInfo(settings.timezone)).time()) or bool(await dispatcher.silenced_until())
+
+    calendar = Calendar(db, settings.timezone, wake=wake, speak=bot.chat.speak, quiet=quiet_now)
+    scheduler.add_job(calendar.tick, "interval", minutes=5, next_run_time=datetime.now() + timedelta(minutes=1), id="calendar",
+                      max_instances=1, coalesce=True)
+
     async def snapshot() -> None:
         """Heartbeat + the scheduler's own view of its jobs, for `audax jobs` (inspection runs in another process)."""
         jobs = [
@@ -265,9 +274,8 @@ async def run() -> None:
         return await night_pass.run() is not None
 
     async def director_step() -> bool:
-        tz = ZoneInfo(settings.timezone)
-        if (datetime.now(tz) + timedelta(hours=6)).weekday() in (0, 2, 5) and await director.run("reflect") is not None:
-            return True  # Monday, Wednesday and Saturday mornings: the reflection
+        if await director.reflection_due() and await director.run("reflect") is not None:
+            return True  # the reflection, as often as Director's own routine says (layer 2)
         return await director.run("understand") is not None
 
     async def researcher_step() -> bool:

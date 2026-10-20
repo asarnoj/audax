@@ -20,6 +20,7 @@ from zoneinfo import ZoneInfo
 from agent import trail
 from agent.agenda import Agenda
 from agent.beliefs import write_profile
+from agent.due import write_now
 from agent.office_tools import build_office_tools
 from agent.claude_gate import ClaudeGate, ClaudeTask, Priority, QuotaPaused
 from agent.config import Settings
@@ -83,6 +84,7 @@ class AssistantNight:
         since = datetime.fromisoformat(last) if last else now - timedelta(days=1)
         since_sql = since.astimezone(ZoneInfo("UTC")).strftime("%Y-%m-%d %H:%M:%S")
         await write_profile(self.db, self.memory.path, self.settings.owner or "ägaren", self.settings.timezone)  # temporary beliefs past their date leave it
+        await write_now(self.db, self.memory.path / "direction" / "now.md", now)   # the dates in now.md, fresh for the night
         context = {
             "now": f"{now:%Y-%m-%d %H:%M}",
             "working_memory": self.memory.read(WORKING_MEMORY) or "(empty: this is your first night pass)",

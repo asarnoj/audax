@@ -25,6 +25,8 @@ The roles never call each other. They talk through the **internal mail**: notes,
 | `research/maps/` (one map per search mission), `arbetsminne/researcher.md`, and the instance config (missions, watched sources, watchlist) | Researcher |
 | `policy.md` (what the situation means for {owner_s} attention, pacing, and how the chat writes), `arbetsminne/manager.md` | Manager |
 
+`lardomar.md`: the office's lessons about how to work, things that can't be a rule in the code. Everyone reads them; each role adds its own through its answer.
+
 Goals, projects, what {owner} goes for and Director's ideas are not files but records with ids (#S), in the database: each with a why, a status, a next step, a deadline and notes, an opportunity or idea under the goal it serves. Director owns the goals and ideas; the Assistant records what {owner} says. Each run also keeps its own short account of what it did (#R); there are no log files.
 
 The permissions follow this map. What {owner} says explicitly wins, even in another role's area: the Assistant records it at once, and the owner of that area builds on it rather than overriding it.

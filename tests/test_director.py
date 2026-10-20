@@ -49,10 +49,10 @@ def director(db, memory, tmp_path, structured=None, calls=None):
     return Director(load_settings(), db, ClaudeGate(db, tmp_path, runner=runner), memory, Schedule(load_settings(), db, []))
 
 
-BASE = {"person_md": None, "now_md": None, "records": [], "summary": ""}
+BASE = {"person_md": None, "now_md": None, "summary": ""}
 
 
-async def test_apply_writes_the_picture_records_posts_questions_ideas_and_its_account(env, tmp_path):
+async def test_apply_writes_the_picture_posts_ideas_lessons_dates_and_its_account(env, tmp_path):
     db, memory, research, sources = env
     trail.attach(db)
     trail.current_run.set(await db.execute("INSERT INTO claude_runs (kind) VALUES ('director_understand')"))
@@ -66,11 +66,8 @@ async def test_apply_writes_the_picture_records_posts_questions_ideas_and_its_ac
         changes = await d.apply({
             **BASE,
             "now_md": "# Nu\nTenta torsdag, flytt.",
-            "records": [{"kind": "goal", "title": "Partner till sidoprojektet", "status": "active", "why": "Hen vill släppa appen",
-                         "about": "Hjälper: matchningsevent. Brus: stora mässor.", "next_step": "Be Researcher leta"},
-                        {"id": 1, "kind": "goal", "title": "Partner till sidoprojektet", "status": "active", "next_step": "Vänta på Researcher"}],
             "posts": [{"to": "researcher", "kind": "order", "body": "Ny beställning: hitta affärspartner för studentstartup", "urgent": True}],
-            "questions": [{"what": "Vilken sorts partner?", "why": "styr sökandet"}, {"what": "extra", "why": "x"}],
+            "lessons": ["Kursers status och datum kontrolleras innan de föreslås"],
             "share": [{"title": "Pitcha appen på Startup", "brief": "Startup har en matchningskväll 20/10.", "url": "https://sses/x",
                        "why": "partner", "time_sensitivity": "medium", "expires": "2026-10-20"}],
             "summary": "Startade partnermålet.",
@@ -80,22 +77,18 @@ async def test_apply_writes_the_picture_records_posts_questions_ideas_and_its_ac
         trail.attach(None)
         trail.current_run.set(None)
 
-    assert (memory.path / "direction" / "now.md").read_text().startswith("# Nu\nTenta")
-    from agent.items import Items
-
-    goal = (await Items(db).find("aim"))[0]
-    assert (goal["kind"], goal["status"], goal["next_step"]) == ("goal", "active", "Vänta på Researcher") and "Brus" in goal["about"]
-    assert [h["note"] for h in await Items(db).history(goal["id"])] == ["lades till", None]
+    now_md = (memory.path / "direction" / "now.md").read_text()
+    assert now_md.startswith("# Nu\nTenta") and "## Datum (skrivs av koden)" in now_md   # the dates can't be lost in a rewrite
+    assert "Kursers status och datum kontrolleras" in (memory.path / "lardomar.md").read_text()
     [order] = await Posts(db).inbox("researcher")  # Director orders; Researcher owns missions and sources
     assert order["kind"] == "order" and order["from_owner"] == 1 and woken == ["researcher"]  # the owner's words started it
     assert [r["id"] for r in yaml.safe_load(research.read_text())] == ["jobs"]
-    assert [r["body"] for r in await db.fetchall("SELECT body FROM posts WHERE kind = 'question'")] == ["Vilken sorts partner?"]
     idea = await db.fetchone("SELECT kind, status, url, expires_at FROM candidates")
     assert (idea["kind"], idea["status"], idea["url"]) == ("insight", "pending", "https://sses/x")
     assert idea["expires_at"].startswith("2026-10-20")
     assert await Posts(db).inbox("director") == []
     account = (await db.fetchone("SELECT summary FROM claude_runs"))["summary"]
-    assert account.startswith("Startade partnermålet.") and "ny #S1" in account
+    assert account.startswith("Startade partnermålet.") and "lärdom: Kursers status" in account
     assert not (memory.path / "direction" / "log.md").exists()
     assert await memory.changed_files() == []
     assert any(c.startswith("idé till") for c in changes)

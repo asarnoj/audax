@@ -26,6 +26,17 @@ from agent.pursuits import Pursuits
 from agent.prompts import prompt as prompt_template
 from agent.schedule import Schedule
 from agent.search import search
+
+
+async def open_item_question(db) -> dict | None:
+    """The oldest question for the owner from a role (#Q), unless one is already waiting for an answer."""
+    from agent.items import Items
+
+    items = Items(db)
+    if await items.find("question", status="asked", where="json_extract(data, '$.to') = 'owner'", limit=1):
+        return None
+    found = await items.find("question", status="open", where="json_extract(data, '$.to') = 'owner'", limit=1)
+    return found[0] if found else None
 from agent.tools import TurnContext, build_chat_tools, build_github_tools, build_mail_tools, build_web_tools
 
 log = logging.getLogger(__name__)
@@ -165,6 +176,12 @@ class ChatSession:
                 f"[open question #P{q['id']} from {q['sender']}: ask only if it fits naturally now; if you ask it, call "
                 f"mark_question_asked. When {{owner}} answers, send_post with answer_to #P{q['id']}. "
                 f"What: {q['body']} · Why: {q['context'] or '-'}]".replace("{owner}", "the owner")
+            )
+        elif not batch[0].internal and (q := await open_item_question(self.db)):
+            parts.append(
+                f"[open question #Q{q['id']} from {q['owner']}: ask only if it fits naturally now, in your own words; if you "
+                f"ask it, call mark_question_asked with #Q{q['id']}. When the owner answers, answer_question with #Q{q['id']} "
+                f"and their words. What: {q['title']} · Why: {q.get('why') or '-'}]"
             )
         if recall := await self._recall(batch):
             parts.append(recall)

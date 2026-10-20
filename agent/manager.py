@@ -19,6 +19,9 @@ from zoneinfo import ZoneInfo
 
 
 from agent import trail
+from agent.due import answered_since, review
+from agent.items import Items
+from agent.office_tools import build_office_tools, describe_forms
 from agent.pursuits import Pursuits
 from agent.claude_gate import ClaudeGate, ClaudeTask, Priority, QuotaPaused
 from agent.config import Settings
@@ -34,7 +37,6 @@ MODULE = "manager@1"
 LAST_RUN_KEY = "manager.last_run"
 WORKING_MEMORY = "arbetsminne/manager.md"
 CHECKIN_KEY = "manager.last_checkin"
-AREAS = ["pacing", "timing", "content", "tone"]
 
 SCHEMA = {
     "type": "object",
@@ -42,35 +44,6 @@ SCHEMA = {
         "policy_md": {"type": ["string", "null"], "description": "Swedish. The whole new policy.md, or null if unchanged"},
         "policy_reason": {"type": "string", "description": "Swedish, one sentence"},
         "resurface": {"type": "array", "items": {"type": "integer"}, "description": "Candidate ids from the shelf to bring back"},
-        "questions": {
-            "type": "array",
-            "items": {"type": "object", "properties": {"what": {"type": "string"}, "why": {"type": "string"}}, "required": ["what", "why"]},
-            "description": "At most one question about the experience, in Swedish; the chat asks it when it fits",
-        },
-        "experiments_new": {
-            "type": "array",
-            "items": {
-                "type": "object",
-                "properties": {
-                    "area": {"type": "string", "enum": AREAS},
-                    "hypothesis": {"type": "string", "description": "Swedish: observation, change, expectation"},
-                    "evaluate_after": {"type": "string", "description": "YYYY-MM-DD"},
-                },
-                "required": ["area", "hypothesis", "evaluate_after"],
-            },
-        },
-        "experiments_close": {
-            "type": "array",
-            "items": {
-                "type": "object",
-                "properties": {
-                    "id": {"type": "integer"},
-                    "status": {"type": "string", "enum": ["kept", "adjusted", "reverted"]},
-                    "outcome": {"type": "string"},
-                },
-                "required": ["id", "status", "outcome"],
-            },
-        },
         "proposal": {
             "type": ["object", "null"],
             "properties": {
@@ -81,6 +54,7 @@ SCHEMA = {
             "required": ["kind", "title", "description"],
         },
         "checkin": {"type": "boolean", "description": "Send the check-in question now"},
+        "lessons": {"type": "array", "items": {"type": "string"}, "description": "Swedish: lessons for the whole office; usually none"},
         "posts": {
             "type": "array",
             "description": "Notes or feedback to another role (not to the owner). They read it at their next run.",
@@ -166,8 +140,11 @@ class Manager:
             planned=await self.agenda.upcoming(7) if self.agenda else "(no schedule)",
             desk=await self._desk(since_sql),
             measures=await self._measures(),
-            policy=self.memory.read("policy.md"),
+            policy=self.memory.read("policy.md", "lardomar.md"),
             experiments=await self._experiments(),
+            review=await review(self.db, "manager", now),
+            answers=await self._answers(last),
+            forms=describe_forms("manager"),
             activity=await self._activity(since_sql),
             feedback=await self._feedback(since_sql),
             conversation=await self._conversation(since_sql),
@@ -176,6 +153,7 @@ class Manager:
             proposals=await self._proposals(),
             misc=await self._misc(),
         )
+        office, office_names = build_office_tools(self.db, "manager")   # experiments, beliefs, questions, steps
         try:
             result = await self.gate.run(
                 ClaudeTask(
@@ -183,9 +161,10 @@ class Manager:
                     prompt=prompt,
                     priority=Priority.MANAGER,
                     model=self.settings.models.manager,
-                    allowed_tools=["Read(./memory/**)"],  # Manager's own files are written by Python from its answer
+                    allowed_tools=["Read(./memory/**)", *office_names],  # its files are written by Python from its answer
+                    mcp_servers=office,
                     output_schema=SCHEMA,
-                    max_turns=25,
+                    max_turns=35,
                 )
             )
         except QuotaPaused:
@@ -212,9 +191,6 @@ class Manager:
                     "UPDATE candidates SET status = 'pending', tier = 'resurfaced', updated_at = datetime('now') WHERE id = ?", (cid,)
                 )
                 changes.append(f"tog fram {cid} från hyllan")
-        for q in (out.get("questions") or [])[:1]:
-            await self.posts.send("manager", "assistant", "question", q["what"], context=q["why"])
-            changes.append(f"fråga till ägaren: {q['what']}")
         for p in out.get("posts") or []:
             if p.get("to") in ROLES and p["to"] != "manager":
                 pid = await self.posts.send("manager", p["to"], p.get("kind", "note"), p["body"])
@@ -243,23 +219,8 @@ class Manager:
         await self.posts.handled(self._seen_posts, f"läst av Manager {now:%Y-%m-%d}")
         self._seen_posts = []
 
-        for e in out.get("experiments_close") or []:
-            await self.db.execute(
-                "UPDATE experiments SET status = ?, outcome = ?, closed_at = datetime('now') WHERE id = ? AND status = 'active'",
-                (e["status"], e["outcome"], e["id"]),
-            )
-            changes.append(f"experiment {e['id']} {e['status']}: {e['outcome']}")
-        active_areas = {r["area"] for r in await self.db.fetchall("SELECT area FROM experiments WHERE status = 'active'")}
-        for e in out.get("experiments_new") or []:
-            if e["area"] in active_areas:
-                log.info("manager: skipped second experiment in area %s", e["area"])
-                continue  # one active experiment per area (ATTENTION.md §4.6)
-            eid = await self.db.execute(
-                "INSERT INTO experiments (area, hypothesis, evaluate_after) VALUES (?, ?, ?)",
-                (e["area"], e["hypothesis"], e["evaluate_after"]),
-            )
-            active_areas.add(e["area"])
-            changes.append(f"nytt experiment H-{eid:03d} ({e['area']})")
+        if lessons := self.memory.add_lessons("manager", out.get("lessons") or [], now):
+            changes += [f"lärdom: {x}" for x in lessons]
 
         if (p := out.get("proposal")) and not await self.db.fetchone("SELECT 1 FROM proposals WHERE status IN ('pending', 'asked')"):
             await self.db.execute(
@@ -374,11 +335,19 @@ class Manager:
         ])
 
     async def _experiments(self) -> str:
-        rows = await self.db.fetchall("SELECT * FROM experiments WHERE status = 'active' ORDER BY id")
-        return "\n\n".join(
-            f"H-{r['id']:03d} ({r['area']}, since {r['created_at'][:10]}, judge from {r['evaluate_after']})\n{r['hypothesis']}"
-            for r in rows
-        ) or "None."
+        items = Items(self.db)
+        rows = await items.find("experiment", owner="manager", where="status IN ('planned', 'running', 'evaluating') "
+                                "OR updated_at >= datetime('now', '-30 days')", order="id")
+        beliefs = await items.find("belief", status="current", owner="manager")
+        lines = [f"- {Items.line(e)} · judge {e['review_at']}\n  {e.get('hypothesis', '')}" + (f"\n  Outcome: {e['outcome']}" if e.get("outcome") else "")
+                 for e in rows]
+        lines += [f"- {Items.line(b)}" for b in beliefs]
+        return "\n".join(lines) or "None yet."
+
+    async def _answers(self, last: str | None) -> str:
+        since = (datetime.fromisoformat(last).astimezone(ZoneInfo("UTC")) if last else datetime.now(ZoneInfo("UTC")) - timedelta(days=1))
+        found = await answered_since(self.db, "manager", since.strftime("%Y-%m-%d %H:%M:%S"))
+        return "\n".join(f"- {Items.line(q)}: " + (q.get("answer") or "inget svar") for q in found) or "None."
 
     async def _activity(self, since: str) -> str:
         sent = await self.db.fetchall(

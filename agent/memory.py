@@ -31,6 +31,20 @@ class MemoryRepo:
                 parts.append(f"--- {name} ---\n{text}")
         return "\n\n".join(parts)
 
+    def add_lessons(self, role: str, lessons: list[str], when) -> list[str]:
+        """The office's shared lessons about how to work (lardomar.md, layer 3): every role reads them, each adds its own."""
+        lessons = [x.strip() for x in lessons or [] if x and x.strip()]
+        if not lessons:
+            return []
+        path = self.path / "lardomar.md"
+        text = path.read_text() if path.exists() else (
+            "# Lärdomar\n\n<!-- Kontorets lärdomar om hur arbetet görs, sådant som inte går att köra som en regel i koden. "
+            "Alla roller läser dem; var och en lägger till sina egna. -->\n")
+        months = ["jan", "feb", "mar", "apr", "maj", "jun", "jul", "aug", "sep", "okt", "nov", "dec"]
+        stamp = f"{when.day} {months[when.month - 1]}"
+        path.write_text(text.rstrip() + "\n" + "".join(f"- {x} ({role.capitalize()}, {stamp})\n" for x in lessons))
+        return lessons
+
     def section(self, name: str, heading: str) -> str:
         """One section of a memory file: the heading that contains these words, down to the next heading of its level
         or above. The whole file if no heading matches, so a renamed heading loses nothing."""

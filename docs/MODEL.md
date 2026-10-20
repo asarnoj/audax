@@ -133,6 +133,16 @@ Rollerna läser och skriver med kontorets verktyg (`agent/office_tools.py`), som
 
 **Sökningen** (`agent/search.py`) går över samtalet, posten, fynden och formerna. Den klarar böjningar och visar vem som sa vad och när. Före varje svar söker koden på det du skrev och lägger med det relevanta, så att det som har sagts kommer fram även när chatten inte tänker på att leta.
 
+**Director och Manager som utforskare.** Båda prövar saker över tid med samma former. Director gör det för innehållet: vad du gör, söker och satsar på. Manager gör det för upplevelsen: hur, när och hur mycket Audax hörs.
+- **Planer** är steg (#T) under det mål de tjänar. Varje steg har en ägare, ett datum och vad som räknas som klart. Ett steg som Assistant äger och som ska tas upp med dig gör Assistant vid sitt datum. Så når en plan dig, i stället för löften i chatten.
+- **Experiment** (#E) prövar något: att *förbättra* det som finns, eller att *utforska* något utanför de nuvarande målen. Varje experiment har en hypotes, vad som görs, vad som mäts och ett datum för utvärdering, och slutar i ett beslut. Ingen takt är hårdkodad. Granskningen visar balansen mellan förbättra och utforska.
+- **Uppfattningar** (#U) bär förståelsen av dig: det du sagt (Assistant), och Directors slutsatser med belägg (mönster, värden, hypoteser). Tre markeringar gör bubblan synlig: *utesluter*, *kanske en begränsning* och *aldrig övervägt*.
+- **Frågor** (#Q) ställer rollerna när ett svar skulle hjälpa mer än signalerna. Assistant ställer dem med egna ord när det passar, och svaret går tillbaka till den som frågade. En fråga utan svar stängs efter en vecka, och det är också något att förstå.
+- **Kalendern** (`agent/due.py`) väcker ägaren när ett steg, ett experiment eller en fråga är dags.
+- **Städpass:** varje körning får en granskning av det som är dags, har stannat, pågår eller väntar, och rollen tar ställning till varje sak.
+- **Lärdomar** om hur arbetet görs står i `lardomar.md`, som alla roller läser.
+- **Reflektionen** är en rutin (#N) som Director själv kan ändra takten på. Den startade på ungefär varannan dag.
+
 ## Återkoppling: hur kontoret blir bättre
 
 - **Director → Researcher:** vad varje uppdrag gav, vad som behölls och hur du reagerade blir feedback inför nästa planering.
