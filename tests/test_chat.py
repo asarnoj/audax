@@ -427,8 +427,10 @@ async def test_a_big_quiet_conversation_is_folded_into_its_summary_and_starts_fr
     assert tasks[-1].kind == "chat_summary" and "Ska jag söka Google?" in tasks[-1].prompt
     assert await db.kv_get(SESSION_KEY) is None and "Google-ansökan" in await db.kv_get(SUMMARY_KEY)
 
-    chat.submit(Incoming(text="hej igen"))
+    row = await db.execute("INSERT INTO messages (telegram_message_id, direction, text) VALUES (2, 'in', 'hej igen')")
+    chat.submit(Incoming(text="hej igen", message_row_id=row))
     await wait_idle(chat)
     assert tasks[-1].kind == "chat" and tasks[-1].resume is None
+    assert tasks[-1].prompt.count("hej igen") == 1   # the turn's own message isn't repeated among the latest
     assert "Google-ansökan" in tasks[-1].prompt and "Ska jag söka Google?" in tasks[-1].prompt   # summary and the latest messages
     assert await chat.tidy() is False   # a fresh session is small

@@ -89,6 +89,11 @@ Send = Callable[..., Awaitable[list[int]]]
 Typing = Callable[[], Awaitable[None]]
 
 
+def _first_row(batch: list[Incoming]) -> int | None:
+    rows = [m.message_row_id for m in batch if m.message_row_id]
+    return min(rows) if rows else None
+
+
 def message_of(result) -> str:
     """The message the owner reads: the reply field. Without one (a run that ended oddly), only text that can't be
     narration between tool calls: all of it when no tool was used, else what came after the last tool call."""
@@ -218,6 +223,9 @@ class ChatSession:
                 batch, self._buffer = self._buffer[:n], self._buffer[n:]
             try:
                 await self._turn(batch)
+            except AlreadySaid as e:   # a delivery the owner already has: nothing is sent, and that is fine
+                if batch[0].done and not batch[0].done.done():
+                    batch[0].done.set_exception(e)
             except Exception as e:
                 log.exception("chat turn failed")
                 if batch[0].internal:
@@ -236,7 +244,7 @@ class ChatSession:
             parts.append(line)
         if not await self.db.kv_get(SESSION_KEY) and (seed := await self.db.kv_get(SEED_KEY)):
             parts.append(f"[new session: summary of the conversation so far]\n{seed}\n[end]")
-            parts.append(await self._recent_conversation(limit=12))
+            parts.append(await self._recent_conversation(limit=12, before=_first_row(batch)))
         parts.extend(await self._proactive_since_last_turn())
         if not batch[0].internal and (q := await self.inbox.open_question()):
             parts.append(
@@ -279,10 +287,11 @@ class ChatSession:
             return None
         return "[minne: tidigare om det här, med vem och när]\n" + "\n".join(h.line(self.settings.timezone) for h in hits) + "\n[end]"
 
-    async def _recent_conversation(self, limit: int = 30) -> str:
-        """Bridges a lost session (e.g. after moving machines) with the latest messages from the database."""
+    async def _recent_conversation(self, limit: int = 30, before: int | None = None) -> str:
+        """Bridges a new or lost session with the latest messages from the database, up to (not including) the turn's
+        own messages, which follow in the prompt anyway."""
         rows = await self.db.fetchall(
-            "SELECT direction, origin, text FROM messages WHERE text != '' ORDER BY id DESC LIMIT ?", (limit,)
+            "SELECT direction, origin, text FROM messages WHERE text != '' AND id < ? ORDER BY id DESC LIMIT ?", (before or 1 << 62, limit)
         )
         if not rows:
             return ""
@@ -425,7 +434,7 @@ class ChatSession:
             if result.is_error and session_id:
                 # The stored session may be gone (e.g. new machine); start a fresh one once.
                 log.warning("chat resume failed (%s), starting a new session", result.error)
-                result = await self.gate.run(task(None, await self._recent_conversation()))
+                result = await self.gate.run(task(None, await self._recent_conversation(before=_first_row(batch))))
         except QuotaPaused as e:
             if internal:
                 raise
