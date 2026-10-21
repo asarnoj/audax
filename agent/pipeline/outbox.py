@@ -125,13 +125,12 @@ class Outbox:
         round: a draft is written for the office, not for the owner, so it is never sent as it is. Only without a
         chat at all (tests, a bare engine) is the plain draft sent."""
         if self.speak is not None:
-            items = "\n".join(f"- {r['title']}: {r['body'].strip()} {r['url'] or ''}".strip() for r in rows)
+            items = "\n".join(f"- #F{r['id']} {r['title']}: {r['body'].strip()} {r['url'] or ''}".strip()
+                              + (f"\n  why it was kept (for you): {why}" if (why := _why(r)) else "") for r in rows)
             try:
                 ids = await self.speak(
-                    "Deliver this to the owner now: one short message in your usual style, one line per item, links kept. "
-                    "If you were just talking about something related, connect to it briefly. If you have already told "
-                    f"the owner all of this in this conversation, leave the message empty and nothing is sent.\n"
-                    f"Items:\n{items}"
+                    "Findings for the owner: one message, one line per item, links kept, each with what it is and why it is "
+                    f"for them.\n{items}", about={f"#F{r['id']}" for r in rows}
                 )
                 if ids:
                     return ids
@@ -233,3 +232,10 @@ class FallbackDispatcher:
             await self.outbox.set_tier(r["id"], "now")
             await self.outbox.record(r["id"], self.MODULE, "nu", "Reserv: Claude var otillgänglig, så bara det brådskande skickades.", {"availability": context})
         await self.outbox.deliver(rows)  # the rest stays undecided; the desk tries again when Claude is back
+
+
+def _why(row) -> str:
+    try:
+        return (json.loads(row["features"] or "{}").get("reason") or "").strip()
+    except ValueError:
+        return ""

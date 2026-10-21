@@ -37,7 +37,7 @@ async def open_item_question(db) -> dict | None:
         return None
     found = await items.find("question", status="open", where="json_extract(data, '$.to') = 'owner'", limit=1)
     return found[0] if found else None
-from agent.tools import TurnContext, build_chat_tools, build_github_tools, build_mail_tools, build_web_tools
+from agent.tools import TurnContext, build_chat_tools, build_github_tools, build_mail_tools, build_web_tools, create_sdk_mcp_server
 
 log = logging.getLogger(__name__)
 
@@ -46,6 +46,12 @@ SEEN_KEY = "chat.seen_message_id"  # highest messages.id already shown to the ch
 PROACTIVE_LIMIT = 5
 RECALL = 4    # search hits added before an owner's turn
 RECENT = 20   # the latest messages are in the conversation already: recall looks further back
+DELIVER_CONTEXT = 12   # messages a delivery reads
+WINDOW_TOKENS = 30_000   # past this, a quiet conversation is folded into its summary (a routine may change it)
+IDLE_MINUTES = 45
+SUMMARY_KEY = "chat.summary"          # the running summary of the conversation
+SUMMARY_UPTO_KEY = "chat.summary_upto"   # the last messages.id it covers
+SEED_KEY = "chat.seed_summary"        # what the next new session starts from
 # What the owner reads is only this field: never the text the session writes between its tool calls.
 REPLY = {
     "type": "object",
@@ -75,6 +81,8 @@ class Incoming:
     message_row_id: int | None = None  # messages.id of an incoming message, so the turn's IDs can be linked to it
     internal: bool = False  # an instruction from the system (dispatcher, Director, Manager), not from the owner
     done: asyncio.Future | None = None  # internal turns: resolved with the messages.id rows that were sent
+    deliver: bool = False  # written by the deliver skill, with a short brief, outside the long conversation
+    about: frozenset[str] = frozenset()  # ids a delivery is about, linked to the message it becomes
 
 
 Send = Callable[..., Awaitable[list[int]]]
@@ -124,10 +132,12 @@ class ChatSession:
         if self._worker is None or self._worker.done():
             self._worker = asyncio.create_task(self._drain())
 
-    async def speak(self, instruction: str) -> list[int]:
-        """Have the session write and send a message itself. Raises if it couldn't (caller falls back)."""
+    async def speak(self, instruction: str, about: set[str] | frozenset[str] = frozenset()) -> list[int]:
+        """The office has something for the owner: the deliver skill writes it, in the same queue as the conversation
+        so it sees what was just said, and sends it. Raises AlreadySaid when the owner already has all of it, and
+        another error when nothing could be written (the caller tries again later; never a raw draft)."""
         fut: asyncio.Future = asyncio.get_running_loop().create_future()
-        self.submit(Incoming(text=instruction, internal=True, done=fut))
+        self.submit(Incoming(text=instruction, internal=True, done=fut, deliver=True, about=frozenset(about)))
         return await fut
 
     async def start_interview(self) -> None:
@@ -136,6 +146,66 @@ class ChatSession:
 
     async def reset(self) -> None:
         await self.db.kv_set(SESSION_KEY, None)
+
+    async def tidy(self) -> bool:
+        """The window (instance/granskning/2026-10-20-omgang-4-rosten.md, 4.2): a conversation that has grown past its
+        size and been quiet a while is folded into its summary, and the next message starts a fresh session from it, the
+        latest messages and what search finds. Quiet, because the cache has gone cold by then anyway, so starting over
+        costs nothing extra. How big and how quiet are a routine the roles may change ({"skill": "chat", ...})."""
+        from agent import routines
+
+        if not await self.db.kv_get(SESSION_KEY) or (self._worker and not self._worker.done()):
+            return False
+        last = await self.db.fetchone("SELECT context_tokens FROM claude_runs WHERE kind = 'chat' AND context_tokens IS NOT NULL ORDER BY id DESC LIMIT 1")
+        if not last or last["context_tokens"] < routines.cadence("chat", "window_tokens", WINDOW_TOKENS):
+            return False
+        idle = routines.cadence("chat", "idle_minutes", IDLE_MINUTES)
+        if await self.db.fetchone("SELECT 1 FROM messages WHERE created_at >= datetime('now', ?)", (f"-{idle:g} minutes",)):
+            return False
+        if not await self.fold():
+            return False
+        await self.db.kv_set(SESSION_KEY, None)
+        log.info("chat: the conversation (%d tokens) was folded into its summary; the next message starts fresh", last["context_tokens"])
+        return True
+
+    async def fold(self) -> bool:
+        """The summary so far plus what was said since it, folded into a new one (cheap model, no tools)."""
+        upto = await self.db.kv_get(SUMMARY_UPTO_KEY, 0)
+        rows = await self.db.fetchall("SELECT id, direction, origin, text, created_at FROM messages WHERE id > ? AND text != '' ORDER BY id",
+                                      (upto,))
+        if not rows:
+            return True
+        tz = ZoneInfo(self.settings.timezone)
+        lines = []
+        for r in rows[-150:]:
+            when = datetime.fromisoformat(r["created_at"] + "+00:00").astimezone(tz)
+            who = "owner" if r["direction"] == "in" else ("assistant (on its own)" if r["origin"] == "proactive" else "assistant")
+            text = r["text"] if len(r["text"]) <= 800 else r["text"][:800] + "…"
+            lines.append(f"{when:%d/%m %H:%M} {who}: {text}")
+        try:
+            result = await self.gate.run(ClaudeTask(
+                kind="chat_summary",
+                prompt=prompt_template("chat_summary").format(previous=await self.db.kv_get(SUMMARY_KEY) or "(none yet)",
+                                                              conversation="\n".join(lines)),
+                priority=Priority.CHAT,
+                model=self.settings.models.triage,
+                output_schema={"type": "object", "properties": {"summary": {"type": "string"}}, "required": ["summary"]},
+                max_turns=2,
+            ))
+        except QuotaPaused:
+            return False
+        summary = (result.structured or {}).get("summary", "").strip() if isinstance(result.structured, dict) else ""
+        if result.is_error or not summary:
+            log.warning("chat summary failed: %s", result.error)
+            return False
+        await self.keep_summary(summary, rows[-1]["id"])
+        return True
+
+    async def keep_summary(self, summary: str, upto: int) -> None:
+        """The summary a new session starts from, and how far into the conversation it reaches (the night pass too)."""
+        await self.db.kv_set(SUMMARY_KEY, summary)
+        await self.db.kv_set(SUMMARY_UPTO_KEY, upto)
+        await self.db.kv_set(SEED_KEY, summary)
 
     # --- internals --------------------------------------------------------
 
@@ -162,26 +232,23 @@ class ChatSession:
 
     async def _prompt(self, batch: list[Incoming]) -> str:
         parts = [f"[time: {self._now()}]"]
-        if self.schedule is not None:
-            try:
-                parts.append(f"[schedule: {(await self.schedule.availability()).status_line()}]")
-            except Exception:
-                log.exception("availability failed")
-        if not await self.db.kv_get(SESSION_KEY) and (seed := await self.db.kv_get("chat.seed_summary")):
+        if line := await self._schedule_line():
+            parts.append(line)
+        if not await self.db.kv_get(SESSION_KEY) and (seed := await self.db.kv_get(SEED_KEY)):
             parts.append(f"[new session: summary of the conversation so far]\n{seed}\n[end]")
             parts.append(await self._recent_conversation(limit=12))
         parts.extend(await self._proactive_since_last_turn())
         if not batch[0].internal and (q := await self.inbox.open_question()):
             parts.append(
-                f"[open question #P{q['id']} from {q['sender']}: ask only if it fits naturally now; if you ask it, call "
-                f"mark_question_asked. When {{owner}} answers, send_post with answer_to #P{q['id']}. "
-                f"What: {q['body']} · Why: {q['context'] or '-'}]".replace("{owner}", "the owner")
+                f"[open question #P{q['id']} from {q['sender']}: ask only if it fits naturally now, in your own words; if you "
+                f"ask it, `question` asked. When the owner answers, `question` with their words. "
+                f"What: {q['body']} · Why: {q['context'] or '-'}]"
             )
         elif not batch[0].internal and (q := await open_item_question(self.db)):
             parts.append(
                 f"[open question #Q{q['id']} from {q['owner']}: ask only if it fits naturally now, in your own words; if you "
-                f"ask it, call mark_question_asked with #Q{q['id']}. When the owner answers, answer_question with #Q{q['id']} "
-                f"and their words. What: {q['title']} · Why: {q.get('why') or '-'}]"
+                f"ask it, `question` asked. When the owner answers, `question` with their words. "
+                f"What: {q['title']} · Why: {q.get('why') or '-'}]"
             )
         if recall := await self._recall(batch):
             parts.append(recall)
@@ -232,8 +299,8 @@ class ChatSession:
         The session didn't write those itself, so without this it wouldn't know about them."""
         seen = await self.db.kv_get(SEEN_KEY, 0)
         rows = await self.db.fetchall(
-            "SELECT id, text, created_at FROM messages WHERE direction = 'out' AND COALESCE(origin, 'chat') != 'chat' "
-            "AND in_session = 0 AND id > ? ORDER BY id",
+            "SELECT m.id, m.text, m.created_at, (SELECT group_concat(ref, ' ') FROM message_refs r WHERE r.message_id = m.id) AS refs "
+            "FROM messages m WHERE m.direction = 'out' AND COALESCE(m.origin, 'chat') != 'chat' AND m.in_session = 0 AND m.id > ? ORDER BY m.id",
             (seen,),
         )
         top = await self.db.fetchone("SELECT max(id) AS m FROM messages")
@@ -243,10 +310,75 @@ class ChatSession:
         for r in rows[-PROACTIVE_LIMIT:]:
             when = datetime.fromisoformat(r["created_at"] + "+00:00").astimezone(tz)
             text = r["text"] if len(r["text"]) <= 1500 else r["text"][:1500] + "…"
-            out.append(f"[you sent proactively {WEEKDAYS[when.weekday()]} {when:%H:%M}]\n{text}\n[end]")
+            about = f" · about {r['refs']}" if r["refs"] else ""
+            out.append(f"[you sent on your own {WEEKDAYS[when.weekday()]} {when:%H:%M}{about}]\n{text}\n[end]")
         return out
 
+    async def _deliver(self, msg: Incoming) -> None:
+        """The deliver skill (instance/granskning/2026-10-20-omgang-4-rosten.md, 4.1 B): the same voice and the same
+        rules, with a short brief instead of the whole conversation: the latest messages, what to deliver and why, the
+        profile and Manager's policy. What it sends is shown to the conversation at the owner's next turn."""
+        from agent.office_tools import SERVER, office_tools
+
+        tools = [t for t in office_tools(self.db, "assistant") if t.name in ("find", "read")]
+        prompt = "\n".join([
+            f"[time: {self._now()}]",
+            await self._schedule_line(),
+            "The conversation lately (oldest first):",
+            await self._latest(DELIVER_CONTEXT),
+            "",
+            "Deliver now:",
+            msg.text,
+        ])
+        result = await self.gate.run(ClaudeTask(
+            kind="deliver",
+            prompt=prompt,
+            priority=Priority.CHAT,
+            model=self.settings.models.chat,
+            allowed_tools=[f"mcp__{SERVER}__find", f"mcp__{SERVER}__read"],
+            mcp_servers={SERVER: create_sdk_mcp_server(SERVER, tools=tools)},
+            output_schema=REPLY,
+            max_turns=6,
+            system_prompt_append=prompt_template("deliver")
+            + "\n\n# Manager's policy: the situation, pacing and how you write (follow it)\n" + self.memory.read("policy.md")
+            + "\n\n# The profile (what interests " + personalize("{owner}") + ", and what never to suggest)\n" + self.memory.read("profile.md"),
+        ))
+        if result.is_error:
+            raise RuntimeError(result.error or "deliver error")
+        reply = message_of(result)
+        if reply in ("", SKIP):
+            raise AlreadySaid()
+        ids = await self._send(reply, origin="proactive", in_session=False)
+        if ids and msg.about:
+            await refs_mod.link(self.db, ids, set(msg.about))
+        if msg.done and not msg.done.done():
+            msg.done.set_result(ids)
+
+    async def _schedule_line(self) -> str:
+        if self.schedule is None:
+            return ""
+        try:
+            return f"[schedule: {(await self.schedule.availability()).status_line()}]"
+        except Exception:
+            log.exception("availability failed")
+            return ""
+
+    async def _latest(self, limit: int) -> str:
+        """The latest messages with who and when: what a delivery reads instead of the whole conversation."""
+        rows = await self.db.fetchall("SELECT direction, origin, text, created_at FROM messages WHERE text != '' ORDER BY id DESC LIMIT ?", (limit,))
+        tz = ZoneInfo(self.settings.timezone)
+        lines = []
+        for r in reversed(rows):
+            when = datetime.fromisoformat(r["created_at"] + "+00:00").astimezone(tz)
+            who = "owner" if r["direction"] == "in" else ("you (on your own)" if r["origin"] == "proactive" else "you")
+            text = r["text"] if len(r["text"]) <= 700 else r["text"][:700] + "…"
+            lines.append(f"{WEEKDAYS[when.weekday()]} {when:%H:%M} {who}: {text}")
+        return "\n".join(lines) or "(nothing yet)"
+
     async def _turn(self, batch: list[Incoming]) -> None:
+        if batch[0].deliver:
+            await self._deliver(batch[0])
+            return
         turn = TurnContext(replied_to_message_id=next((m.replied_to_message_id for m in reversed(batch) if m.replied_to_message_id), None),
                            message_row_id=next((m.message_row_id for m in reversed(batch) if m.message_row_id), None))
         mcp_servers, tool_names = build_chat_tools(
@@ -311,7 +443,7 @@ class ChatSession:
 
         if result.session_id:
             await self.db.kv_set(SESSION_KEY, result.session_id)
-            await self.db.kv_set("chat.seed_summary", None)
+            await self.db.kv_set(SEED_KEY, None)
         ids: list[int] = []
         reply = message_of(result)
         if internal and reply in ("", SKIP):  # a delivery that would only repeat what was already said

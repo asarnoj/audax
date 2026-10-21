@@ -138,19 +138,23 @@ async def test_proactive_messages_are_shown_to_the_chat_once(db, tmp_path):
     chat.submit(Incoming(text="tack"))
     await wait_idle(chat)
 
-    assert "[you sent proactively" in prompts[0] and "Google-praktik i Stockholm" in prompts[0]
+    assert "[you sent on your own" in prompts[0] and "Google-praktik i Stockholm" in prompts[0]
     assert "Google-praktik" not in prompts[1]  # shown once
     assert "SVAR-123" not in prompts[1]  # the chat's own replies are never echoed back
 
 
 
-async def test_speak_writes_proactive_message_in_session_and_is_not_echoed_back(db, tmp_path):
-    prompts = []
+async def test_a_delivery_is_written_with_a_short_brief_and_the_conversation_hears_of_it_once(db, tmp_path):
+    from agent.pipeline.outbox import AlreadySaid
+
+    tasks = []
 
     async def runner(task, ws, on_rl):
-        prompts.append(task.prompt)
-        reply = "Hackathon på Uni i nov, passar sidoprojektet." if "internal task" in task.prompt else "svar"
-        return RunResult(text=reply, session_id="s")
+        tasks.append(task)
+        if task.kind == "deliver":
+            reply = "" if "redan sagt" in task.prompt else "Hackathon på Uni i nov, passar sidoprojektet."
+            return RunResult(text="", structured={"message": reply})
+        return RunResult(text="", structured={"message": "svar"}, session_id="s")
 
     async def send(text, candidate_id=None, origin=None, in_session=False):
         return [await db.execute("INSERT INTO messages (telegram_message_id, direction, text, origin, in_session) VALUES (0, 'out', ?, ?, ?)", (text, origin, int(in_session)))]
@@ -160,16 +164,23 @@ async def test_speak_writes_proactive_message_in_session_and_is_not_echoed_back(
 
     chat = ChatSession(load_settings(), db, ClaudeGate(db, tmp_path, runner=runner), FakeMemory(), send, typing)
     chat.submit(Incoming(text="hej"))  # The owner writes while the dispatcher wants to speak
-    ids = await chat.speak("Berätta kort om: Uni-hackathon i november")
+    ids = await chat.speak("Berätta kort om: Uni-hackathon i november", about={"#F7"})
     await wait_idle(chat)
 
-    assert len(ids) == 1
+    assert [t.kind for t in tasks] == ["chat", "deliver"]   # in order: the delivery sees the reply that came before it
+    deliver = tasks[1]
+    assert deliver.resume is None and "svar" in deliver.prompt and "Uni-hackathon" in deliver.prompt   # its own short brief
     row = await db.fetchone("SELECT origin, in_session, text FROM messages WHERE id = ?", (ids[0],))
-    assert (row["origin"], row["in_session"]) == ("proactive", 1)
-    assert sum("internal task" in p for p in prompts) == 1  # its own turn, not merged with the owner's message
+    assert (row["origin"], row["in_session"]) == ("proactive", 0)
+    assert await db.fetchone("SELECT 1 FROM message_refs WHERE message_id = ? AND ref = '#F7'", (ids[0],))
     chat.submit(Incoming(text="kul"))
     await wait_idle(chat)
-    assert "Hackathon på Uni" not in prompts[-1]  # already in the session: not injected again
+    assert "Hackathon på Uni" in tasks[-1].prompt and "about #F7" in tasks[-1].prompt   # the conversation hears of it, once
+    chat.submit(Incoming(text="ok"))
+    await wait_idle(chat)
+    assert "Hackathon på Uni" not in tasks[-1].prompt
+    with pytest.raises(AlreadySaid):
+        await chat.speak("redan sagt: samma hackathon")
 
 
 async def test_speak_failure_raises_so_caller_can_fall_back(db, tmp_path):
@@ -214,11 +225,19 @@ async def test_open_question_is_offered_and_the_answer_goes_back_to_whoever_aske
     assert await posts.open_question() is None  # one question at a time
     turn = TurnContext()
     tools = {t.name: t for t in _post_tools(posts, turn)}
-    await tools["send_post"].handler({"verbatim": "Jag har fastnat på hur jag ska nå användare",
-                                      "interpretation": "Distributionsproblem, inte tekniskt", "answer_to": f"#P{qid}"})
+    await tools["question"].handler({"id": f"#P{qid}", "answer": "Jag har fastnat på hur jag ska nå användare"})
     [answer] = await posts.inbox("director")  # back to the one who asked
     assert answer["verbatim"].startswith("Jag har fastnat") and answer["question"].startswith("Varför") and answer["kind"] == "answer"
     assert (await posts.get(qid))["status"] == "done" and f"#P{answer['id']}" in turn.refs
+
+    from agent.items import Items
+
+    q = await Items(db).create("question", "Räknas forskningspraktik?", "researcher", kind="clarify", review_at="2030-01-01", data={"to": "owner", "why": "Avgränsning"})
+    await tools["question"].handler({"id": f"#Q{q}", "asked": True})
+    assert (await Items(db).get(q))["status"] == "asked"
+    await tools["question"].handler({"id": f"#Q{q}", "answer": "Ja, om det är betalt"})
+    item = await Items(db).get(q)
+    assert item["status"] == "answered" and item["answer"] == "Ja, om det är betalt"
 
 
 async def test_only_the_owners_words_may_wake_a_role(db):
@@ -379,3 +398,37 @@ async def test_the_chat_is_reminded_of_what_was_said_before_its_turn(db, tmp_pat
     chat.submit(Incoming(text="Varifrån fick ni att jag skulle välja track den 15 oktober?"))
     await wait_idle(chat)
     assert "[minne:" in prompts[0] and "Julius: Tyvärr måste jag bestämma track 15e oktober" in prompts[0]
+
+
+async def test_a_big_quiet_conversation_is_folded_into_its_summary_and_starts_fresh(db, tmp_path):
+    from agent.chat import SESSION_KEY, SUMMARY_KEY
+
+    tasks = []
+
+    async def runner(task, ws, on_rl):
+        tasks.append(task)
+        if task.kind == "chat_summary":
+            return RunResult(text="", structured={"summary": "Pågående: Google-ansökan, beslut tors."})
+        return RunResult(text="", structured={"message": "svar"}, session_id="s2")
+
+    async def send(text, **kw):
+        return [await db.execute("INSERT INTO messages (telegram_message_id, direction, text, origin) VALUES (0, 'out', ?, 'chat')", (text,))]
+
+    async def typing():
+        pass
+
+    chat = ChatSession(load_settings(), db, ClaudeGate(db, tmp_path, runner=runner), FakeMemory(), send, typing)
+    await db.kv_set(SESSION_KEY, "s1")
+    await db.execute("INSERT INTO claude_runs (kind, context_tokens) VALUES ('chat', 52000)")
+    await db.execute("INSERT INTO messages (telegram_message_id, direction, text) VALUES (1, 'in', 'Ska jag söka Google?')")
+    assert await chat.tidy() is False   # big, but the owner is still here
+    await db.execute("UPDATE messages SET created_at = datetime('now', '-2 hours')")
+    assert await chat.tidy() is True
+    assert tasks[-1].kind == "chat_summary" and "Ska jag söka Google?" in tasks[-1].prompt
+    assert await db.kv_get(SESSION_KEY) is None and "Google-ansökan" in await db.kv_get(SUMMARY_KEY)
+
+    chat.submit(Incoming(text="hej igen"))
+    await wait_idle(chat)
+    assert tasks[-1].kind == "chat" and tasks[-1].resume is None
+    assert "Google-ansökan" in tasks[-1].prompt and "Ska jag söka Google?" in tasks[-1].prompt   # summary and the latest messages
+    assert await chat.tidy() is False   # a fresh session is small

@@ -14,6 +14,8 @@ NAMES = {"assistant": "Assistant", "director": "Director", "researcher": "Resear
 # Each kind of Claude run, the role it belongs to, and what it is called.
 KINDS = {
     "chat": ("assistant", "Conversation"),
+    "deliver": ("assistant", "Delivery"),
+    "chat_summary": ("assistant", "Conversation summary"),
     "assistant_night": ("assistant", "Night review"),
     "director_understand": ("director", "Daily review"),
     "director_reflect": ("director", "Reflection"),
@@ -34,7 +36,7 @@ KINDS = {
 # 4 the roles' regular work · 5 the heavy and exploratory work. Tiers 1–3 never wait for the budget.
 TIERS = {
     "chat": 1, "builder": 2,
-    "triage": 3, "dispatcher": 3, "page_extract": 3, "scout_queries": 3,
+    "deliver": 3, "chat_summary": 3, "triage": 3, "dispatcher": 3, "page_extract": 3, "scout_queries": 3,
     "assistant_night": 4, "director_understand": 4, "manager": 4,
     "researcher_plan": 5, "research": 5, "research_deep": 5, "director_reflect": 5,
 }

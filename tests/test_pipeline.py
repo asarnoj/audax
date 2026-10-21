@@ -155,7 +155,7 @@ async def test_a_booking_is_checked_before_it_is_promised_and_delivered_through_
     assert "ägarens egen bokning" in await d.agenda.move(f"#B{bid}", NOW.replace(hour=18), "manager")  # Manager can't move it
     spoken = []
 
-    async def speak(instruction):
+    async def speak(instruction, about=frozenset()):
         spoken.append(instruction)
         return [await db.execute("INSERT INTO messages (telegram_message_id, direction, text) VALUES (3, 'out', 'påminnelse')")]
 
@@ -227,7 +227,7 @@ async def test_delivery_goes_through_the_voice_and_never_sends_the_draft(db, tmp
     d, sent = await make_dispatcher(db, tmp_path, {"decisions": [{"candidate_id": a, "decision": "now", "reason": "lucka"}]})
     spoken = []
 
-    async def speak(instruction):
+    async def speak(instruction, about=frozenset()):
         spoken.append(instruction)
         return [await db.execute("INSERT INTO messages (telegram_message_id, direction, text, origin, in_session) VALUES (2, 'out', 'Kolla Uni-hacket', 'proactive', 1)")]
 
@@ -276,8 +276,8 @@ async def test_chat_can_decline_a_delivery_it_already_made(db, tmp_path):
     a = await add_candidate(db, "news", "X", "Y", {})
     d, sent = await make_dispatcher(db, tmp_path, {"decisions": []})
 
-    async def speak(instruction):
-        assert "leave the message empty" in instruction
+    async def speak(instruction, about=frozenset()):
+        assert f"#F{a}" in instruction and about == {f"#F{a}"}
         raise AlreadySaid()
 
     d.outbox.speak = speak
@@ -357,7 +357,7 @@ async def test_a_booking_is_never_sent_as_its_raw_text(db, tmp_path):
         said = await db.execute("INSERT INTO bookings (kind, title, body, due_at, requested_by, fixed) VALUES ('promise', 'Något roligt (#B5, bokad)', 'Något roligt (#B5, bokad)', ?, 'assistant', 0)", (due,))
         broken = await db.execute("INSERT INTO bookings (kind, title, body, due_at, requested_by, fixed) VALUES ('reminder', 'R', 'Påminn om CV', ?, 'assistant', 1)", (due,))
 
-        async def speak(instruction):
+        async def speak(instruction, about=frozenset()):
             if "#B" + str(said) in instruction:
                 raise AlreadySaid()   # the chat had already said it
             raise RuntimeError("chat down")

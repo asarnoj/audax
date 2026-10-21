@@ -51,7 +51,7 @@ TOOL = {
     "change_watch": "Changed a watched source", "mark_question_asked": "Asked you a question", "how_i_work": "Looked up how the office works",
     "run_research": "Started a search", "report_problem": "Reported a problem", "pause_messages": "Paused messages", "interview_guide": "Opened the interview guide",
     "search_overview": "Looked at how a search is done", "source_overview": "Looked at the watched sources", "explain_message": "Looked up why a message was sent",
-    "activity_report": "Looked at today's activity", "request_change": "Asked for a change to Audax",
+    "activity_report": "Looked at today's activity", "situation": "Looked at what is going on", "question": "Asked you a question, or passed on your answer", "request_change": "Asked for a change to Audax",
 }
 RUN_TAG = re.compile(r"\[#R(\d+)\]")
 

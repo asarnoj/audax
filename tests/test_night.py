@@ -4,7 +4,8 @@ from zoneinfo import ZoneInfo
 
 import pytest
 
-from agent.assistant_night import CHAT_SEED_KEY, AssistantNight
+from agent.assistant_night import AssistantNight
+from agent.chat import SEED_KEY as CHAT_SEED_KEY
 from agent.claude_gate import ClaudeGate, RunResult
 from agent.config import load_settings
 from agent.db import Database

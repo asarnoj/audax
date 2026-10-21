@@ -264,7 +264,8 @@ class Dispatcher:
             try:
                 ids = await self.outbox.speak(
                     f"It is time for {what} (#B{b['id']}" + (f", about {b['ref']}" if b["ref"] else "") + f"): {b['body']}\n"
-                    "Tell them now, briefly and in your own words; look things up if you need the details."
+                    "Tell them now, briefly and in your own words; read what it is about if you need the details.",
+                    about={f"#B{b['id']}"} | ({b["ref"]} if b["ref"] else set()),
                 )
             except AlreadySaid:   # already said in the conversation: done, and nothing more goes out
                 await self.db.execute("UPDATE bookings SET status = 'sent', sent_at = datetime('now'), reason = 'redan sagt i samtalet' WHERE id = ?", (b["id"],))
@@ -333,8 +334,9 @@ class Dispatcher:
         try:
             ids = await self.outbox.speak(
                 f"{q['sender'].capitalize()} wants to know something (#P{q['id']}). Ask the owner naturally and briefly, as "
-                f"part of your conversation, not as a form. When they answer later, use send_post with answer_to #P{q['id']}.\n"
-                f"What: {q['body']}\nWhy (for you; no need to say it): {q['context'] or '-'}"
+                f"part of your conversation, not as a form. When they answer later, use `question` with #P{q['id']} and their words.\n"
+                f"What: {q['body']}\nWhy (for you; no need to say it): {q['context'] or '-'}",
+                about={f"#P{q['id']}"},
             )
         except Exception as e:
             log.warning("couldn't ask question %s: %s", q["id"], e)

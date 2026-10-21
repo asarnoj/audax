@@ -21,9 +21,16 @@ class Call:
 
 
 CALLS: dict[str, Call] = {
-    "chat": Call("Assistant", "The conversation, and writing every proactive message (internal turns)",
-                 "prompts/chat.md + claude_md.md + policy, profile, the records (#S)", "models.chat",
-                 "the profile, web search, web_read, github, mail (read), control/inbox tools", "each message from the owner; each delivery"),
+    "chat": Call("Assistant", "The conversation: one session, kept short by a window and a summary",
+                 "prompts/chat.md + claude_md.md + policy, profile, the active goals", "models.chat",
+                 "the profile, web search, web_read, github, mail (read), the chat's own tools (situation, book, question …)",
+                 "each message from the owner"),
+    "deliver": Call("Assistant", "Write one message the office has for the owner: findings, a reminder, a promise, a question",
+                    "prompts/deliver.md + policy, profile, the latest messages", "models.chat", "office find and read",
+                    "a delivery from the dispatcher, the calendar or a role"),
+    "chat_summary": Call("Assistant", "Fold the conversation so far into the summary a new session starts from",
+                         "prompts/chat_summary.md", "models.triage", "none (structured output)",
+                         "the conversation has grown past its window and has been quiet a while"),
     "triage": Call("Director", "Value features and a factual brief per new event, in batches",
                    "prompts/triage.md", "models.triage", "none (structured output)", "new events from senses or research"),
     "dispatcher": Call("Manager", "Whether, when and how pending items reach the owner",

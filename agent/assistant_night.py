@@ -6,8 +6,8 @@ Once a night, as the first step of the night sweep, the Assistant reads the day'
 - writes the conversation summary a new chat session starts from,
 - books promises it made during the day that aren't booked yet (agent/agenda.py).
 
-A chat session that has grown big resends its whole history on every reply, so after this pass the session starts
-over from the summary (mechanical hygiene, not UX policy).
+A chat session that has grown past its window starts over from this summary (agent/chat.py, `tidy`, does the same
+during the day with a cheaper summary).
 """
 
 from __future__ import annotations
@@ -17,7 +17,7 @@ import logging
 from datetime import datetime, timedelta
 from zoneinfo import ZoneInfo
 
-from agent import trail
+from agent import chat, trail
 from agent.agenda import Agenda
 from agent.beliefs import write_profile
 from agent.due import write_now
@@ -33,8 +33,6 @@ log = logging.getLogger(__name__)
 
 LAST_KEY = "assistant.last_night"
 WORKING_MEMORY = "arbetsminne/assistant.md"
-CHAT_SEED_KEY = "chat.seed_summary"
-CHAT_CONTEXT_LIMIT = 60_000  # tokens; above this the session starts over from the summary
 
 SCHEMA = {
     "type": "object",
@@ -135,9 +133,12 @@ class AssistantNight:
                 bid, conflicts = await self.agenda.book("promise", p["what"][:80], p["what"], at, "assistant", latest=latest, ref=p.get("about"))
                 changes.append(f"löfte bokat #B{bid}" if bid else f"löfte kunde inte bokas ({'; '.join(conflicts)}): {p['what'][:60]}")
         if summary := (out.get("conversation_summary") or "").strip():
-            await self.db.kv_set(CHAT_SEED_KEY, summary)
+            top = await self.db.fetchone("SELECT max(id) AS m FROM messages")
+            await self.db.kv_set(chat.SUMMARY_KEY, summary)
+            await self.db.kv_set(chat.SUMMARY_UPTO_KEY, top["m"] or 0)
+            await self.db.kv_set(chat.SEED_KEY, summary)
             if await self._session_too_big():
-                await self.db.kv_set("chat.session_id", None)  # the next message starts a fresh session from the summary
+                await self.db.kv_set(chat.SESSION_KEY, None)  # the next message starts a fresh session from the summary
                 changes.append("chattsessionen startades om med sammanfattning")
         await trail.account("\n".join([(out.get("summary") or "").strip(), *(f"- {c}" for c in changes)]))
         await self.memory.commit_if_changed(f"assistant natt {now:%Y-%m-%d %H:%M}", by="assistant")
@@ -145,8 +146,11 @@ class AssistantNight:
         return changes
 
     async def _session_too_big(self) -> bool:
+        from agent import routines
+
         last = await self.db.fetchone("SELECT context_tokens FROM claude_runs WHERE kind = 'chat' ORDER BY id DESC LIMIT 1")
-        return bool(last and last["context_tokens"] and last["context_tokens"] > CHAT_CONTEXT_LIMIT)
+        limit = routines.cadence("chat", "window_tokens", chat.WINDOW_TOKENS)
+        return bool(last and last["context_tokens"] and last["context_tokens"] > limit)
 
     async def _conversation(self, since: str) -> str:
         rows = await self.db.fetchall(

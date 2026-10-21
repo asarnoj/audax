@@ -21,7 +21,7 @@ En ny roll behövs bara när en ny fråga behöver sin egen anteckningsbok och k
 | **Frågan** | Vad säger du, och hur svarar jag? | Vad spelar roll för dig, och varför? | Hur hittar vi det som finns, och vad missar vi? | Hur ska det kännas: när, hur mycket, hur det låter? |
 | **Anteckningar** | minnet om dig (det du har sagt): profilen, med skola, intressen, vad som får störa, schema och vanor; arbetsminne | bild av dig, läget (fakta), målen och idéerna (#S); arbetsminne | sökuppdragen, sökkartor, frågeportföljer, ledtrådar, täckning, bevakningarna; arbetsminne | policyn (läget för din uppmärksamhet, tempo, hur chatten skriver), experiment, schemat, det sparade; arbetsminne |
 | **Långsamt** | nattpass: rensar och slår ihop minnet, skriver sitt arbetsminne och samtalssammanfattningen | genomgång (varje natt), reflektion (tre nätter i veckan) | planering (varje vecka, eller när ett uppdrag tystnar eller en ny beställning kommer) | nattgranskning: läser samtalet som en UX-granskare och planerar dagens schema |
-| **Snabbt** | samtalet, utskick, intervjun | triage: är det här värt något för dig? | sökuppdragen: letar brett och lämnar fynd | dispatchern: när ska det här nå dig? |
+| **Snabbt** | samtalet, leveranser (med kort underlag), intervjun | triage: är det här värt något för dig? | sökuppdragen: letar brett och lämnar fynd | dispatchern: när ska det här nå dig? |
 | **Gör inte** | bedömer inte relevans eller tidpunkt | bestämmer inte hur det letas, eller när du störs | bestämmer inte vad som är värt något | bestämmer inte vad som är relevant |
 
 **Gränsen mellan Director och Researcher:** Director är uppdragsgivaren och säger *vad* som behövs och *varför* ("sommarpraktik inom mjukvara, inte bank, före februari"). Researcher äger *hur* och *var*: sökfrågor, bevakningar, kartor och täckning. Arbetsrelationen ser ut så här:
@@ -94,6 +94,15 @@ Nytt fynd → triage (Director: värt något?) → dispatcher (Manager: när?) �
 - **Triage sorterar i omgångar**, ungefär en gång i timmen (takten är en rutin rollerna kan ändra). En källa du själv har bett om är markerad brådskande och sorteras direkt. Det som är brådskande i sig, som en deadline i morgon, når dig ändå samma timme.
 - **Hyllan har bäst-före-datum.** Det som sparas för senare har ett datum efter sitt slag (nyheter två veckor, möjligheter och event en månad) och lämnar hyllan när det passerat. Det finns kvar i historiken.
 - **Direkt, förbi schemat:** allt du själv tar initiativ till. Det gäller svar när du skriver, resultat av en sökning du har bett om, bekräftelser, byggläget och larm om att något är trasigt. Tar du initiativet kommer svaret direkt. Tar kontoret initiativet bestämmer schemat.
+
+## Rösten
+
+Assistant är det enda du möter, och skriver allt du läser. Fyra saker håller rösten sann och billig:
+
+- **Leveranser skrivs för sig.** När kontoret har något åt dig (fynd, en påminnelse, ett löfte, en fråga från en roll) skriver Assistant det med ett kort underlag: de senaste meddelandena, vad som ska fram och varför, profilen och Managers policy. Det långa samtalet bärs inte med. Nästa gång du skriver får samtalet en rad om vad som skickats och vad det gällde, så att rösten vet vad den själv har sagt. Det du inte bett om kommer alltid med ett "varför just det här".
+- **Läget läses, inte minns.** Verktyget `situation` visar vad rollerna senast gjorde, de planerade stegen med datum, vad som väntar på budgeten och varför, vad som är bokat och vad som skickats i dag. Chatten säger inget om bakgrunden som den inte har läst där.
+- **Löften är bokningar eller steg.** "Jag hör av mig i morgon" är en bokning. "Jag hör av mig när planen är klar" är ett steg som väntar på planen, och Assistant väcks när den blir klar. Utan något sådant ger chatten inget löfte.
+- **Samtalet hålls kort.** När det har vuxit förbi sitt fönster (i början 30 000 tokens) och varit tyst en stund viks det ihop till en sammanfattning, och nästa meddelande börjar en ny session från den, de senaste meddelandena och det sökningen hittar. Hur stort och hur tyst är en rutin som går att ändra.
 
 ## Bevakningar och sökuppdrag är rutiner
 

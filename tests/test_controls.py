@@ -94,7 +94,7 @@ async def test_research_runs_in_background_and_notifies(setup):
 
     spoken = []
 
-    async def speak(instruction):
+    async def speak(instruction, about=frozenset()):
         spoken.append(instruction)
         return [1]
 
@@ -113,3 +113,50 @@ async def test_recent_items_explain_what_happened(setup):
     text = await c.recent_items("machinarium")
     assert "Machinarium 2 trailer → left out: inget nytt" in text
     assert "Nothing has come in" in await c.recent_items("nope")
+
+
+async def test_a_promise_that_waits_for_something_is_kept_when_it_is_done(setup, monkeypatch):
+    from agent.due import Calendar, follower
+    from agent.items import Items
+    from agent.tools import TurnContext, _control_tools
+
+    db, c, *_ = setup
+    monkeypatch.setattr(Items, "watchers", [follower("Europe/Stockholm")])
+    tools = {t.name: t for t in _control_tools(c, TurnContext())}
+    plan = await Items(db).create("step", "Kolla att Collide går att gå på som individ", "director", owner="researcher",
+                                  review_at="2030-01-01", data={"action": "research", "done_when": "Svar med länk"})
+    out = (await tools["book"].handler({"kind": "promise", "what": "Berätta vad Researcher kom fram till om Collide",
+                                        "after": f"#T{plan}", "when": "2030-02-01 12:00"}))["content"][0]["text"]
+    assert "Booked #T" in out and "Promise only that" in out
+    promise = (await Items(db).find("step", owner="assistant"))[0]
+    assert promise["after"] == f"#T{plan}" and promise["review_at"] == "2030-02-01 12:00"
+
+    now = (await tools["situation"].handler({}))["content"][0]["text"]
+    assert "Collide" in now and "Researcher" in now and f"efter #T{plan}" in now
+
+    said = []
+
+    async def speak(instruction, about=frozenset()):
+        said.append(instruction)
+        return [1]
+
+    calendar = Calendar(db, "Europe/Stockholm", wake=lambda role, why: None, speak=speak)
+    await calendar.tick()
+    assert said == []   # not yet: what it waits for isn't done
+    await Items(db).update(plan, "researcher", status="done", data={"result": "Ja, öppen för individer"}, note="klart")
+    await calendar.tick()
+    assert len(said) == 1 and "now done" in said[0] and f"#T{plan}" in said[0]
+    assert (await Items(db).get(promise["id"]))["status"] == "done"
+
+
+async def test_book_moves_and_cancels_through_one_tool(setup):
+    from agent.items import Items
+    from agent.tools import TurnContext, _control_tools
+
+    db, c, *_ = setup
+    tools = {t.name: t for t in _control_tools(c, TurnContext())}
+    target = await Items(db).create("aim", "Medgrundare före jul", "director", kind="goal")
+    await tools["book"].handler({"kind": "promise", "what": "Hör av mig om planen", "after": f"#S{target}"})
+    promise = (await Items(db).find("step", owner="assistant"))[0]
+    out = (await tools["book"].handler({"id": f"#T{promise['id']}", "cancel": True}))["content"][0]["text"]
+    assert "cancelled" in out and (await Items(db).get(promise["id"]))["status"] == "dropped"

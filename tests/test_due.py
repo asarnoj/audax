@@ -38,7 +38,7 @@ async def test_the_calendar_wakes_the_owner_once_and_the_assistant_tells_the_own
     goal, research, tell, later = await plan(db)
     woken, spoken = [], []
 
-    async def speak(instruction):
+    async def speak(instruction, about=frozenset()):
         spoken.append(instruction)
         return [1]
 

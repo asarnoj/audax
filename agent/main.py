@@ -40,7 +40,7 @@ from agent.night import Night
 from agent import site
 from agent.config import INSTANCE
 from agent.office import Office
-from agent.due import Calendar
+from agent.due import Calendar, follower
 from agent.beliefs import write_profile
 from agent.items import Items
 from agent import routines
@@ -115,6 +115,7 @@ async def run() -> None:
     await routines.import_files(db)
     await routines.refresh(db)
     Items.watchers.append(routines.watch)
+    Items.watchers.append(follower(settings.timezone))   # a promise that waited for something is due when it is done
     if await write_profile(db, memory.path, settings.owner or "ägaren", settings.timezone):
         await memory.commit_if_changed("profilen skriven ur uppfattningarna")
     cal_configs, cal_options = load_calendar_configs()
@@ -259,6 +260,8 @@ async def run() -> None:
     calendar = Calendar(db, settings.timezone, wake=wake, speak=bot.chat.speak, quiet=quiet_now)
     scheduler.add_job(calendar.tick, "interval", minutes=5, next_run_time=datetime.now() + timedelta(minutes=1), id="calendar",
                       max_instances=1, coalesce=True)
+    # The conversation's window (agent/chat.py): a big, quiet conversation is folded into its summary.
+    scheduler.add_job(bot.chat.tidy, "interval", minutes=10, id="chat_window", max_instances=1, coalesce=True)
 
     async def snapshot() -> None:
         """Heartbeat + the scheduler's own view of its jobs, for `audax jobs` (inspection runs in another process)."""

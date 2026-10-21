@@ -49,7 +49,7 @@ Att mäta varje sökfråga visar hur bra frågorna är, men inte hur mycket av d
 - **Utforska metoder, inte bara ord.** Är ett segment tunt byter Researcher sorts metod (bevaka företagen själva, hitta aggregatorn, följa en karriärsida, tajma efter när ansökan öppnar), inte bara sökord.
 - **Täckningsrevision** i Researchers planering: Researcher tar fram ett oberoende riktmärke, 20–50 aktörer som brukar erbjuda det uppdraget letar efter, utan att först titta på vad Audax bevakar. Systemet kollar varje namn mot allt Audax bevakar eller har sett. Andelen som täcks är en uppskattning av hur mycket som nås, och de som saknas är luckorna.
 - **Uppdrag som tystnar** granskas: fel ställen, fel tid på året eller för snävt? Hänger det på hur ägaren ser det frågar Researcher Director, som avgör eller frågar ägaren.
-- **Insyn:** ägaren kan fråga hur Audax letar (`search_overview`). Researcher berättar själv, sällan och via chatten, när en sökning har svårigheter, går påtagligt bra eller upptäcker något ägaren borde veta.
+- **Insyn:** ägaren kan fråga hur Audax letar (chattens `situation`, about=searches). Researcher berättar själv, sällan och via chatten, när en sökning har svårigheter, går påtagligt bra eller upptäcker något ägaren borde veta.
 
 ## Kostnad och kvot
 

@@ -16,7 +16,8 @@ from datetime import datetime, timedelta
 from zoneinfo import ZoneInfo
 
 from agent.db import Database
-from agent.items import Items, ref
+from agent.forms import FORMS
+from agent.items import Items, parse_ref, ref
 
 log = logging.getLogger(__name__)
 
@@ -157,15 +158,23 @@ class Calendar:
     async def _tell(self, item: dict) -> bool:
         from agent.pipeline.outbox import AlreadySaid
 
-        parent = await Items(self.db).get(item["parent_id"]) if item["parent_id"] else None
+        items = Items(self.db)
+        parent = await items.get(item["parent_id"]) if item["parent_id"] else None
         what = "ask the owner" if item["action"] == "ask_owner" else "tell the owner"
+        waited = await items.get(parse_ref(item["after"])) if item.get("after") and parse_ref(item["after"]) else None
+        if waited is not None:   # a promise that waited for something: say what came of it, or where it stands
+            over = waited["status"] in FORMS[waited["form"]].closed
+            instruction = (f"You promised the owner to come back about this: {item['title']}. It waited for {ref(waited)} "
+                           f"({waited['title']}), which is " + ("now done" if over else f"not done yet ({waited['status']})") + ". "
+                           f"Read {ref(waited)} for what came of it" + ("" if over else " and where it stands, and say so honestly")
+                           + ", and tell them briefly, in your own words.")
+        else:
+            instruction = (f"It is time for a step of a plan: {what} now. Step: {item['title']}. Done when: {item.get('done_when', '')}."
+                           + (f" It serves: {parent['title']}." if parent else "")
+                           + " Look it up (read the step and what it serves) if you need the details; write it in your own words, and "
+                           "say briefly why it matters to them now.")
         try:
-            ids = await self.speak(
-                f"It is time for a step of a plan: {what} now. Step: {item['title']}. Done when: {item.get('done_when', '')}."
-                + (f" It serves: {parent['title']}." if parent else "")
-                + " Look it up (read the step and what it serves) if you need the details; write it in your own words, and "
-                "say briefly why it matters to them now."
-            )
+            ids = await self.speak(instruction, about={ref(item)} | ({ref(waited)} if waited else set()))
         except AlreadySaid:
             ids = [0]
         except Exception as e:
@@ -204,3 +213,21 @@ async def write_now(db: Database, path, now: datetime, text: str | None = None) 
     own = own.split(NOW_DATES)[0].rstrip()
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(own + "\n\n" + await dates_text(db, now) + "\n")
+
+
+
+def follower(tz: str):
+    """An Items watcher: when something is over, the open steps that waited for it are due now, so a promise like
+    "jag hör av mig när planen är klar" is kept when it happens rather than at a guessed time."""
+    zone = ZoneInfo(tz)
+
+    async def follow(db: Database, item: dict) -> None:
+        if item["status"] not in FORMS[item["form"]].closed:
+            return
+        items = Items(db)
+        now = stamp(datetime.now(zone))
+        for step in await items.find("step", open_only=True, where="json_extract(data, '$.after') = ?", args=(ref(item),)):
+            if not step["review_at"] or step["review_at"] > now:
+                await items.update(step["id"], "system", review_at=now, note=f"{ref(item)} är klart")
+
+    return follow

@@ -287,34 +287,6 @@ def build_chat_tools(
 
     tools = [record_feedback, interview_guide, report_problem, track_pursuit, lookup, remember]
 
-    if memory_path is not None:
-
-        @tool(
-            "search_overview",
-            "How you search for something: per search mission the map of the space (segments, where they publish, which "
-            "methods cover them), what it has yielded, the latest coverage audit and what is missing, new leads, and what "
-            "is tried next. Without `mission`: a short list of all missions. Use it for 'hur letar du efter X?' or when "
-            "{owner} wonders whether you might be missing things.",
-            {"type": "object", "properties": {"mission": {"type": "string"}}},
-        )
-        async def search_overview(args: dict[str, Any]) -> dict[str, Any]:
-            from agent import search_map
-            from agent.research import load_research
-
-            missions = [t for t in load_research() if t.enabled]
-            if args.get("mission"):
-                match = next((t for t in missions if args["mission"].lower() in t.id.lower()), None)
-                if match is None:
-                    return _text("[internal] No such mission. Missions: " + ", ".join(t.id for t in missions))
-                return _text(f"[internal] Goal: {match.goal}\n" + await search_map.overview(db, memory_path, match.id))
-            parts = []
-            for t in missions:
-                st = await search_map.mission_stats(db, t.id)
-                parts.append(f"- {t.id}: {t.goal[:140]} · {st['runs_30d']} runs/30 d, kept in total {st['kept_total']}")
-            return _text("[internal] Search missions:\n" + "\n".join(parts))
-
-        tools.append(search_overview)
-
     if schedule is not None:
 
         @tool(
@@ -354,7 +326,7 @@ def build_chat_tools(
         tools += [get_schedule, set_series_relevance]
 
     if controls is not None:
-        tools += _control_tools(controls, turn)
+        tools += _control_tools(controls, turn, memory_path)
 
     if builder is not None:
 
@@ -389,7 +361,7 @@ def build_chat_tools(
     return {SERVER_NAME: server}, [tool_name(t.name) for t in tools]
 
 
-def _control_tools(controls: Controls, turn: TurnContext) -> list:
+def _control_tools(controls: Controls, turn: TurnContext, memory_path=None) -> list:
     """Everything {owner} can ask for in plain language instead of slash commands."""
 
     @tool(
@@ -441,18 +413,6 @@ def _control_tools(controls: Controls, turn: TurnContext) -> list:
         return _text(await controls.why(mid))
 
     @tool(
-        "source_overview",
-        "What you watch, how often, and what it has yielded. With `source` (a sense such as 'machinarium', 'devpost', "
-        "'jobtech', or a search mission such as 'world-stories') it lists the latest items from it, what happened to each "
-        "one, and why. Use it to answer what a particular search or source found.",
-        {"type": "object", "properties": {"source": {"type": "string"}}},
-    )
-    async def source_overview(args: dict[str, Any]) -> dict[str, Any]:
-        if args.get("source"):
-            return _text(await controls.recent_items(args["source"]))
-        return _text(await controls.sources())
-
-    @tool(
         "run_research",
         "Run one of your search missions now when {owner} asks ('kolla efter nya hackathons nu'). It runs in the "
         "background and {owner} hears back when it is done.",
@@ -461,41 +421,54 @@ def _control_tools(controls: Controls, turn: TurnContext) -> list:
     async def run_research(args: dict[str, Any]) -> dict[str, Any]:
         return _text(await controls.start_research(args["research_id"]))
 
-    @tool(
-        "activity_report",
-        "What you have done today and whether everything works: health, events from the senses, the dispatcher's "
-        "decisions, search missions and what was sent. Use it when {owner} wonders whether you work, why you have been "
-        "quiet, or what you have done.",
-        {"type": "object", "properties": {}},
-    )
-    async def activity_report(args: dict[str, Any]) -> dict[str, Any]:
-        from agent.inspect import Inspector
-
-        text = await Inspector(controls.db).summary()
-        if getattr(controls, "budget", None) is not None:
-            text += "\n\n" + await controls.budget.words()
-        return _text(text)
-
-    @tool(
-        "how_i_work",
-        "How you (Audax) work: the parts, when they run, the path from source to message, limits, privacy, and what you "
-        "watch right now. Use it when {owner} wants to understand how you work or why something happens the way it does.",
-        {"type": "object", "properties": {}},
-    )
-    async def how_i_work(args: dict[str, Any]) -> dict[str, Any]:
-        from agent.self_description import describe
-
-        return _text(describe())  # what is watched right now: source_overview, when they ask
-
     agenda = controls.dispatcher.agenda
 
     @tool(
+        "situation",
+        "What is actually going on behind you, read rather than remembered. Read it before you say anything about the "
+        "office's work, plans, timing or health. about=now (default): what each role did last and has waiting, the planned "
+        "steps with dates and who does them, what waits for the budget and why, what is booked and what was sent today. "
+        "today: today's activity and health. agenda: what is planned to reach {owner} (`days`). sources: what you watch "
+        "and what it yielded (`name` = one source or search mission: its latest items and what became of each). searches: "
+        "how a search is done (`name` = a mission: its map, yield, coverage and gaps). how: how the office works.",
+        {"type": "object", "properties": {
+            "about": {"type": "string", "enum": ["now", "today", "agenda", "sources", "searches", "how"]},
+            "name": {"type": "string"}, "days": {"type": "integer"}}},
+    )
+    async def situation(args: dict[str, Any]) -> dict[str, Any]:
+        about, name = args.get("about") or "now", (args.get("name") or "").strip()
+        if about == "today":
+            from agent.inspect import Inspector
+
+            text = await Inspector(controls.db).summary()
+            if getattr(controls, "budget", None) is not None:
+                text += "\n\n" + await controls.budget.words()
+            return _text("[internal] " + text)
+        if about == "agenda":
+            return _text("[internal] Planned:\n" + await agenda.upcoming(int(args.get("days") or 7)))
+        if about == "sources":
+            return _text("[internal] " + (await controls.recent_items(name) if name else await controls.sources()))
+        if about == "searches":
+            return _text("[internal] " + await _searches(controls.db, memory_path, name))
+        if about == "how":
+            from agent.self_description import describe
+
+            return _text("[internal] " + describe())
+        from agent.situation import situation as now
+
+        return _text("[internal] " + await now(controls.db, str(agenda.tz), getattr(controls, "budget", None), agenda))
+
+
+    @tool(
         "book",
-        "Book a time to contact {owner}, before you promise it. kind=reminder when {owner} asks to be reminded ('påminn "
-        "mig fredag'): their own booking, fixed. kind=promise when you say you will come back at a time ('jag hör av mig i "
-        "morgon'); give `latest` if it may move. The booking is checked at once: if something stands in the way (quiet "
-        "hours, a session, a pause, a time that has passed) nothing is booked and you get the conflicts. Tell {owner} and "
-        "ask; if they still want that time, book again with confirm=true. Only promise what is booked.",
+        "Book a contact with {owner} before you promise it, or move or cancel one. New: kind=reminder when {owner} asks to "
+        "be reminded ('påminn mig fredag'): their own, fixed. kind=promise when you say you will come back ('jag hör av mig "
+        "i morgon'); `latest` if it may move. A promise that waits for something rather than a time ('jag hör av mig när "
+        "planen är klar'): `after` = the id it waits for (#T, #S, #E …); you are woken when it is done, and `when` is the "
+        "latest you come back anyway (default a week). A new booking is checked at once: if something stands in the way "
+        "(quiet hours, a session, a pause, a time that has passed) nothing is booked and you get the conflicts; tell {owner} "
+        "and ask, and book again with confirm=true if they still want it. Only promise what is booked. Change: `id` (#B12, "
+        "#F210 a planned finding, #T a promise that waits) with `when` to move it, or cancel=true.",
         {
             "type": "object",
             "properties": {
@@ -503,14 +476,22 @@ def _control_tools(controls: Controls, turn: TurnContext) -> list:
                 "when": {"type": "string", "description": "Local time, YYYY-MM-DD HH:MM"},
                 "what": {"type": "string", "description": "Swedish: what to say then, as a brief for yourself"},
                 "about": {"type": "string", "description": "Optional id it concerns, e.g. #S3"},
+                "after": {"type": "string", "description": "promise: the id it waits for, instead of a time"},
                 "latest": {"type": "string", "description": "promise: the latest acceptable time, YYYY-MM-DD HH:MM"},
                 "confirm": {"type": "boolean", "description": "{owner} wants this time despite the conflicts"},
+                "id": {"type": "string", "description": "change: what to move or cancel"},
+                "cancel": {"type": "boolean"},
             },
-            "required": ["kind", "when", "what"],
         },
     )
     async def book(args: dict[str, Any]) -> dict[str, Any]:
-        at = agenda.parse(args["when"])
+        if args.get("id"):
+            return _text("[internal] " + await _change_booking(controls, agenda, args))
+        if not args.get("what") or not args.get("kind"):
+            return _text("[internal] A new booking needs kind and what (or id to change one).")
+        if args.get("after"):
+            return _text("[internal] " + await _promise_after(controls.db, agenda, args, turn))
+        at = agenda.parse(args.get("when") or "")
         if at is None:
             return _text("[internal] Give the time as YYYY-MM-DD HH:MM.")
         latest = agenda.parse(args["latest"]) if args.get("latest") else None
@@ -526,41 +507,83 @@ def _control_tools(controls: Controls, turn: TurnContext) -> list:
         turn.refs.add(f"#B{bid}")
         return _text(f"[internal] Booked #B{bid}: {agenda.show(at)}" + (f" (despite: {'; '.join(conflicts)})" if conflicts else "") + ".")
 
-    @tool(
-        "change_booking",
-        "Move or cancel something planned when {owner} asks: a booking (#B…) or a planned delivery of a finding (#F…). "
-        "action=move needs `when` (YYYY-MM-DD HH:MM).",
-        {
-            "type": "object",
-            "properties": {
-                "id": {"type": "string", "description": "#B12 or #F210"},
-                "action": {"type": "string", "enum": ["move", "cancel"]},
-                "when": {"type": "string"},
-            },
-            "required": ["id", "action"],
-        },
-    )
-    async def change_booking(args: dict[str, Any]) -> dict[str, Any]:
-        ref = "#" + args["id"].strip().lstrip("#").upper()
-        if args["action"] == "cancel":
-            if ref.startswith("#F"):
-                await controls.dispatcher.outbox.set_tier(int(ref[2:]), "shelf", "shelved")
-                return _text(f"[internal] {ref} is no longer planned; it is saved for later.")
-            return _text("[internal] " + await agenda.cancel(int(ref[2:]), "assistant", "ägaren bad om det"))
+    return [pause_messages, get_shelf, shelf_told, book, situation, explain_message, run_research]
+
+
+async def _change_booking(controls: Controls, agenda, args: dict) -> str:
+    from agent.items import Items, parse_ref
+
+    ref = "#" + str(args["id"]).strip().lstrip("#").upper()
+    if ref.startswith("#T"):   # a promise that waits for something
+        n = parse_ref(ref)
+        if args.get("cancel"):
+            await Items(controls.db).update(n, "assistant", status="dropped", note="ägaren bad om det")
+            return f"{ref} is cancelled."
         at = agenda.parse(args.get("when") or "")
         if at is None:
-            return _text("[internal] Give the new time as YYYY-MM-DD HH:MM.")
-        return _text("[internal] " + await agenda.move(ref, at, "assistant", "ägaren bad om det"))
+            return "Give the new time as YYYY-MM-DD HH:MM."
+        await Items(controls.db).update(n, "assistant", review_at=f"{at:%Y-%m-%d %H:%M}", note="flyttad på ägarens begäran")
+        return f"{ref} moved to {agenda.show(at)}."
+    if args.get("cancel"):
+        if ref.startswith("#F"):
+            await controls.dispatcher.outbox.set_tier(int(ref[2:]), "shelf", "shelved")
+            return f"{ref} is no longer planned; it is saved for later."
+        return await agenda.cancel(int(ref[2:]), "assistant", "ägaren bad om det")
+    at = agenda.parse(args.get("when") or "")
+    if at is None:
+        return "Give the new time as YYYY-MM-DD HH:MM."
+    return await agenda.move(ref, at, "assistant", "ägaren bad om det")
 
-    @tool(
-        "get_agenda",
-        "What the office plans to contact {owner} about, and when: planned deliveries, reminders and your promises.",
-        {"type": "object", "properties": {"days": {"type": "integer", "description": "default 7"}}},
-    )
-    async def get_agenda(args: dict[str, Any]) -> dict[str, Any]:
-        return _text("[internal] Planned:\n" + await agenda.upcoming(int(args.get("days") or 7)))
 
-    return [pause_messages, get_shelf, shelf_told, book, change_booking, get_agenda, explain_message, source_overview, run_research, activity_report, how_i_work]
+async def _promise_after(db, agenda, args: dict, turn: TurnContext) -> str:
+    """A promise that waits for something: a step of the Assistant's that the calendar wakes when what it waits for is
+    done (agent/due.py, `follow`), or at the latest at `when`."""
+    from datetime import datetime, timedelta
+
+    from agent.forms import FormError
+    from agent.items import Items, parse_ref
+
+    items = Items(db)
+    n = parse_ref(str(args["after"]))
+    target = await items.get(n) if n else None
+    if target is None:
+        return "Nothing with that id to wait for; give the id of the step, goal or experiment (find it with situation or lookup)."
+    at = agenda.parse(args.get("when") or "") or (datetime.now(agenda.tz) + timedelta(days=7))
+    try:
+        sid = await items.create("step", args["what"][:120], "assistant", owner="assistant", review_at=f"{at:%Y-%m-%d %H:%M}",
+                                 data={"action": "tell_owner", "done_when": "Ägaren har fått veta", "after": ref_of(target)},
+                                 note=f"löfte i samtalet: hör av mig när {ref_of(target)} är klart")
+    except FormError as e:
+        return f"Not booked: {e}"
+    turn.refs.add(f"#T{sid}")
+    return (f"Booked #T{sid}: you are woken when {ref_of(target)} ({target['title']}) is done, and come back {agenda.show(at)} at the "
+            "latest. Promise only that.")
+
+
+def ref_of(item: dict) -> str:
+    from agent.items import ref
+
+    return ref(item)
+
+
+async def _searches(db, memory_path, name: str) -> str:
+    """How a search is done: one mission's map, yield, coverage and gaps, or all missions in short."""
+    from agent import search_map
+    from agent.research import load_research
+
+    missions = [t for t in load_research() if t.enabled]
+    if name:
+        match = next((t for t in missions if name.lower() in t.id.lower()), None)
+        if match is None:
+            return "No such mission. Missions: " + ", ".join(t.id for t in missions)
+        if memory_path is None:
+            return f"Goal: {match.goal}"
+        return f"Goal: {match.goal}\n" + await search_map.overview(db, memory_path, match.id)
+    parts = []
+    for t in missions:
+        st = await search_map.mission_stats(db, t.id)
+        parts.append(f"- {t.id}: {t.goal[:140]} · {st['runs_30d']} runs/30 d, kept in total {st['kept_total']}")
+    return "Search missions:\n" + "\n".join(parts)
 
 
 def _post_tools(posts: Posts, turn: TurnContext | None = None) -> list:
@@ -570,15 +593,14 @@ def _post_tools(posts: Posts, turn: TurnContext | None = None) -> list:
         "send_post",
         "Pass something {owner} said to the role it concerns, with their exact words and your reading. director: goals, "
         "projects, what {owner} spends time on, what chafes, ideas, what matters in their life. manager: how Audax feels "
-        "to them (too much or too little, timing, length, tone, what was good). When {owner} answers an open question, "
-        "give answer_to (its #P id): it goes back to whoever asked. Facts about {owner} still go into memory as usual.",
+        "to them (too much or too little, timing, length, tone, what was good). Facts about {owner} still go into memory "
+        "as usual; answers to the office's open questions go with `question`.",
         {
             "type": "object",
             "properties": {
                 "to": {"type": "string", "enum": ["director", "manager"], "description": "Not needed with answer_to"},
                 "verbatim": {"type": "string", "description": "{owner_s} exact words, quoted verbatim"},
                 "interpretation": {"type": "string", "description": "Your reading, briefly"},
-                "answer_to": {"type": ["string", "null"], "description": "The open question's id, e.g. #P12"},
                 "wake": {
                     "type": "boolean",
                     "description": "Start the recipient's work now instead of tonight. director: {owner} wants something driven "
@@ -613,42 +635,48 @@ def _post_tools(posts: Posts, turn: TurnContext | None = None) -> list:
         return _text(f"[internal] Sent (#P{pid}).")
 
     @tool(
-        "mark_question_asked",
-        "Call this once you have asked {owner} an open question from the office (its #P id).",
-        {"type": "object", "properties": {"id": {"type": "string"}}, "required": ["id"]},
+        "question",
+        "An open question from the office (#Q, or #P): asked=true once you have asked {owner} it; when they answer, "
+        "`answer` with their own words, and it goes back to the role that asked. If they clearly don't want to answer, "
+        "declined=true with what they said.",
+        {"type": "object", "properties": {"id": {"type": "string"}, "asked": {"type": "boolean"}, "answer": {"type": "string"},
+                                          "declined": {"type": "boolean"}}, "required": ["id"]},
     )
-    async def mark_question_asked(args: dict[str, Any]) -> dict[str, Any]:
-        m = re.search(r"\d+", str(args["id"]))
-        if m and str(args["id"]).lstrip("#").upper().startswith("Q"):
-            from datetime import datetime
+    async def question(args: dict[str, Any]) -> dict[str, Any]:
+        from datetime import datetime
 
-            from agent.items import Items
-
-            await Items(posts.db).update(int(m.group()), "assistant", status="asked",
-                                         data={"asked_at": datetime.now().isoformat(timespec="minutes")}, note="ställd i samtalet")
-        elif m:
-            await posts.asked(int(m.group()))
-        return _text("[internal] Noted.")
-
-    @tool(
-        "answer_question",
-        "When {owner} answers a question from the office (#Q): their answer goes back to the role that asked. Use their own "
-        "words. If they clearly don't want to answer, say so in `answer` and the question is closed as unanswered.",
-        {"type": "object", "properties": {"id": {"type": "string"}, "answer": {"type": "string"},
-                                          "declined": {"type": "boolean"}}, "required": ["id", "answer"]},
-    )
-    async def answer_question(args: dict[str, Any]) -> dict[str, Any]:
         from agent.forms import FormError
         from agent.items import Items, parse_ref
 
+        raw = str(args["id"]).strip().lstrip("#").upper()
+        m = re.search(r"\d+", raw)
+        if not m:
+            return _text("[internal] Give the question's id.")
+        n = int(m.group())
+        if raw.startswith("P"):   # a post from a role: the answer goes back as a post
+            if args.get("answer"):
+                q = await posts.get(n)
+                if q is None:
+                    return _text("[internal] No such question.")
+                pid = await posts.send("assistant", q["sender"], "answer", args["answer"], verbatim=args["answer"],
+                                       answer_to=n, from_owner=True)
+                if turn is not None:
+                    turn.refs.add(f"#P{pid}")
+                return _text(f"[internal] The answer went back to {q['sender']}.")
+            await posts.asked(n)
+            return _text("[internal] Noted.")
         items = Items(posts.db)
-        n = parse_ref(str(args["id"]))
-        q = await items.get(n) if n else None
+        q = await items.get(n)
         if not q or q["form"] != "question":
             return _text("[internal] No such question.")
         try:
-            await items.update(n, "assistant", status="unanswered" if args.get("declined") else "answered",
-                               data={"answer": args["answer"]}, note="svar från ägaren")
+            if args.get("answer") or args.get("declined"):
+                await items.update(n, "assistant", status="unanswered" if args.get("declined") else "answered",
+                                   data={"answer": args.get("answer") or "ville inte svara"}, note="svar från ägaren")
+            else:
+                await items.update(n, "assistant", status="asked", data={"asked_at": datetime.now().isoformat(timespec="minutes")},
+                                   note="ställd i samtalet")
+                return _text("[internal] Noted.")
         except FormError as e:
             return _text(f"[internal] {e}")
         if turn is not None:
@@ -727,7 +755,7 @@ def _post_tools(posts: Posts, turn: TurnContext | None = None) -> list:
                          verbatim=args.get("why") or f"[bad om ändring] {sid}: {args['action']}", from_owner=True)
         return _text(result.replace("avstängt", "avstängd, inget mer därifrån").replace(": var", " kollas nu var"))
 
-    return [send_post, mark_question_asked, answer_question, watch_source, change_watch]
+    return [send_post, question, watch_source, change_watch]
 
 
 def build_github_tools(reader) -> tuple[dict[str, Any], list[str]]:
