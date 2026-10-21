@@ -212,7 +212,8 @@ def build_chat_tools(
         "lookup",
         "Look things up instead of trying to remember: an ID (#P12 a post, #S3 a goal, project or something {owner} goes for, #F210 a "
         "finding) gives its details and history; a few words search posts, the #S records, findings and the conversation. Use "
-        "it for 'vad lovade du om Google?', 'vad hände med X?', or before you answer about something from earlier.",
+        "it for 'vad lovade du om Google?', 'vad hände med X?', or before you answer about something from earlier. What the "
+        "office is doing now or next: situation.",
         {"type": "object", "properties": {"query": {"type": "string"}}, "required": ["query"]},
     )
     async def lookup(args: dict[str, Any]) -> dict[str, Any]:
@@ -425,8 +426,8 @@ def _control_tools(controls: Controls, turn: TurnContext, memory_path=None) -> l
 
     @tool(
         "situation",
-        "What is actually going on behind you, read rather than remembered. Read it before you say anything about the "
-        "office's work, plans, timing or health. about=now (default): what each role did last and has waiting, the planned "
+        "What the office is doing now and next: use it whenever {owner} asks what you or the roles are doing, when "
+        "something will happen or how things stand, and before you say anything about that. about=now (default): what each role did last and has waiting, the planned "
         "steps with dates and who does them, what waits for the budget and why, what is booked and what was sent today. "
         "today: today's activity and health. agenda: what is planned to reach {owner} (`days`). sources: what you watch "
         "and what it yielded (`name` = one source or search mission: its latest items and what became of each). searches: "
