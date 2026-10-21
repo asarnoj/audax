@@ -33,7 +33,7 @@ def ensure_instance() -> list[str]:
     (INSTANCE / "config").mkdir(parents=True, exist_ok=True)
     for name in INSTANCE_FILES:
         target = instance_config(name)
-        if not target.exists():
+        if not target.exists() and not target.with_name(name + ".imported").exists():   # moved into the routines (agent/routines.py)
             shutil.copy(ROOT / "config" / name.replace(".yaml", ".example.yaml"), target)
             created.append(name)
     if not (INSTANCE / ".git").exists():

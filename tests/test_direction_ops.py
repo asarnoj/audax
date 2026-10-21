@@ -37,6 +37,10 @@ async def test_the_files_are_moved_once_and_kept_as_imported(db):
     dev = await routines.find(db, "stream", "dev")
     assert dev["status"] == "paused" and dev["owner"] == "researcher"
     assert await routines.import_files(db) == []   # once
+    from agent.config import ensure_instance
+
+    ensure_instance()   # the next start doesn't bring the moved files back from the examples
+    assert not instance_config("research.yaml").exists()
 
 
 async def test_missions_add_update_disable(db):
