@@ -23,7 +23,7 @@ from zoneinfo import ZoneInfo
 from agent import refs
 from agent.claude_gate import RUNNING
 from agent.db import Database
-from agent.items import Items
+from agent.items import Items, ref
 from agent.vocab import KINDS, NAMES, OUT_TOOLS, ROLES, kinds_of, role_of, task_name
 
 UTC = ZoneInfo("UTC")
@@ -50,7 +50,8 @@ TOOL = {
     "track_pursuit": "Noted what you're going for", "record_feedback": "Noted your feedback", "watch_source": "Started watching a source",
     "change_watch": "Changed a watched source", "mark_question_asked": "Asked you a question", "how_i_work": "Looked up how the office works",
     "run_research": "Started a search", "report_problem": "Reported a problem", "pause_messages": "Paused messages", "interview_guide": "Opened the interview guide",
-    "search_overview": "Looked at how a search is done", "source_overview": "Looked at the watched sources", "explain_message": "Looked up why a message was sent",
+    "search_overview": "Looked at how a search is done", "text": "Rewrote part of its notes", "create": "Added to the files",
+    "update": "Updated the files", "find": "Looked through the files", "read": "Read a file", "link": "Linked two files", "source_overview": "Looked at the watched sources", "explain_message": "Looked up why a message was sent",
     "activity_report": "Looked at today's activity", "situation": "Looked at what is going on", "question": "Asked you a question, or passed on your answer", "request_change": "Asked for a change to Audax",
 }
 RUN_TAG = re.compile(r"\[#R(\d+)\]")
@@ -175,9 +176,17 @@ class Office:
                 drawers.append({"role": role, "name": NAMES[role], "files": files})
             goals = await Items(self.db).find(
                 "aim", open_only=True, order="kind != 'goal', kind != 'project', coalesce(json_extract(data, '$.deadline'), '9999'), id")
+            items = Items(self.db)
+            beliefs = await items.find("belief", status="current", order="owner != 'assistant', kind, id", limit=300)
+            experiments = await items.find("experiment", order="status IN ('kept', 'adjusted', 'dropped'), id DESC", limit=20)
             return {"title": "Archive", "about": "The memory: one drawer per role. Everyone reads everything; each role writes only in its own drawer.",
                     "drawers": drawers,
-                    "records": [{"ref": f"#S{g['id']}", "kind": g["kind"], "title": g["title"], "status": g["status"], "deadline": g.get("deadline")} for g in goals]}
+                    "records": [{"ref": f"#S{g['id']}", "kind": g["kind"], "title": g["title"], "status": g["status"], "deadline": g.get("deadline")} for g in goals],
+                    "beliefs": [{"ref": ref(b), "title": b["title"], "kind": b["kind"],
+                                 "said": (b.get("source") or {}).get("type") == "owner", "by": NAMES.get(b["owner"], b["owner"]),
+                                 "until": b.get("valid_until")} for b in beliefs],
+                    "experiments": [{"ref": ref(x), "title": x["title"], "kind": x["kind"], "status": x["status"], "by": NAMES.get(x["owner"], x["owner"]),
+                                     "judged": x.get("review_at")} for x in experiments]}
         if name == "bin":
             rows = await self.db.fetchall(
                 "SELECT c.id, c.title, d.module, d.reason, d.created_at FROM decisions d JOIN candidates c ON c.id = d.candidate_id "
@@ -196,6 +205,18 @@ class Office:
             return {"title": "Board", "about": "Findings worth keeping but not worth interrupting you for. The Assistant takes from here when you ask.",
                     "items": await self.board()}
         return None
+
+    async def plans(self, role: str) -> list[dict]:
+        """What lies on a role's desk: its open steps with their dates, its experiments running, its questions waiting."""
+        items = Items(self.db)
+        out = []
+        for i in await items.find(("step", "experiment", "question"), open_only=True, owner=role, order="coalesce(review_at, '9999'), id", limit=40):
+            if i["form"] == "experiment" and i["status"] not in ("planned", "running", "evaluating"):
+                continue
+            parent = await items.get(i["parent_id"]) if i["parent_id"] else None
+            out.append({"ref": ref(i), "form": i["form"], "title": i["title"], "status": i["status"], "when": i["review_at"],
+                        "serves": f"{ref(parent)} {parent['title']}" if parent else None})
+        return out
 
     async def inbox(self, role: str) -> list[dict]:
         """What lies in a role's inbox, oldest first."""
@@ -224,6 +245,7 @@ class Office:
             "role": role, "title": NAMES[role], "about": ABOUT[role],
             "working": self.working().get(role), "last": (await self.last_active())[role],
             "inbox": await self.inbox(role),
+            "plans": await self.plans(role),
             "memory": wm.read_text() if wm.is_file() else None,
             "work": [{"id": r["id"], "kind": r["kind"], "task": task_name(r["kind"]), "summary": summary.get(r["id"]),
                       "at": self.local(r["finished_at"]), "seconds": (r["duration_ms"] or 0) // 1000, "failed": bool(r["is_error"])} for r in runs],

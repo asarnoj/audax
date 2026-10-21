@@ -57,14 +57,12 @@ class Items:
         row = await self.db.fetchone("SELECT * FROM items WHERE id = ?", (item_id,))
         return self._flat(row) if row else None
 
-    async def find(self, form: str | None = None, kind: str | tuple | None = None, status: str | tuple | None = None,
+    async def find(self, form: str | tuple | None = None, kind: str | tuple | None = None, status: str | tuple | None = None,
                    open_only: bool = False, parent: int | None = None, owner: str | None = None, text: str | None = None,
                    where: str = "", args: tuple = (), order: str = "id", limit: int = 200) -> list[dict]:
         """Items matching every condition given. `where` adds raw SQL over the columns and json_extract(data, ...)."""
         sql, params = ["1 = 1"], []
-        if form:
-            sql.append("form = ?"); params.append(form)
-        for col, val in (("kind", kind), ("status", status)):
+        for col, val in (("form", form), ("kind", kind), ("status", status)):
             if isinstance(val, (tuple, list)):
                 sql.append(f"{col} IN ({','.join('?' * len(val))})"); params += list(val)
             elif val:

@@ -1294,6 +1294,8 @@ function render(name, d) {
     html += `<h3>Inbox${d.inbox.length ? " · " + d.inbox.length : ""}</h3>` + (d.inbox.length ? list(d.inbox, i =>
       `<li class="row"><span class="when">${esc(clock(i.at))}</span><span><span class="text">${esc(i.text)}</span><div class="muted">${esc(i.what)}${i.from ? " from " + esc(i.from) : ""}</div></span></li>`)
       : "<p class='muted'>Empty: nothing is waiting.</p>");
+    const FORM = { step: "Step", experiment: "Experiment", question: "Question" };
+    html += "<h3>On the desk: plans</h3>" + list(d.plans, i => `<li class="row"><span class="when">${i.when ? esc(fmt(i.when.replace(" ", "T"), { day: "numeric", month: "short" })) : ""}</span><span>${esc(i.title)}<div class="muted">${esc(i.ref)} · ${FORM[i.form] || i.form} · ${esc(i.status)}${i.serves ? " · for " + esc(i.serves) : ""}</div></span></li>`);
     html += "<h3>Recent work</h3>";
     // Repeated small jobs in a row (reading watched pages) become one line.
     const rows = [];
@@ -1317,6 +1319,8 @@ function render(name, d) {
   } else if (name === "archive") {
     const KIND = { goal: "Goal", project: "Project", pursuit: "Opportunity", idea: "Idea" };
     html += "<h3>Goals, and what you go for</h3>" + list(d.records, r => `<li class="row"><span class="when">${esc(r.ref)}</span><span>${esc(r.title)}<div class="muted">${KIND[r.kind] || r.kind} · ${esc(r.status)}${r.deadline ? " · by " + esc(fmt(r.deadline, { day: "numeric", month: "short" })) : ""}</div></span></li>`);
+    html += "<h3>What Audax holds about you</h3>" + list(d.beliefs, b => `<li class="row"><span class="when">${esc(b.ref)}</span><span>${esc(b.title)}<div class="muted">${b.said ? "you said it" : esc(b.by) + " thinks so"} · ${esc(b.kind)}${b.until ? " · until " + esc(fmt(b.until, { day: "numeric", month: "short" })) : ""}</div></span></li>`);
+    html += "<h3>Experiments</h3>" + list(d.experiments, x => `<li class="row"><span class="when">${esc(x.ref)}</span><span>${esc(x.title)}<div class="muted">${esc(x.by)} · ${esc(x.kind)} · ${esc(x.status)}${x.judged ? " · judged " + esc(fmt(x.judged.replace(" ", "T"), { day: "numeric", month: "short" })) : ""}</div></span></li>`);
     for (const dr of d.drawers) html += `<h3>${esc(dr.name)}'s drawer</h3>` + list(dr.files, f => `<li class="row"><span class="when">${esc(ago(f.changed))}</span><span>${esc(f.path)}</span></li>`);
   } else if (name === "bin") {
     html += list(d.items, i => `<li class="row"><span class="when">${esc(clock(i.at))}</span><span>${esc(i.title)}<div class="muted">${esc(i.by)}${i.why ? ": " + esc(i.why) : ""}</div></span></li>`);
