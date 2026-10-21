@@ -14,15 +14,13 @@ async def db(tmp_path):
     await d.close()
 
 
-async def test_leads_accumulate_and_are_decided_once(db):
+async def test_leads_accumulate_by_place(db):
     leads = [{"name": "Thehub.io", "url": "https://thehub.io/jobs", "kind": "aggregator", "why": "startupjobb"},
              {"name": "Tibber", "url": None, "kind": "company", "why": "praktik"}]
     assert await search_map.record_leads(db, "jobs", leads) == 2
     assert await search_map.record_leads(db, "jobs", [{"name": "The Hub", "url": "https://www.thehub.io/", "kind": "aggregator", "why": "igen"}]) == 0
     row = await db.fetchone("SELECT id, times FROM leads WHERE key = 'thehub.io'")
-    assert row["times"] == 2  # same host, seen twice
-    assert await search_map.decide_leads(db, [{"id": row["id"], "decision": "add", "reason": "bra"}])
-    assert await search_map.decide_leads(db, [{"id": row["id"], "decision": "reject", "reason": "x"}]) == []  # decided once
+    assert row["times"] == 2  # same host, seen twice: Researcher sees them as notes, the good ones become sources or steps
 
 
 async def test_audit_checks_an_independent_benchmark_against_what_audax_reaches(db, tmp_path):

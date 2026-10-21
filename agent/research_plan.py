@@ -1,7 +1,8 @@
 """Researcher's slow task: planning the search (docs/MODEL.md). How do we find what exists, and what do we miss?
 
-Researcher owns the method: the search missions (Director orders them), their query portfolios, the maps of each
-search space, the leads searches come across, the coverage audits, and the watched sources with their pace. It plans
+Researcher owns the method: the search missions (Director orders them) and their query portfolios, kept in their
+routines; the maps of each search space (its texts); the watched sources with their pace; and the steps of Director's
+plans that are its to do. It plans
 weekly, or sooner when Director sends an order or feedback, when a mission's portfolio runs thin, or when a mission has
 gone quiet. Its fast task is the search missions themselves (agent/research.py), which aim their exploring at the gaps
 the maps name. It never reads mail, so it can check addresses on the web (isolation, docs/OPERATIONS.md).
@@ -30,7 +31,7 @@ from agent.due import describe, due_items, review
 from agent.items import Items, ref
 from agent.office_tools import build_office_tools
 from agent.pursuits import judged_against
-from agent.research import BATCH, load_research
+from agent.research import BATCH, RETIRE_AFTER_RUNS, Portfolio, load_research
 from agent.tools import build_web_tools
 
 log = logging.getLogger(__name__)
@@ -62,11 +63,12 @@ SCHEMA = {
         },
         "queries": {
             "type": "array",
-            "description": "New queries for a mission's portfolio, aimed at its gaps",
+            "description": "Changes to a mission's portfolio: add new queries aimed at its gaps, remove ones that don't pay",
             "items": {
                 "type": "object",
-                "properties": {"mission": {"type": "string"}, "query": {"type": "string"}, "rationale": {"type": "string"}},
-                "required": ["mission", "query", "rationale"],
+                "properties": {"mission": {"type": "string"}, "op": {"type": "string", "enum": ["add", "remove"]},
+                               "query": {"type": "string"}, "rationale": {"type": "string"}},
+                "required": ["mission", "op", "query", "rationale"],
             },
         },
         "senses": {
@@ -85,25 +87,9 @@ SCHEMA = {
                 "required": ["op", "name", "reason"],
             },
         },
-        "search_maps": {
-            "type": "array",
-            "description": "Only maps that changed: the whole new map of a mission's search space",
-            "items": {
-                "type": "object",
-                "properties": {"mission": {"type": "string"}, "content_md": {"type": "string", "description": "Swedish"}},
-                "required": ["mission", "content_md"],
-            },
-        },
-        "lead_decisions": {
-            "type": "array",
-            "items": {
-                "type": "object",
-                "properties": {"id": {"type": "integer"}, "decision": {"type": "string", "enum": ["add", "reject"]}, "reason": {"type": "string"}},
-                "required": ["id", "decision", "reason"],
-            },
-        },
         "coverage_audit": {
             "type": "array",
+            "description": "Only as part of an experiment (#E) of yours: check an independent benchmark against what is watched",
             "items": {
                 "type": "object",
                 "properties": {
@@ -142,10 +128,9 @@ SCHEMA = {
                 "required": ["kind", "title", "brief"],
             },
         },
-        "working_memory_md": {"type": "string", "description": "Swedish. Your whole new working memory"},
         "summary": {"type": "string", "description": "Swedish. What you did in this run and why, briefly: the run's own account"},
     },
-    "required": ["missions", "queries", "senses", "lead_decisions", "working_memory_md", "summary"],
+    "required": ["missions", "queries", "senses", "summary"],
 }
 
 
@@ -178,8 +163,7 @@ class ResearchPlanner:
         for t in load_research():
             if not t.enabled:
                 continue
-            active = await self.db.fetchone("SELECT count(*) AS n FROM scout_queries WHERE mission = ? AND status = 'active'", (t.id,))
-            if active["n"] < BATCH:
+            if len(t.queries) < BATCH:
                 return f"thin portfolio: {t.id}"
             st = await search_map.mission_stats(self.db, t.id)
             last_kept = datetime.fromisoformat(st["last_kept"] + "+00:00") if st["last_kept"] else None
@@ -212,10 +196,10 @@ class ResearchPlanner:
             "missions": await self._missions(),
             "senses": await self._senses(),
             "steps": await self._steps(now),
-            "review": await review(self.db, "researcher", now),
+            "review": await review(self.db, "researcher", now, self.memory.path),
         }
         tools = ["WebSearch", "Read(./memory/**)"]
-        mcp, names = build_office_tools(self.db, "researcher")   # steps, questions, routines, rules (agent/office_tools.py)
+        mcp, names = build_office_tools(self.db, "researcher", memory=self.memory.path)   # steps, questions, routines, rules (agent/office_tools.py)
         tools = tools + names
         if self.web is not None:
             w, names = build_web_tools(self.web)
@@ -258,13 +242,7 @@ class ResearchPlanner:
         if missions := out.get("missions"):
             changes += await ops.apply_missions(self.db, missions)
         known = {t.id for t in load_research()}
-        for q in out.get("queries") or []:
-            if q["mission"] in known and q["query"].strip():
-                await self.db.execute(
-                    "INSERT OR IGNORE INTO scout_queries (mission, query, rationale) VALUES (?, ?, ?)", (q["mission"], q["query"].strip(), q.get("rationale", ""))
-                )
-        if n := len(out.get("queries") or []):
-            changes.append(f"{n} nya sökfrågor")
+        changes += await self._queries(out.get("queries") or [], known)
         for s in out.get("senses") or []:
             if s["op"] == "tune" and s.get("poll_minutes"):
                 changes.append(await ops.tune_sense(self.db, s["name"], s["poll_minutes"], s["reason"]))
@@ -279,14 +257,6 @@ class ResearchPlanner:
             else:
                 changes.append(await ops.add_page(self.db, s["name"], s["url"], s.get("note") or "", s.get("kind") or "event",
                                                   "rss" if s["op"] == "add_feed" else "page"))
-        for m in out.get("search_maps") or []:
-            if m["mission"] not in known:
-                continue  # maps belong to missions
-            p = search_map.map_path(self.memory.path, m["mission"])
-            p.parent.mkdir(parents=True, exist_ok=True)
-            p.write_text(m["content_md"].strip() + "\n")
-            changes.append(f"sökkarta {m['mission']}")
-        changes += await search_map.decide_leads(self.db, out.get("lead_decisions") or [])
         for a in out.get("coverage_audit") or []:
             if a["mission"] in known:
                 changes.append(await search_map.audit(
@@ -311,16 +281,33 @@ class ResearchPlanner:
                           "novelty": "high", "confidence": "high", "complement": "high", "reason": f"Researcher, sökningen: {u['kind']}"},
             )
             changes.append(f"läge om sökningen till ägaren: {u['title']}")
-        if wm := (out.get("working_memory_md") or "").strip():
-            path = self.memory.path / WORKING_MEMORY
-            path.parent.mkdir(parents=True, exist_ok=True)
-            path.write_text(wm + "\n")
         await self.posts.handled(self._seen_posts, f"läst av Researcher {now:%Y-%m-%d}")
         self._seen_posts = []
         await trail.account("\n".join([(out.get("summary") or "").strip(), *(f"- {c}" for c in changes)]))
         await self.memory.commit_if_changed(f"researcher {now:%Y-%m-%d %H:%M}", by="researcher")
         log.info("researcher planned: %s", "; ".join(changes) or "inga ändringar")
         return changes
+
+    async def _queries(self, changes: list[dict], known: set[str]) -> list[str]:
+        """Adds and removes queries in each mission's routine."""
+        from agent import routines
+
+        out = []
+        for mission in known:
+            mine = [c for c in changes if c.get("mission") == mission and c.get("query", "").strip()]
+            if not mine:
+                continue
+            routine = await routines.find(self.db, "mission", mission)
+            if routine is None:
+                continue
+            queries = list(routine["_config"]["mission"].get("queries") or [])
+            added = [c["query"].strip() for c in mine if c["op"] == "add" and c["query"].strip() not in queries]
+            gone = {c["query"].strip() for c in mine if c["op"] == "remove"}
+            queries = [q for q in queries if q not in gone] + added
+            await routines.put_mission(self.db, {**routine["_config"]["mission"], "queries": queries, "enabled": routine["status"] == "active"},
+                                       "researcher", note="; ".join(f"{c['op']} \"{c['query']}\": {c.get('rationale', '')}" for c in mine)[:500])
+            out.append(f"{mission}: {len(added)} nya sökfrågor, {len(gone & set(routine['_config']['mission'].get('queries') or []))} borttagna")
+        return out
 
     # --- context ----------------------------------------------------------------
 
@@ -330,13 +317,10 @@ class ResearchPlanner:
             lines.append(f"### {t.id} ({'on' if t.enabled else 'off'}, every {t.interval_days:g} days)\nGoal: {t.goal}\nScope: {t.scope}")
             if not t.enabled:
                 continue
-            q = await self.db.fetchall(
-                "SELECT q.query, q.status, q.runs, (SELECT count(*) FROM events e JOIN candidates c ON c.event_id = e.id "
-                "WHERE e.source = 'research:' || q.mission AND json_extract(e.payload, '$.query') = q.query "
-                "AND c.status IN ('sent', 'shelved', 'pulled', 'scheduled')) AS kept FROM scout_queries q WHERE q.mission = ? ORDER BY q.status, kept DESC",
-                (t.id,),
-            )
-            lines.append("Portfolio (status · kept/runs · query): " + ("; ".join(f"{x['status']} {x['kept']}/{x['runs']} \"{x['query']}\"" for x in q[:20]) or "empty"))
+            q = sorted(await Portfolio(self.db, self.gate, self.memory, self.settings).stats(t.id, t.queries), key=lambda x: (-x["kept"], x["runs"]))
+            lines.append("Portfolio (kept/runs · query): " + ("; ".join(f"{x['kept']}/{x['runs']} \"{x['query']}\"" for x in q[:24]) or "empty"))
+            if stale := [x["query"] for x in q if x["runs"] >= RETIRE_AFTER_RUNS and x["kept"] == 0]:
+                lines.append("Run a few times without anything kept (worth replacing): " + "; ".join(f'"{x}"' for x in stale))
             lines.append(await search_map.deliveries(self.db, t.id))
             lines.append(await search_map.overview(self.db, self.memory.path, t.id))
         return "\n\n".join(lines) or "No missions yet."

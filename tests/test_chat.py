@@ -289,11 +289,10 @@ async def test_lookup_finds_ids_and_words_and_messages_link_to_them(db):
     assert f"#S{sid}" in found and "påminner dig om Google" in found and f"[#S{sid}]" in found
 
 
-def test_the_assistant_can_only_write_its_own_files():
+def test_the_chat_writes_no_files():
     from agent.chat import CHAT_TOOLS
 
-    writes = [t for t in CHAT_TOOLS if t.startswith(("Edit", "Write"))]
-    assert writes == ["Edit(./memory/arbetsminne/assistant.md)", "Write(./memory/arbetsminne/assistant.md)"]  # the profile is a view of the beliefs
+    assert not [t for t in CHAT_TOOLS if t.startswith(("Edit", "Write"))]   # beliefs via remember; texts in the night pass
 
 
 def test_memory_is_new_until_the_profile_differs_from_the_template(tmp_path):

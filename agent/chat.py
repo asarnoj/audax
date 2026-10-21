@@ -62,13 +62,11 @@ REPLY = {
 WEEKDAYS = ["mån", "tis", "ons", "tor", "fre", "lör", "sön"]
 MONTHS = ["jan", "feb", "mar", "apr", "maj", "jun", "jul", "aug", "sep", "okt", "nov", "dec"]
 
-# Tools for the chat session; paths are relative to workspace/ and further limited by
-# workspace/.claude/settings.json (e.g. policy.md is read-only).
-# Rights follow ownership (docs/MODEL.md): the Assistant reads all of memory but writes only its own files.
-ASSISTANT_FILES = ("arbetsminne/assistant.md",)   # the profile is written from the beliefs (agent/beliefs.py), not by hand
+# Tools for the chat session; paths are relative to workspace/. The chat reads all of memory and writes none of it:
+# what the owner says becomes beliefs (`remember`), and the Assistant's working memory is tidied in its night pass,
+# a section at a time (agent/texts.py).
 CHAT_TOOLS = [
     "Read(./memory/**)",
-    *(f"{verb}(./memory/{f})" for f in ASSISTANT_FILES for verb in ("Edit", "Write")),
     "WebSearch",
 ]
 

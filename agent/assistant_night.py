@@ -37,7 +37,6 @@ WORKING_MEMORY = "arbetsminne/assistant.md"
 SCHEMA = {
     "type": "object",
     "properties": {
-        "working_memory_md": {"type": "string", "description": "Swedish. Your whole new working memory"},
         "conversation_summary": {
             "type": "string",
             "description": "Swedish. What a new session needs: ongoing threads, promises, what is current, how the owner wants it",
@@ -58,7 +57,7 @@ SCHEMA = {
         },
         "summary": {"type": "string", "description": "Swedish. What you tidied and why, briefly: the run's own account"},
     },
-    "required": ["working_memory_md", "conversation_summary", "promises", "summary"],
+    "required": ["conversation_summary", "promises", "summary"],
 }
 
 
@@ -91,7 +90,7 @@ class AssistantNight:
             "planned": await self.agenda.upcoming(14) if self.agenda else "(no schedule)",
             "pursuits": await Pursuits(self.db, self.settings.timezone).overview(notes=False, ideas=False),
         }
-        office, office_names = build_office_tools(self.db, "assistant")
+        office, office_names = build_office_tools(self.db, "assistant", memory=self.memory.path)
         try:
             result = await self.gate.run(
                 ClaudeTask(
@@ -117,10 +116,6 @@ class AssistantNight:
 
     async def apply(self, out: dict, now: datetime) -> list[str]:
         changes: list[str] = []
-        if wm := (out.get("working_memory_md") or "").strip():
-            path = self.memory.path / WORKING_MEMORY
-            path.parent.mkdir(parents=True, exist_ok=True)
-            path.write_text(wm + "\n")
         if self.agenda is not None:
             for p in out.get("promises") or []:
                 at = self.agenda.parse(p.get("when") or "")

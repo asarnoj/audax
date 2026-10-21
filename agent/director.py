@@ -47,8 +47,6 @@ LEVEL = {"type": "string", "enum": ["low", "medium", "high"]}
 SCHEMA = {
     "type": "object",
     "properties": {
-        "person_md": {"type": ["string", "null"], "description": "Swedish. The whole new person.md, or null if unchanged"},
-        "now_md": {"type": ["string", "null"], "description": "Swedish. The whole new now.md, or null if unchanged"},
         "posts": {
             "type": "array",
             "description": "Notes, orders or feedback to another role (not to the owner). They read it at their next run.",
@@ -63,7 +61,6 @@ SCHEMA = {
                 "required": ["to", "kind", "body"],
             },
         },
-        "working_memory_md": {"type": "string", "description": "Swedish. Your whole new working memory (see the prompt)"},
         "share": {
             "type": "array",
             "description": "Reflection only: checked, truly valuable ideas for the owner. Usually empty.",
@@ -84,7 +81,7 @@ SCHEMA = {
                     "description": "Swedish: lessons about how the office works that every role should know; usually none"},
         "summary": {"type": "string", "description": "Swedish. What you did in this run and why, briefly: the run's own account"},
     },
-    "required": ["person_md", "now_md", "working_memory_md", "summary"],
+    "required": ["summary"],
 }
 
 
@@ -144,7 +141,7 @@ class Director:
             "missions": await self._search_report(),
             "windows": await self._windows(mode),
             "records": await Pursuits(self.db, self.settings.timezone).overview() + "\n\n" + await Pursuits(self.db).stats(),
-            "review": await review(self.db, "director", now),
+            "review": await review(self.db, "director", now, self.memory.path),
             "answers": await self._answers(last),
             "beliefs": await self._beliefs(),
             "forms": describe_forms("director"),
@@ -157,7 +154,7 @@ class Director:
         # never sees mail. WebSearch only sends a query to the search provider, so both keep it.
         isolated = not reflect and self.mail is not None
         tools = ["WebSearch", "Read(./memory/**)"] if reflect or self.web is not None else ["Read(./memory/**)"]
-        mcp, names = build_office_tools(self.db, "director")   # beliefs, aims, steps, experiments, questions (agent/office_tools.py)
+        mcp, names = build_office_tools(self.db, "director", memory=self.memory.path)   # beliefs, aims, steps, experiments, questions (agent/office_tools.py)
         tools = tools + names
         if reflect and self.github is not None:
             gh, names = build_github_tools(self.github)
@@ -195,12 +192,7 @@ class Director:
     async def apply(self, out: dict, mode: str, now: datetime) -> list[str]:
         changes: list[str] = []
         self.dir.mkdir(exist_ok=True)
-        if out.get("person_md"):
-            (self.dir / "person.md").write_text(out["person_md"].strip() + "\n")
-            changes.append("person.md uppdaterad")
-        if out.get("now_md"):
-            changes.append("now.md uppdaterad")
-        await write_now(self.db, self.dir / "now.md", now, out.get("now_md"))   # with the dates from layer 2, always fresh
+        await write_now(self.db, self.dir / "now.md", now)   # its own sections as Director left them, the dates fresh
         if lessons := self.memory.add_lessons("director", out.get("lessons") or [], now):
             changes += [f"lärdom: {x}" for x in lessons]
         for idea in (out.get("share") or [])[:2]:
@@ -235,10 +227,6 @@ class Director:
                     "director", p["to"], p.get("kind", "note"), p["body"], from_owner=self._chain_from_owner, wake=bool(p.get("urgent")),
                 )
                 changes.append(f"post #P{pid} till {p['to']}")
-        if wm := (out.get("working_memory_md") or "").strip():
-            path = self.memory.path / WORKING_MEMORY
-            path.parent.mkdir(parents=True, exist_ok=True)
-            path.write_text(wm + "\n")
         await self.posts.handled(self._seen_posts, f"läst av Director ({mode} {now:%Y-%m-%d})")
         self._seen_posts = []
         await trail.account("\n".join([(out.get("summary") or "").strip(), *(f"- {c}" for c in changes)]))

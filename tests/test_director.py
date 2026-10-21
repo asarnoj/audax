@@ -47,7 +47,7 @@ def director(db, memory, tmp_path, structured=None, calls=None):
     return Director(load_settings(), db, ClaudeGate(db, tmp_path, runner=runner), memory, Schedule(load_settings(), db, []))
 
 
-BASE = {"person_md": None, "now_md": None, "summary": ""}
+BASE = {"summary": ""}
 
 
 async def test_apply_writes_the_picture_posts_ideas_lessons_dates_and_its_account(env, tmp_path):
@@ -61,9 +61,10 @@ async def test_apply_writes_the_picture_posts_ideas_lessons_dates_and_its_accoun
     woken = []
     Posts.waker = woken.append
     try:
+        (memory.path / "direction").mkdir(parents=True, exist_ok=True)
+        (memory.path / "direction" / "now.md").write_text("# Nu\nTenta torsdag, flytt.\n")   # as Director's text tool left it
         changes = await d.apply({
             **BASE,
-            "now_md": "# Nu\nTenta torsdag, flytt.",
             "posts": [{"to": "researcher", "kind": "order", "body": "Ny beställning: hitta affärspartner för studentstartup", "urgent": True}],
             "lessons": ["Kursers status och datum kontrolleras innan de föreslås"],
             "share": [{"title": "Pitcha appen på Startup", "brief": "Startup har en matchningskväll 20/10.", "url": "https://sses/x",

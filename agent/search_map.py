@@ -79,16 +79,6 @@ async def record_leads(db: Database, mission: str, leads: list[dict]) -> int:
     return new
 
 
-async def decide_leads(db: Database, decisions: list[dict]) -> list[str]:
-    out = []
-    for d in decisions:
-        status = "added" if d.get("decision") == "add" else "rejected"
-        n = await db.execute_count("UPDATE leads SET status = ?, reason = ? WHERE id = ? AND status = 'new'", (status, d.get("reason"), d["id"]))
-        if n:
-            out.append(f"ledtråd {d['id']} {'lades till' if status == 'added' else 'avfärdades'}")
-    return out
-
-
 def _watched_corpus(watchlist_file: Path) -> str:
     """Everything Audax watches: the routines (watched sources and missions) and the company watchlist."""
     from agent import routines
@@ -153,13 +143,13 @@ async def mission_stats(db: Database, mission: str) -> dict:
         "SELECT count(*) AS n, max(c.created_at) AS last FROM candidates c JOIN events e ON e.id = c.event_id "
         "WHERE e.source = ? AND c.status IN ('sent', 'shelved', 'pulled', 'pending', 'sending')", (source,),
     )
-    queries = await db.fetchone(
-        "SELECT sum(status = 'active') AS active, sum(status = 'retired') AS retired FROM scout_queries WHERE mission = ?", (mission,),
-    )
+    from agent.research import load_research
+
+    queries = next((t.queries for t in load_research() if t.id == mission), ())
     return {
         "runs_30d": runs["n"] or 0, "findings_30d": runs["f"] or 0, "last_run": runs["last"],
         "kept_total": kept["n"] or 0, "last_kept": kept["last"],
-        "queries_active": queries["active"] or 0, "queries_retired": queries["retired"] or 0,
+        "queries": len(queries),
     }
 
 
@@ -170,7 +160,7 @@ async def overview(db: Database, memory_path: Path, mission: str, with_map: bool
         f"## {mission}",
         f"Last 30 days: {st['runs_30d']} runs, {st['findings_30d']} findings. Kept in total: {st['kept_total']}"
         + (f", latest {st['last_kept'][:10]}" if st["last_kept"] else ", none yet")
-        + f". Queries: {st['queries_active']} active, {st['queries_retired']} retired.",
+        + f". Queries in the portfolio: {st['queries']}.",
     ]
     cov = await db.fetchone("SELECT * FROM coverage WHERE mission = ? ORDER BY id DESC LIMIT 1", (mission,))
     if cov:
@@ -183,11 +173,12 @@ async def overview(db: Database, memory_path: Path, mission: str, with_map: bool
     else:
         lines.append("Coverage audit: none yet.")
     leads = await db.fetchall(
-        "SELECT id, name, url, kind, why, times FROM leads WHERE mission = ? AND status = 'new' ORDER BY times DESC, id DESC LIMIT 12", (mission,),
+        "SELECT name, url, kind, why, times FROM leads WHERE mission = ? AND status = 'new' AND last_seen >= datetime('now', '-30 days') "
+        "ORDER BY times DESC, id DESC LIMIT 12", (mission,),
     )
     if leads:
-        lines.append("New leads (id · name · kind · times seen · why):")
-        lines += [f"- [{r['id']}] {r['name']} {r['url'] or ''} · {r['kind'] or '?'} · {r['times']}× · {r['why'] or ''}".rstrip() for r in leads]
+        lines.append("Places the searches came across, last 30 days (name · kind · times seen · why); the good ones can become sources, steps or a note in the map:")
+        lines += [f"- {r['name']} {r['url'] or ''} · {r['kind'] or '?'} · {r['times']}× · {r['why'] or ''}".rstrip() for r in leads]
     if with_map:
         p = map_path(memory_path, mission)
         lines.append("Map:\n" + (p.read_text().strip() if p.exists() else "(no map yet)"))

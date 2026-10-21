@@ -80,7 +80,8 @@ DEEP_NOTE = (
     "\nThis is the weekly deep sweep: run every query, follow leads, read 20-40 pages if useful, and look into adjacent "
     "angles and new kinds of sources. Wider coverage, the same bar for quality.\n"
 )
-RETIRE_AFTER_RUNS = 3  # without a single kept finding
+RETIRE_AFTER_RUNS = 3  # without a single kept finding: shown to Researcher as worth replacing
+RUNS_KEY = "research.query_runs.{id}"
 
 KEPT = ("sent", "shelved", "pulled")
 
@@ -92,6 +93,7 @@ class ResearchTask:
     scope: str
     interval_days: float
     enabled: bool
+    queries: tuple[str, ...] = ()   # the mission's portfolio, part of its routine (agent/routines.py)
 
 
 def load_research() -> list[ResearchTask]:
@@ -115,6 +117,7 @@ def load_research() -> list[ResearchTask]:
             scope=r.get("scope", ""),
             interval_days=float(r.get("interval_days", 7)),
             enabled=r.get("enabled", True),
+            queries=tuple(q for q in r.get("queries") or [] if isinstance(q, str) and q.strip()),
         )
         for r in data
     ]
@@ -129,8 +132,10 @@ def normalize_url(url: str) -> str:
 
 
 class Portfolio:
-    """The query portfolio of one mission: select (explore/exploit) and retire. New queries come from Researcher's
-    planning (agent/research_plan.py), aimed at the gaps in the mission's map."""
+    """The query portfolio of one mission, kept in its routine: select (explore/exploit), and say which queries have
+    run long without anything kept, for Researcher to replace (instance/granskning/2026-10-20-omgang-3-flodet.md, 5:
+    the queries are part of the routine). How often each ran is kept per mission; what each found comes from the
+    findings themselves."""
 
     def __init__(self, db: Database, gate: ClaudeGate, memory: MemoryRepo, settings: Settings):
         self.db = db
@@ -138,24 +143,24 @@ class Portfolio:
         self.memory = memory
         self.settings = settings
 
-    async def stats(self, mission: str) -> list[dict]:
-        """Every query with runs, findings and kept findings (sent, shelved or pulled from the shelf)."""
-        rows = await self.db.fetchall(
-            "SELECT q.id, q.query, q.status, q.runs, "
-            "(SELECT count(*) FROM events e WHERE e.source = 'research:' || q.mission "
-            "   AND json_extract(e.payload, '$.query') = q.query) AS found, "
-            "(SELECT count(*) FROM events e JOIN candidates c ON c.event_id = e.id WHERE e.source = 'research:' || q.mission "
-            "   AND json_extract(e.payload, '$.query') = q.query AND c.status IN ('sent', 'shelved', 'pulled', 'scheduled')) AS kept "
-            "FROM scout_queries q WHERE q.mission = ? ORDER BY q.id",
-            (mission,),
-        )
-        return [dict(r) for r in rows]
+    async def stats(self, mission: str, queries: tuple[str, ...] | list[str] | None = None) -> list[dict]:
+        """Every query with runs, findings and kept findings (sent, shelved, pulled from the shelf, or planned)."""
+        if queries is None:
+            queries = next((t.queries for t in load_research() if t.id == mission), ())
+        runs = await self.db.kv_get(RUNS_KEY.format(id=mission), {}) or {}
+        out = []
+        for q in queries:
+            row = await self.db.fetchone(
+                "SELECT count(*) AS found, sum(c.status IN ('sent', 'shelved', 'pulled', 'scheduled')) AS kept FROM events e "
+                "LEFT JOIN candidates c ON c.event_id = e.id WHERE e.source = ? AND json_extract(e.payload, '$.query') = ?",
+                (f"research:{mission}", q))
+            out.append({"query": q, "runs": int(runs.get(q, 0)), "found": row["found"] or 0, "kept": row["kept"] or 0})
+        return out
 
     async def select(self, task: ResearchTask, batch: int = BATCH) -> list[str]:
-        await self._retire(task.id)
-        active = [q for q in await self.stats(task.id) if q["status"] == "active"]  # a thin portfolio makes planning due
-        untested = [q for q in active if q["runs"] == 0]
-        tested = sorted((q for q in active if q["runs"] > 0), key=lambda q: (q["kept"] + 1) / (q["runs"] + 2), reverse=True)
+        qs = await self.stats(task.id, task.queries)
+        untested = [q for q in qs if q["runs"] == 0]
+        tested = sorted((q for q in qs if q["runs"] > 0), key=lambda q: (q["kept"] + 1) / (q["runs"] + 2), reverse=True)
         explore = untested[: max(EXPLORE, batch // 3)]
         exploit = tested[: batch - len(explore)]
         chosen = explore + exploit
@@ -164,15 +169,14 @@ class Portfolio:
         return [q["query"] for q in chosen]
 
     async def record_run(self, mission: str, queries: list[str]) -> None:
+        runs = await self.db.kv_get(RUNS_KEY.format(id=mission), {}) or {}
         for q in queries:
-            await self.db.execute(
-                "UPDATE scout_queries SET runs = runs + 1, last_run = datetime('now') WHERE mission = ? AND query = ?", (mission, q)
-            )
+            runs[q] = int(runs.get(q, 0)) + 1
+        await self.db.kv_set(RUNS_KEY.format(id=mission), runs)
 
-    async def _retire(self, mission: str) -> None:
-        for q in await self.stats(mission):
-            if q["status"] == "active" and q["runs"] >= RETIRE_AFTER_RUNS and q["kept"] == 0:
-                await self.db.execute("UPDATE scout_queries SET status = 'retired' WHERE id = ?", (q["id"],))
+    async def stale(self, mission: str) -> list[str]:
+        """Queries that have run a few times without a single kept finding: worth replacing."""
+        return [q["query"] for q in await self.stats(mission) if q["runs"] >= RETIRE_AFTER_RUNS and q["kept"] == 0]
 
 
 class Researcher:

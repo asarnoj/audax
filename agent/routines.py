@@ -197,3 +197,23 @@ async def import_files(db: Database) -> list[str]:
     if done:
         log.info("routines: moved %d watches and missions from the files", len(done))
     return done
+
+
+async def import_queries(db: Database) -> list[str]:
+    """Once per mission: its active queries move from the old portfolio table into its routine, with how often each
+    ran (instance/granskning/2026-10-20-omgang-3-flodet.md, 5). The table is left as an archive."""
+    from agent.research import RUNS_KEY
+
+    done = []
+    for r in await all_routines(db, "mission"):
+        mission = r["_config"]["mission"]
+        if "queries" in mission:
+            continue
+        rows = await db.fetchall("SELECT query, runs FROM scout_queries WHERE mission = ? AND status = 'active' ORDER BY id", (mission["id"],))
+        await put_mission(db, {**mission, "queries": [x["query"] for x in rows], "enabled": r["status"] == "active"}, "system",
+                          note=f"{len(rows)} sökfrågor flyttade in i uppdraget (etapp 7)")
+        await db.kv_set(RUNS_KEY.format(id=mission["id"]), {x["query"]: x["runs"] for x in rows})
+        done.append(mission["id"])
+    if done:
+        log.info("routines: moved the queries of %d missions into them", len(done))
+    return done

@@ -133,11 +133,13 @@ class Inspector:
         return "\n".join(f"{r['created_at'][:16]} {r['tier']:<14} {(r['title'] or '')[:50]:<50} {r['reason'][:90]}" for r in rows) or "Inga beslut."
 
     async def research(self) -> str:
+        from agent.research import Portfolio, load_research
+
         out = []
-        for m in await self.db.fetchall("SELECT DISTINCT mission FROM scout_queries"):
-            qs = await self.db.fetchall("SELECT query, status, runs FROM scout_queries WHERE mission = ? ORDER BY runs DESC", (m["mission"],))
-            out.append(f"{m['mission']}: {sum(q['status'] == 'active' for q in qs)} aktiva frågor")
-            out += [f"  [{q['status'][0]}] ×{q['runs']} {q['query'][:100]}" for q in qs[:12]]
+        for t in load_research():
+            qs = sorted(await Portfolio(self.db, None, None, None).stats(t.id, t.queries), key=lambda q: -q["runs"])
+            out.append(f"{t.id}: {len(qs)} frågor" + ("" if t.enabled else " (pausat)"))
+            out += [f"  ×{q['runs']} {q['kept']} behållna {q['query'][:100]}" for q in qs[:12]]
         return "\n".join(out) or "Ingen sökportfölj än."
 
     async def senses(self) -> str:

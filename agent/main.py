@@ -113,6 +113,7 @@ async def run() -> None:
     # Watched sources and missions are routines (agent/routines.py): moved from the files once, kept in memory, and
     # what runs follows when one changes.
     await routines.import_files(db)
+    await routines.import_queries(db)
     await routines.refresh(db)
     Items.watchers.append(routines.watch)
     Items.watchers.append(follower(settings.timezone))   # a promise that waited for something is due when it is done

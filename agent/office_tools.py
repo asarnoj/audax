@@ -2,12 +2,14 @@
 during its run. Every write is checked at once against the form and the role's rights, and a problem goes straight
 back to the role so it can put it right, instead of being found after the run, or never.
 
-Exposed as mcp__office__<name>: forms, find, read, create, update, link.
+Exposed as mcp__office__<name>: forms, find, read, create, update, link, and text (a section of a text the role
+owns, agent/texts.py).
 """
 
 from __future__ import annotations
 
 import json
+from pathlib import Path
 from typing import Any
 
 from claude_agent_sdk import tool
@@ -18,7 +20,7 @@ from agent.items import Items, parse_ref, ref
 from agent.tools import TurnContext, _text, create_sdk_mcp_server
 
 SERVER = "office"
-NAMES = [f"mcp__{SERVER}__{n}" for n in ("forms", "find", "read", "create", "update", "link")]
+NAMES = [f"mcp__{SERVER}__{n}" for n in ("forms", "find", "read", "create", "update", "link")]   # without text
 
 
 def describe_forms(role: str | None = None) -> str:
@@ -36,12 +38,13 @@ def describe_forms(role: str | None = None) -> str:
     return "\n".join(out) + "\n(* required. source = {\"type\": owner|observed|inferred|external, plus what shows it: a message, a quote, a url})"
 
 
-def build_office_tools(db: Database, role: str, turn: TurnContext | None = None) -> tuple[dict[str, Any], list[str]]:
-    """Returns (mcp_servers entry, allowed tool names) for a role's run."""
-    return {SERVER: create_sdk_mcp_server(SERVER, tools=office_tools(db, role, turn))}, NAMES
+def build_office_tools(db: Database, role: str, turn: TurnContext | None = None, memory: Path | None = None) -> tuple[dict[str, Any], list[str]]:
+    """Returns (mcp_servers entry, allowed tool names) for a role's run; with `memory`, also its texts."""
+    tools = office_tools(db, role, turn, memory)
+    return {SERVER: create_sdk_mcp_server(SERVER, tools=tools)}, [f"mcp__{SERVER}__{t.name}" for t in tools]
 
 
-def office_tools(db: Database, role: str, turn: TurnContext | None = None) -> list:
+def office_tools(db: Database, role: str, turn: TurnContext | None = None, memory: Path | None = None) -> list:
     items = Items(db)
 
     def touched(item_id: int, form: str) -> None:
@@ -150,7 +153,29 @@ def office_tools(db: Database, role: str, turn: TurnContext | None = None) -> li
             return _text(f"[internal] Not linked: {e}")
         return _text(f"[internal] Linked {ref(await items.get(a))} —{args['relation']}→ {ref(await items.get(b))}")
 
-    return [forms, find, read, create, update, link]
+    tools = [forms, find, read, create, update, link]
+    if memory is not None:
+        from agent import texts
+
+        @tool(
+            "text",
+            "Change one section (a '## heading') of a text you own: it replaces that section, or adds it if it isn't "
+            "there; empty text removes it. The rest of the file stays as it is. Refer to items by id instead of copying "
+            "their facts. Your texts:\n" + texts.describe(role),
+            {"type": "object", "properties": {
+                "file": {"type": "string", "description": "path under memory/, e.g. direction/now.md"},
+                "section": {"type": "string", "description": "the heading, without ##"},
+                "text": {"type": "string", "description": "Swedish: the section's new content, without its heading"}},
+             "required": ["file", "section", "text"]},
+        )
+        async def text(args: dict[str, Any]) -> dict[str, Any]:
+            try:
+                return _text("[internal] " + texts.edit(memory, role, args["file"], args["section"], args.get("text")))
+            except texts.TextError as e:
+                return _text(f"[internal] Not changed: {e}")
+
+        tools.append(text)
+    return tools
 
 
 def _obj(value) -> dict | None:

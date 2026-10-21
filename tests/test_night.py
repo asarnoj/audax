@@ -34,15 +34,14 @@ def night_pass(db, tmp_path, structured=None):
     return AssistantNight(load_settings(), db, ClaudeGate(db, tmp_path, runner=runner), MemoryRepo(mem), None), mem
 
 
-OUT = {"working_memory_md": "Fokus: tentan.", "conversation_summary": "Pratade om tentan och Google.", "promises": [], "summary": ""}
+OUT = {"conversation_summary": "Pratade om tentan och Google.", "promises": [], "summary": ""}
 
 
-async def test_night_pass_writes_working_memory_and_restarts_a_big_session(db, tmp_path):
+async def test_night_pass_writes_the_summary_and_restarts_a_big_session(db, tmp_path):
     a, mem = night_pass(db, tmp_path, OUT)
     await db.kv_set("chat.session_id", "big")
     await db.execute("INSERT INTO claude_runs (kind, is_error, context_tokens) VALUES ('chat', 0, 109000)")
     assert await a.run() is not None
-    assert (mem / "arbetsminne" / "assistant.md").read_text() == "Fokus: tentan.\n"
     assert await db.kv_get(CHAT_SEED_KEY) == "Pratade om tentan och Google."
     assert await db.kv_get("chat.session_id") is None  # the next message starts over from the summary
 

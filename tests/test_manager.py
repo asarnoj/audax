@@ -47,19 +47,22 @@ def manager(db, memory, tmp_path, structured=None):
     return Manager(load_settings(), db, ClaudeGate(db, tmp_path, runner=runner), memory)
 
 
-BASE = {"policy_md": None, "policy_reason": "", "summary": "", "checkin": False,
+BASE = {"summary": "", "checkin": False,
         "desk_review": {"sampled": 3, "followed_policy": True, "notes": ""}}
 
 
-async def test_apply_writes_policy_keeps_its_account_on_the_run_and_commits(env, tmp_path):
+async def test_apply_keeps_its_account_on_the_run_and_commits_what_its_text_tool_changed(env, tmp_path):
+    from agent import texts
+
     db, memory, _ = env
     await begin(db)
     m = manager(db, memory, tmp_path)
-    await m.apply({**BASE, "policy_md": "# Policy\nnytt läge", "policy_reason": "mer feedback", "summary": "Justerade tempo."}, NOW)
+    texts.edit(memory.path, "manager", "policy.md", "Läget", "Nytt läge: mer feedback.")   # during the run, a section at a time
+    await m.apply({**BASE, "summary": "Justerade tempo."}, NOW)
 
-    assert (memory.path / "policy.md").read_text() == "# Policy\nnytt läge\n"
+    assert (memory.path / "policy.md").read_text() == "# Policy\nkallstart\n\n## Läget\nNytt läge: mer feedback.\n"
     log = await account(db)
-    assert log.startswith("Justerade tempo.") and "policy: mer feedback" in log
+    assert log.startswith("Justerade tempo.")
     assert not (memory.path / "journal").exists() and not (memory.path / "changelog.md").exists()
     assert await memory.changed_files() == []  # committed
 
@@ -118,13 +121,12 @@ async def test_manager_shelf_posts_and_questions(env, tmp_path):
     note = await Posts(db).send("assistant", "manager", "note", "längd", verbatim="det där var för långt", from_owner=True)
     m = manager(db, memory, tmp_path)
     m._seen_posts = [note]
-    await m.apply({**BASE, "working_memory_md": "Fokus: längden.", "posts": [{"to": "director", "kind": "note", "body": "Julius verkar stressad"}], "resurface": [shelved, sent]}, NOW)
+    await m.apply({**BASE, "posts": [{"to": "director", "kind": "note", "body": "Julius verkar stressad"}], "resurface": [shelved, sent]}, NOW)
 
     st = {r["id"]: r["status"] for r in await db.fetchall("SELECT id, status FROM candidates")}
     assert st == {shelved: "pending", sent: "sent"}  # only shelved items can be resurfaced
     assert await Posts(db).inbox("manager") == []  # read, so handled
     assert [p["body"] for p in await Posts(db).inbox("director")] == ["Julius verkar stressad"]
-    assert (memory.path / "arbetsminne" / "manager.md").read_text() == "Fokus: längden.\n"
 
 
 

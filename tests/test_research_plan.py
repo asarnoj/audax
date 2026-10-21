@@ -54,27 +54,24 @@ def planner(db, memory, tmp_path, structured=None, calls=None):
     return ResearchPlanner(load_settings(), db, ClaudeGate(db, tmp_path, runner=runner), memory)
 
 
-async def test_researcher_turns_an_order_into_missions_queries_sources_maps_and_audits(env, tmp_path):
+async def test_researcher_turns_an_order_into_missions_queries_sources_and_audits(env, tmp_path):
     db, memory, research, sources = env
     order = await Posts(db).send("director", "researcher", "order", "Ny beställning: hitta affärspartner", from_owner=True)
-    await db.execute("INSERT INTO leads (mission, key, name, kind) VALUES ('jobs', 'varbi.com', 'Varbi', 'aggregator')")
     started = []
     p = planner(db, memory, tmp_path)
     p.start_mission = started.append
     p._seen_posts = [order]
     out = {
         "missions": [{"op": "add", "id": "partner", "goal": "Hitta affärspartner för studentstartup", "scope": "Uni/Sthlm", "reason": "beställning"}],
-        "queries": [{"mission": "jobs", "query": "site:varbi.se sommarjobb IT", "rationale": "myndigheter"},
-                    {"mission": "nope", "query": "x", "rationale": "okänt uppdrag"}],
+        "queries": [{"mission": "jobs", "op": "add", "query": "site:varbi.se sommarjobb IT", "rationale": "myndigheter"},
+                    {"mission": "jobs", "op": "add", "query": "trainee IT 2027", "rationale": "bredd"},
+                    {"mission": "nope", "op": "add", "query": "x", "rationale": "okänt uppdrag"}],
         "senses": [{"op": "add_page", "name": "Startup events", "url": "https://sses/events", "note": "matchning", "reason": "partner"}],
-        "search_maps": [{"mission": "jobs", "content_md": "# Jobb\n## Luckor och nästa steg\n- Myndigheter"}, {"mission": "../../evil", "content_md": "x"}],
-        "lead_decisions": [{"id": 1, "decision": "add", "reason": "myndigheter annonserar där"}],
         "coverage_audit": [{"mission": "jobs", "benchmark": ["sses", "Spotify", "King"], "note": "test"}],
         "deep_sweeps": ["jobs"],
         "run_now": ["partner"],
         "posts": [{"to": "director", "kind": "report", "body": "Partneruppdraget är igång"}],
         "owner_updates": [{"kind": "difficulty", "title": "Sommarpraktik", "brief": "Inget öppet än; de flesta öppnar i nov."}],
-        "working_memory_md": "Fokus: partneruppdraget.",
         "summary": "Satte upp partneruppdraget.",
     }
     changes = await p.apply(out, NOW)
@@ -83,22 +80,21 @@ async def test_researcher_turns_an_order_into_missions_queries_sources_maps_and_
 
     assert [t.id for t in load_research()] == ["jobs", "partner"]
     assert load_stream_configs()[-1].url == "https://sses/events"
-    assert [r["query"] for r in await db.fetchall("SELECT query FROM scout_queries")] == ["site:varbi.se sommarjobb IT"]
-    assert (memory.path / "research" / "maps" / "jobs.md").read_text().startswith("# Jobb")
-    assert not (memory.path.parent / "evil.md").exists()
-    assert (await db.fetchone("SELECT status FROM leads WHERE id = 1"))["status"] == "added"
+    jobs = next(t for t in load_research() if t.id == "jobs")
+    assert jobs.queries == ("site:varbi.se sommarjobb IT", "trainee IT 2027")   # the portfolio lives in the routine
+    await p.apply({"queries": [{"mission": "jobs", "op": "remove", "query": "trainee IT 2027", "rationale": "gav inget"}]}, NOW)
+    assert next(t for t in load_research() if t.id == "jobs").queries == ("site:varbi.se sommarjobb IT",)
     assert any(c.startswith("täckning jobs: 2/3") for c in changes)
     assert await db.kv_get("research.deep_requested.jobs") and started == ["partner"]
     assert [x["body"] for x in await Posts(db).inbox("director")] == ["Partneruppdraget är igång"]
     assert (await db.fetchone("SELECT kind FROM candidates"))["kind"] == "search_update"
-    assert (memory.path / "arbetsminne" / "researcher.md").read_text() == "Fokus: partneruppdraget.\n"
     assert await Posts(db).inbox("researcher") == []  # the order was read
 
 
 async def test_researcher_plans_when_needed_with_the_web_but_never_mail(env, tmp_path):
     db, memory, *_ = env
     calls = []
-    empty = {"missions": [], "queries": [], "senses": [], "lead_decisions": [], "working_memory_md": "Fokus.", "summary": ""}
+    empty = {"missions": [], "queries": [], "senses": [], "summary": ""}
     p = planner(db, memory, tmp_path, structured=empty, calls=calls)
 
     class Web:
@@ -113,8 +109,7 @@ async def test_researcher_plans_when_needed_with_the_web_but_never_mail(env, tmp
     assert not any("mail" in t for t in task.allowed_tools)
     assert "Mål: Sommarpraktik 2027" in task.prompt and "Brus: banker" in task.prompt  # Director's brief
     assert await p.due() == "thin portfolio: jobs"  # no queries yet: plan again
-    for i in range(6):
-        await db.execute("INSERT INTO scout_queries (mission, query) VALUES ('jobs', ?)", (f"q{i}",))
+    await p.apply({"queries": [{"mission": "jobs", "op": "add", "query": f"q{i}", "rationale": "r"} for i in range(6)]}, NOW)
     assert await p.due() is None
     await Posts(db).send("director", "researcher", "feedback", "för mycket storbolag")
     assert await p.due() == "inbox"

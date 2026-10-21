@@ -41,8 +41,6 @@ CHECKIN_KEY = "manager.last_checkin"
 SCHEMA = {
     "type": "object",
     "properties": {
-        "policy_md": {"type": ["string", "null"], "description": "Swedish. The whole new policy.md, or null if unchanged"},
-        "policy_reason": {"type": "string", "description": "Swedish, one sentence"},
         "resurface": {"type": "array", "items": {"type": "integer"}, "description": "Candidate ids from the shelf to bring back"},
         "proposal": {
             "type": ["object", "null"],
@@ -82,7 +80,6 @@ SCHEMA = {
                 "required": ["id", "action", "reason"],
             },
         },
-        "working_memory_md": {"type": "string", "description": "Swedish. Your whole new working memory (see the prompt)"},
         "summary": {"type": "string", "description": "Swedish. What you saw and what you changed, and why: the run's own account"},
         "note_to_owner": {"type": ["string", "null"], "description": "Swedish brief for the chat, or null"},
         "desk_review": {
@@ -96,7 +93,7 @@ SCHEMA = {
             "required": ["sampled", "followed_policy", "notes"],
         },
     },
-    "required": ["policy_md", "policy_reason", "working_memory_md", "desk_review", "summary", "checkin"],
+    "required": ["desk_review", "summary", "checkin"],
 }
 
 CHECKIN_QUESTION = "Avstämning: hur har mängden meddelanden från mig känts senaste tiden?"
@@ -142,7 +139,7 @@ class Manager:
             measures=await self._measures(),
             policy=self.memory.read("policy.md", "lardomar.md"),
             experiments=await self._experiments(),
-            review=await review(self.db, "manager", now),
+            review=await review(self.db, "manager", now, self.memory.path),
             answers=await self._answers(last),
             forms=describe_forms("manager"),
             activity=await self._activity(since_sql),
@@ -153,7 +150,7 @@ class Manager:
             proposals=await self._proposals(),
             misc=await self._misc(),
         )
-        office, office_names = build_office_tools(self.db, "manager")   # experiments, beliefs, questions, steps
+        office, office_names = build_office_tools(self.db, "manager", memory=self.memory.path)   # experiments, beliefs, questions, steps
         try:
             result = await self.gate.run(
                 ClaudeTask(
@@ -161,7 +158,7 @@ class Manager:
                     prompt=prompt,
                     priority=Priority.MANAGER,
                     model=self.settings.models.manager,
-                    allowed_tools=["Read(./memory/**)", *office_names],  # its files are written by Python from its answer
+                    allowed_tools=["Read(./memory/**)", *office_names],  # its texts change a section at a time (office text)
                     mcp_servers=office,
                     output_schema=SCHEMA,
                     max_turns=35,
@@ -182,9 +179,6 @@ class Manager:
     async def apply(self, out: dict, now: datetime) -> None:
         changes: list[str] = []
 
-        if out.get("policy_md"):
-            (self.memory.path / "policy.md").write_text(out["policy_md"].strip() + "\n")
-            changes.append(f"policy: {out.get('policy_reason', '')}")
         for cid in out.get("resurface") or []:
             if await self.db.fetchone("SELECT 1 FROM candidates WHERE id = ? AND status = 'shelved'", (cid,)):
                 await self.db.execute(
@@ -212,10 +206,6 @@ class Manager:
                 + ("följde policyn" if review.get("followed_policy") else "gled från policyn")
                 + (f": {review['notes']}" if review.get("notes") else "")
             )
-        if wm := (out.get("working_memory_md") or "").strip():
-            path = self.memory.path / WORKING_MEMORY
-            path.parent.mkdir(parents=True, exist_ok=True)
-            path.write_text(wm + "\n")
         await self.posts.handled(self._seen_posts, f"läst av Manager {now:%Y-%m-%d}")
         self._seen_posts = []
 

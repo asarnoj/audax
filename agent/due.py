@@ -50,7 +50,7 @@ async def answered_since(db: Database, role: str, since: str) -> list[dict]:
     return await Items(db).find("question", status=("answered", "unanswered"), owner=role, where="updated_at >= ?", args=(since,))
 
 
-async def review(db: Database, role: str, now: datetime) -> str:
+async def review(db: Database, role: str, now: datetime, memory=None) -> str:
     """What a role should look at in its run and tidy in its cleaning pass. Swedish headings, English notes."""
     items = Items(db)
     parts = []
@@ -76,6 +76,11 @@ async def review(db: Database, role: str, now: datetime) -> str:
                                args=(f"{now:%Y-%m-%d}",))
     if expired:
         parts.append("Uppfattningar som passerat sitt datum (retract or renew):\n" + "\n".join(f"- {Items.line(i)}" for i in expired))
+    if memory is not None:
+        from agent.texts import oversized
+
+        if big := oversized(memory, role):
+            parts.append("Texter som vuxit förbi sin storlek (tighten: refer by id instead of copying):\n" + "\n".join(f"- {b}" for b in big))
     if role == "researcher":
         parts.append(await source_yield(db))
     rules = await items.find("rule", status="active", owner=role)
