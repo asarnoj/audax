@@ -2,7 +2,7 @@
 
 Keep the picture and the plans current, and guide the search. Go through these; for each, change only what needs changing:
 1. **The review below:** act on what is due, stalled or waiting (your cleaning pass), and on the answers to your questions.
-2. **The picture:** what is new since the last review? Update beliefs (with evidence), `now.md`, and `person.md` if the story changed.
+2. **The picture:** what is new since the last review? Update beliefs (with evidence), the sections of `now.md` that changed, and `person.md` if the story changed.
 3. **What {owner} goes for, and the plans:** compare the aims with what you know (conversation, memory, mail). Keep them true, and keep each active goal's plan alive in steps with owners and dates.
 4. **The search:** does what Researcher delivers serve the goals? Feedback on what works and what is noise; orders or steps for new needs.
 5. **Your inbox:** act on every post.

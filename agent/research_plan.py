@@ -128,6 +128,8 @@ SCHEMA = {
                 "required": ["kind", "title", "brief"],
             },
         },
+        "lessons": {"type": "array", "items": {"type": "string"},
+                    "description": "Swedish: lessons about how the office works that every role should know; usually none"},
         "summary": {"type": "string", "description": "Swedish. What you did in this run and why, briefly: the run's own account"},
     },
     "required": ["missions", "queries", "senses", "summary"],
@@ -281,6 +283,8 @@ class ResearchPlanner:
                           "novelty": "high", "confidence": "high", "complement": "high", "reason": f"Researcher, sökningen: {u['kind']}"},
             )
             changes.append(f"läge om sökningen till ägaren: {u['title']}")
+        if lessons := self.memory.add_lessons("researcher", out.get("lessons") or [], now):
+            changes += [f"lärdom: {x}" for x in lessons]
         await self.posts.handled(self._seen_posts, f"läst av Researcher {now:%Y-%m-%d}")
         self._seen_posts = []
         await trail.account("\n".join([(out.get("summary") or "").strip(), *(f"- {c}" for c in changes)]))

@@ -15,13 +15,13 @@ What {owner} has said about themself is kept as beliefs (#U): each a preference,
 Find promises you made today with a time ("jag hör av mig i morgon") that are not in the schedule below, and list them in `promises`. Promises that depend on something happening (a page updating, a reply arriving) are covered by watching and searching and don't need booking.
 
 ## Your working memory
-Rewrite it whole (`working_memory_md`), short: **Pågående samtal** (threads that are open and where they stand), **Vad {owner} bryr sig om just nu**, **Löften** (what you have promised and when), **Lärt om hur {owner} vill ha det**. You read it at the start of every conversation turn, so keep it to what helps you answer well.
+Keep `arbetsminne/assistant.md` current with `text`, a section at a time: **Pågående samtal** (threads that are open and where they stand), **Vad {owner} bryr sig om just nu**, **Löften** (what you promised and when, by #B or #T), **Lärt om hur {owner} vill ha det**. You read it at the start of every conversation turn, so keep it to what helps you answer well, with ids rather than copied facts.
 
 ## The conversation summary
 `conversation_summary`: what a fresh session needs to continue naturally: ongoing threads, promises, what is current, and how {owner} wants to be talked to. A new session starts from it when the old one has grown too big.
 
-## Output
-Swedish throughout. `summary`: what you tidied and why, briefly, with the ids you changed. It is kept on the run; the office shows it.
+## Your answer
+`conversation_summary`, `promises`, `summary` (what you tidied and why, with the ids you changed).
 
 ---
 
