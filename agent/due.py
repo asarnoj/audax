@@ -200,7 +200,8 @@ async def dates_text(db: Database, now: datetime, days: int = 60) -> str:
     file can't lose them (the Google section vanished in a test on 19 Oct)."""
     until = f"{now + timedelta(days=days):%Y-%m-%d}"
     rows: list[tuple[str, str]] = []
-    for a in await Items(db).find("aim", open_only=True, where="json_extract(data, '$.deadline') <= ?", args=(until,)):
+    for a in await Items(db).find("aim", open_only=True, where="json_extract(data, '$.deadline') BETWEEN ? AND ?",
+                                  args=(f"{now:%Y-%m-%d}", until)):
         rows.append((a["deadline"], f"sista dag för {ref(a)} {a['title']}"))
     for s in await Items(db).find("step", open_only=True, where="review_at IS NOT NULL AND review_at <= ?", args=(until,)):
         rows.append((s["review_at"], f"steg {ref(s)} ({s['owner']}): {s['title']}"))

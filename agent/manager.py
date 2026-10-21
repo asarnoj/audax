@@ -18,7 +18,7 @@ from datetime import datetime, timedelta
 from zoneinfo import ZoneInfo
 
 
-from agent import trail
+from agent import texts, trail
 from agent.due import answered_since, review
 from agent.items import Items
 from agent.office_tools import build_office_tools, describe_forms
@@ -80,6 +80,7 @@ SCHEMA = {
                 "required": ["id", "action", "reason"],
             },
         },
+        "working_memory": texts.WORKING_MEMORY,
         "summary": {"type": "string", "description": "Swedish. What you saw and what you changed, and why: the run's own account"},
         "note_to_owner": {"type": ["string", "null"], "description": "Swedish brief for the chat, or null"},
         "desk_review": {
@@ -93,7 +94,7 @@ SCHEMA = {
             "required": ["sampled", "followed_policy", "notes"],
         },
     },
-    "required": ["desk_review", "summary", "checkin"],
+    "required": ["working_memory", "desk_review", "summary", "checkin"],
 }
 
 CHECKIN_QUESTION = "Avstämning: hur har mängden meddelanden från mig känts senaste tiden?"
@@ -206,6 +207,7 @@ class Manager:
                 + ("följde policyn" if review.get("followed_policy") else "gled från policyn")
                 + (f": {review['notes']}" if review.get("notes") else "")
             )
+        texts.working_memory(self.memory.path, "manager", out.get("working_memory"))
         await self.posts.handled(self._seen_posts, f"läst av Manager {now:%Y-%m-%d}")
         self._seen_posts = []
 

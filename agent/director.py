@@ -23,7 +23,7 @@ from collections import defaultdict
 from datetime import datetime, timedelta
 from zoneinfo import ZoneInfo
 
-from agent import search_map, trail
+from agent import search_map, texts, trail
 from agent.due import answered_since, review, write_now
 from agent.items import Items
 from agent.office_tools import build_office_tools, describe_forms
@@ -77,11 +77,12 @@ SCHEMA = {
                 "required": ["title", "brief", "why", "time_sensitivity"],
             },
         },
+        "working_memory": texts.WORKING_MEMORY,
         "lessons": {"type": "array", "items": {"type": "string"},
                     "description": "Swedish: lessons about how the office works that every role should know; usually none"},
         "summary": {"type": "string", "description": "Swedish. What you did in this run and why, briefly: the run's own account"},
     },
-    "required": ["summary"],
+    "required": ["working_memory", "summary"],
 }
 
 
@@ -227,6 +228,7 @@ class Director:
                     "director", p["to"], p.get("kind", "note"), p["body"], from_owner=self._chain_from_owner, wake=bool(p.get("urgent")),
                 )
                 changes.append(f"post #P{pid} till {p['to']}")
+        texts.working_memory(self.memory.path, "director", out.get("working_memory"))
         await self.posts.handled(self._seen_posts, f"läst av Director ({mode} {now:%Y-%m-%d})")
         self._seen_posts = []
         await trail.account("\n".join([(out.get("summary") or "").strip(), *(f"- {c}" for c in changes)]))

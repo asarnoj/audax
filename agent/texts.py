@@ -121,3 +121,24 @@ def oversized(memory: Path, role: str) -> list[str]:
             if n > t.size:
                 out.append(f"{path.relative_to(memory)}: {n} chars, ~{t.size} is its size")
     return out
+
+
+# The working memory is part of every role's answer, a section at a time, so a run has to consider it (a tool alone
+# was skipped: the Manager probe of 21 Oct left "Tis 20 okt" in place).
+WORKING_MEMORY = {
+    "type": "array",
+    "description": "Swedish. The sections of your working memory that changed, each with its whole new content; [] if "
+                   "nothing changed. Short, ids rather than copied facts.",
+    "items": {"type": "object", "properties": {"section": {"type": "string"}, "text": {"type": "string"}},
+              "required": ["section", "text"]},
+}
+
+
+def working_memory(memory: Path, role: str, sections: list[dict] | None) -> list[str]:
+    done = []
+    for s in sections or []:
+        try:
+            done.append(edit(memory, role, f"arbetsminne/{role}.md", s.get("section", ""), s.get("text")))
+        except TextError as e:
+            done.append(f"arbetsminnet: {e}")
+    return done

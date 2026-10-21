@@ -70,3 +70,13 @@ async def test_the_old_portfolio_moves_into_the_missions_once(db):
     assert load_research()[0].queries == ("sommarjobb IT", "trainee 2027")
     assert await db.kv_get(RUNS_KEY.format(id="jobs")) == {"sommarjobb IT": 4, "trainee 2027": 0}
     assert await routines.import_queries(db) == []   # once
+
+
+def test_the_working_memory_in_an_answer_changes_only_its_sections(tmp_path):
+    wm = tmp_path / "arbetsminne" / "director.md"
+    wm.parent.mkdir()
+    wm.write_text("# Arbetsminne\n\n## Fokus\nTentan.\n\n## Väntar på\nIdeate-besked.\n")
+    texts.working_memory(tmp_path, "director", [{"section": "Fokus", "text": "Google-beslutet (#S1)."}])
+    assert wm.read_text() == "# Arbetsminne\n\n## Fokus\nGoogle-beslutet (#S1).\n\n## Väntar på\nIdeate-besked.\n"
+    texts.working_memory(tmp_path, "director", [])
+    assert "Ideate-besked" in wm.read_text()

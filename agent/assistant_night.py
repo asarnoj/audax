@@ -17,7 +17,7 @@ import logging
 from datetime import datetime, timedelta
 from zoneinfo import ZoneInfo
 
-from agent import chat, trail
+from agent import chat, texts, trail
 from agent.agenda import Agenda
 from agent.beliefs import write_profile
 from agent.due import write_now
@@ -55,9 +55,10 @@ SCHEMA = {
                 "required": ["when", "what"],
             },
         },
+        "working_memory": texts.WORKING_MEMORY,
         "summary": {"type": "string", "description": "Swedish. What you tidied and why, briefly: the run's own account"},
     },
-    "required": ["conversation_summary", "promises", "summary"],
+    "required": ["working_memory", "conversation_summary", "promises", "summary"],
 }
 
 
@@ -116,6 +117,7 @@ class AssistantNight:
 
     async def apply(self, out: dict, now: datetime) -> list[str]:
         changes: list[str] = []
+        texts.working_memory(self.memory.path, "assistant", out.get("working_memory"))
         if self.agenda is not None:
             for p in out.get("promises") or []:
                 at = self.agenda.parse(p.get("when") or "")
