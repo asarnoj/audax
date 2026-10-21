@@ -682,13 +682,13 @@ def _post_tools(posts: Posts, turn: TurnContext | None = None) -> list:
             return _text(personalize(ISOLATED))
 
         if args["type"] == "company":
-            result = await ops.add_company(args["name"], args["url"])
-        elif args["type"] == "topic":
-            result = ops.add_topic(args["name"], args["url"], args.get("lang", "en"), args.get("note", ""))
+            result = await ops.add_company(posts.db, args["name"], args["url"])
+        elif args["type"] == "topic":   # the owner asked for it: what comes is told at once (urgent)
+            result = await ops.add_topic(posts.db, args["name"], args["url"], args.get("lang", "en"), args.get("note", ""), urgent=True, by="assistant")
             result += " " + await ops.verify_source("topic", args["url"], args.get("lang", "en"))
         else:
             kind = "rss" if args["type"] == "feed" else "page"
-            result = ops.add_page(args["name"], args["url"], args.get("note", ""), "event", kind)
+            result = await ops.add_page(posts.db, args["name"], args["url"], args.get("note", ""), "event", kind, urgent=True, by="assistant")
             result += " " + await ops.verify_source(kind, args["url"])
         await posts.send("assistant", "researcher", "note", f"Ägaren lade till en {args['type']}-bevakning: {result}",
                          verbatim=f"[bad om bevakning] {args['name']}: {args['url']}", from_owner=True)
@@ -718,9 +718,9 @@ def _post_tools(posts: Posts, turn: TurnContext | None = None) -> list:
         if sid is None:
             return _text(f"Ingen bevakning matchar {args['source']}. Finns: {', '.join(ids)}.")
         if args["action"] == "stop":
-            result = ops.disable_sense(sid, args.get("why", ""))
+            result = await ops.disable_sense(posts.db, sid, args.get("why", ""), by="assistant")
         elif args.get("minutes"):
-            result = ops.tune_sense(sid, args["minutes"], args.get("why", ""))
+            result = await ops.tune_sense(posts.db, sid, args["minutes"], args.get("why", ""), by="assistant")
         else:
             return _text("[internal] Give the number of minutes between checks.")
         await posts.send("assistant", "researcher", "note", f"Ägaren ändrade bevakningen {sid}: {result}",

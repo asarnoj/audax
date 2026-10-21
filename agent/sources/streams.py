@@ -1,6 +1,7 @@
 """Event streams: sources that push (WebSocket) or publish feeds (RSS/Atom) into the event pipeline.
 
-Each stream is configured in config/sources.yaml under `streams`. Adding a new one is config only:
+Each stream is a routine (#N, agent/routines.py) whose config holds these fields; before stage 5 they lived in
+config/sources.yaml under `streams`. Adding a new one is config only:
 
     - id: hn-best                 # unique, becomes source "stream:hn-best"
       type: rss | websocket
@@ -61,6 +62,7 @@ class StreamConfig:
     fields: dict[str, str] = field(default_factory=dict)
     params: dict[str, Any] = field(default_factory=dict)  # type-specific, see agent/sources/connectors.py
     baseline: bool = True  # first poll only records what exists (news); False = triage what's already there (jobs)
+    urgent: bool = False   # what it finds is sorted at once, not in the next round (the owner asked for it)
 
     @property
     def source(self) -> str:
@@ -86,9 +88,14 @@ CONFIG_ERRORS: dict[str, str] = {}  # file -> problem, reported by the health wa
 
 
 def load_stream_configs() -> list[StreamConfig]:
-    """Never fatal: a broken sources.yaml means no streams (and a health alert), not a crash loop."""
+    """The active watched sources: routines in the office's core (agent/routines.py); before they are loaded, the old
+    sources.yaml. Never fatal: a broken file means no streams (and a health alert), not a crash loop."""
+    from agent import routines
+
     try:
-        data = (yaml.safe_load(instance_config("sources.yaml").read_text()) or {}).get("streams") or []
+        data = routines.streams()
+        if data is None:
+            data = (yaml.safe_load(instance_config("sources.yaml").read_text()) or {}).get("streams") or []
         CONFIG_ERRORS.pop("sources.yaml", None)
     except Exception as e:
         CONFIG_ERRORS["sources.yaml"] = f"{type(e).__name__}: {str(e)[:150]}"
@@ -114,6 +121,7 @@ def load_stream_configs() -> list[StreamConfig]:
                 fields=s.get("fields") or {},
                 params=s.get("params") or {},
                 baseline=s.get("baseline", True),
+                urgent=bool(s.get("urgent", False)),
             )
         )
     return out

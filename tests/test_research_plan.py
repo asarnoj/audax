@@ -31,12 +31,17 @@ async def env(tmp_path, monkeypatch):
     sources.write_text("streams:\n  - id: hn\n    type: rss\n    url: https://hn\n")
     watchlist = tmp_path / "watchlist.yaml"
     watchlist.write_text("companies:\n  - name: Spotify\n")
-    for name, path in (("RESEARCH_FILE", research), ("SOURCES_FILE", sources), ("WATCHLIST_FILE", watchlist)):
-        monkeypatch.setattr(ops, name, path)
+    monkeypatch.setattr(ops, "WATCHLIST_FILE", watchlist)
     db = Database(tmp_path / "t.db")
     await db.open()
+    from agent import routines
+
+    await routines.import_files(db)
+    await routines.refresh(db)
+    Items.watchers = [routines.watch]
     await Items(db).create("aim", "Sommarpraktik 2027", "director", kind="goal", data={"about": "Brus: banker"}, source={"type": "inferred"})
     yield db, MemoryRepo(mem), research, sources
+    Items.watchers = []
     await db.close()
 
 
@@ -73,8 +78,11 @@ async def test_researcher_turns_an_order_into_missions_queries_sources_maps_and_
         "summary": "Satte upp partneruppdraget.",
     }
     changes = await p.apply(out, NOW)
-    assert [r["id"] for r in yaml.safe_load(research.read_text())] == ["jobs", "partner"]
-    assert yaml.safe_load(sources.read_text())["streams"][-1]["url"] == "https://sses/events"
+    from agent.research import load_research
+    from agent.sources.streams import load_stream_configs
+
+    assert [t.id for t in load_research()] == ["jobs", "partner"]
+    assert load_stream_configs()[-1].url == "https://sses/events"
     assert [r["query"] for r in await db.fetchall("SELECT query FROM scout_queries")] == ["site:varbi.se sommarjobb IT"]
     assert (memory.path / "research" / "maps" / "jobs.md").read_text().startswith("# Jobb")
     assert not (memory.path.parent / "evil.md").exists()
@@ -103,7 +111,7 @@ async def test_researcher_plans_when_needed_with_the_web_but_never_mail(env, tmp
     [task] = calls
     assert task.kind == "researcher_plan" and "mcp__web__web_read" in task.allowed_tools
     assert not any("mail" in t for t in task.allowed_tools)
-    assert "#S1 Mål: Sommarpraktik 2027" in task.prompt and "Brus: banker" in task.prompt  # Director's brief
+    assert "Mål: Sommarpraktik 2027" in task.prompt and "Brus: banker" in task.prompt  # Director's brief
     assert await p.due() == "thin portfolio: jobs"  # no queries yet: plan again
     for i in range(6):
         await db.execute("INSERT INTO scout_queries (mission, query) VALUES ('jobs', ?)", (f"q{i}",))

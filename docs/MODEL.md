@@ -90,8 +90,14 @@ Allt kontoret planerar att höra av sig om ligger i ett gemensamt schema med tid
 Nytt fynd → triage (Director: värt något?) → dispatcher (Manager: när?) → schemat → Assistant skriver
 ```
 
-- Triage körs inom ett par minuter efter att något nytt har kommit in. Ett brådskande fynd kan nå dig på minuter.
+- **Koden före Claude** (`agent/rules.py`): det som kan avgöras utan omdöme sorteras bort innan triage frågar Claude. Det gäller dubbletter (samma adress eller rubrik som ett fynd de senaste 30 dagarna, från vilken källa som helst), det som redan har passerat sitt datum, och det rollernas egna regler (#G) säger. Varje regel räknar sina träffar, så att den som äger den ser om den fungerar.
+- **Triage sorterar i omgångar**, ungefär en gång i timmen (takten är en rutin rollerna kan ändra). En källa du själv har bett om är markerad brådskande och sorteras direkt. Det som är brådskande i sig, som en deadline i morgon, når dig ändå samma timme.
+- **Hyllan har bäst-före-datum.** Det som sparas för senare har ett datum efter sitt slag (nyheter två veckor, möjligheter och event en månad) och lämnar hyllan när det passerat. Det finns kvar i historiken.
 - **Direkt, förbi schemat:** allt du själv tar initiativ till. Det gäller svar när du skriver, resultat av en sökning du har bett om, bekräftelser, byggläget och larm om att något är trasigt. Tar du initiativet kommer svaret direkt. Tar kontoret initiativet bestämmer schemat.
+
+## Bevakningar och sökuppdrag är rutiner
+
+Varje bevakad källa och varje sökuppdrag är en rutin (#N) i kontorets kärna, inte en rad i en inställningsfil. Den har en ägare (Researcher), ett syfte, en historik och en hälsa. Rollerna lägger till, ändrar och pausar dem med kontorets verktyg, och det som körs ändras direkt. En källa som bara ger fel pausar sig själv efter fem försök i rad. Researchers genomgång visar varje källas senaste månad (in, behållet, skickat), och flaggar den som läser mycket men aldrig ger något och den som har pausats. Researcher kan då justera källan, sätta en regel, pausa den eller ersätta den.
 
 ## Natten: ett svep i ordning
 

@@ -97,8 +97,12 @@ class ResearchTask:
 def load_research() -> list[ResearchTask]:
     from agent.sources.streams import CONFIG_ERRORS
 
+    from agent import routines
+
     try:
-        data = yaml.safe_load(instance_config("research.yaml").read_text()) or []
+        data = routines.missions()
+        if data is None:
+            data = yaml.safe_load(instance_config("research.yaml").read_text()) or []
         CONFIG_ERRORS.pop("research.yaml", None)
     except Exception as e:
         CONFIG_ERRORS["research.yaml"] = f"{type(e).__name__}: {str(e)[:150]}"

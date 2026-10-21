@@ -21,6 +21,7 @@ from agent import trail
 from agent.pipeline.outbox import add_candidate
 from agent.prompts import prompt as prompt_template
 from agent.pursuits import judged_against
+from agent.rules import screen
 from agent.schedule import utc_iso
 
 log = logging.getLogger(__name__)
@@ -83,6 +84,26 @@ class Triage:
 
     async def _batch(self, rows) -> int | None:
         now = datetime.now(ZoneInfo(self.settings.timezone))
+        # Code before Claude (agent/rules.py): duplicates, what has passed, and the roles' rules.
+        decided = await screen(self.db, rows, self.settings.timezone)
+        for row in rows:
+            if row["id"] in decided:
+                payload = json.loads(row["payload"])
+                try:
+                    cid = await add_candidate(self.db, kind=row["kind"], title=payload.get("title", row["kind"]), body=payload.get("summary", ""),
+                                              features={"reason": decided[row["id"]]}, url=payload.get("url"), event_id=row["id"])
+                except sqlite3.IntegrityError:
+                    continue
+                await self.db.execute("UPDATE candidates SET status = 'dropped', tier = 'drop' WHERE id = ?", (cid,))
+                await self.db.insert("decisions", candidate_id=cid, module="rules", tier="drop", reason=decided[row["id"]])
+        if decided:
+            marks = ",".join("?" * len(decided))
+            await self.db.execute(f"UPDATE events SET triaged_at = datetime('now') WHERE id IN ({marks})", tuple(decided))
+            await trail.emit("drop", "director", n=len(decided))
+            log.info("triage: %d event(s) decided by code: %s", len(decided), "; ".join(sorted(set(decided.values())))[:300])
+        rows = [r for r in rows if r["id"] not in decided]
+        if not rows:
+            return 0
         events = "\n\n".join(f"[event_id {r['id']}] source: {r['source']}\n{r['payload']}" for r in rows)
         prompt = prompt_template("triage").format(
             now=f"{now:%Y-%m-%d %H:%M}",

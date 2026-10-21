@@ -29,8 +29,6 @@ async def env(tmp_path, monkeypatch):
     research.write_text("- id: jobs\n  goal: Hitta jobb\n  scope: Sthlm\n  interval_days: 1\n  enabled: true\n")
     sources = tmp_path / "sources.yaml"
     sources.write_text("streams:\n  - id: hn\n    type: rss\n    url: https://hn\n")
-    monkeypatch.setattr(ops, "RESEARCH_FILE", research)
-    monkeypatch.setattr(ops, "SOURCES_FILE", sources)
     from agent.config import instance_config
 
     instance_config("research.yaml").write_text(research.read_text())  # load_research reads the instance

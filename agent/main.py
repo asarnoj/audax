@@ -43,6 +43,7 @@ from agent.office import Office
 from agent.due import Calendar
 from agent.beliefs import write_profile
 from agent.items import Items
+from agent import routines
 from agent.schedule import Schedule, describe_change, utc_iso
 from agent.sources.calendar import build_sources, load_calendar_configs
 from agent.telegram_bot import TelegramBot
@@ -81,13 +82,6 @@ async def move_search_maps(memory: MemoryRepo) -> None:
 async def run() -> None:
     if created := ensure_instance():
         log.info("created instance config from examples: %s", ", ".join(created))
-    from agent import direction_ops
-
-    try:
-        if added := direction_ops.watch_unwatched_companies():
-            log.info("watching careers pages for companies without a known ATS: %s", ", ".join(added))
-    except Exception:
-        log.exception("couldn't check the watchlist for unwatched companies")
     settings = load_settings()
     assert_subscription_auth()
     set_owner(settings.owner)
@@ -116,6 +110,11 @@ async def run() -> None:
             await write_profile(db_, memory.path, settings.owner or "ägaren", settings.timezone)
 
     Items.watchers.append(profile_watch)
+    # Watched sources and missions are routines (agent/routines.py): moved from the files once, kept in memory, and
+    # what runs follows when one changes.
+    await routines.import_files(db)
+    await routines.refresh(db)
+    Items.watchers.append(routines.watch)
     if await write_profile(db, memory.path, settings.owner or "ägaren", settings.timezone):
         await memory.commit_if_changed("profilen skriven ur uppfattningarna")
     cal_configs, cal_options = load_calendar_configs()
@@ -215,6 +214,7 @@ async def run() -> None:
             await dispatcher.run(force=True)
 
     ingest = Ingest(db, process_new_events, extract=claude_extractor(gate, settings.models.triage))
+    routines.on_streams_changed.append(ingest.restart_streams)   # a watch added, paused or retuned runs as it now is
 
     async def reload_settings() -> None:
         fresh = load_settings()
@@ -240,6 +240,8 @@ async def run() -> None:
     async def health_watch() -> None:
         """Silence must never mean broken: real failures are reported, once per problem and half day."""
         for problem in await inspector.health():
+            if problem.startswith("Ingen lyckad Claude-körning") and gate.paused_until(Priority.RESEARCH) is not None:
+                continue   # the quota is paused: that is known and shown under /data/, not a fault
             key = "health.alerted." + problem.split("(")[0].strip()[:60]
             last = await db.kv_get(key)
             if last and datetime.fromisoformat(last) > datetime.now() - timedelta(hours=12):

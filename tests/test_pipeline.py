@@ -186,7 +186,7 @@ async def test_dispatcher_falls_back_when_claude_fails(db, tmp_path):
 
 async def test_triage_creates_candidates_and_drops(db, tmp_path):
     e1 = await db.execute("INSERT INTO events (source, kind, dedupe_key, payload) VALUES ('research:x', 'event', 'a', ?)",
-                          (json.dumps({"title": "Bra", "url": "https://a", "date": "2026-10-20"}),))
+                          (json.dumps({"title": "Bra", "url": "https://a", "date": "2030-10-20"}),))
     e2 = await db.execute("INSERT INTO events (source, kind, dedupe_key, payload) VALUES ('research:x', 'event', 'b', ?)",
                           (json.dumps({"title": "Dåligt", "url": "https://b"}),))
     lv = dict(relevance="high", actionability="high", time_sensitivity="medium", novelty="high", confidence="high", complement="high")
@@ -197,7 +197,7 @@ async def test_triage_creates_candidates_and_drops(db, tmp_path):
     t = Triage(load_settings(), db, gate_returning(db, tmp_path, out), FakeMemory())
     assert await t.run() == 1
     rows = {r["title"]: r for r in await db.fetchall("SELECT * FROM candidates")}
-    assert rows["Bra"]["status"] == "pending" and rows["Bra"]["expires_at"].startswith("2026-10-20T21:59")
+    assert rows["Bra"]["status"] == "pending" and rows["Bra"]["expires_at"].startswith("2030-10-20T21:59")
     assert rows["Dåligt"]["status"] == "dropped"
     assert json.loads(rows["Bra"]["features"])["relevance"] == "high"
     assert await t.run() == 0  # events are marked triaged

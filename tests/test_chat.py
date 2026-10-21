@@ -241,15 +241,16 @@ async def test_change_watch_stops_a_source_and_tells_the_director(db, monkeypatc
     from agent.posts import Posts
     from agent.tools import _post_tools
 
-    sources = instance_config("sources.yaml")
-    sources.write_text("streams:\n  - id: hn-best\n    type: rss\n    url: https://hn\n")
-    monkeypatch.setattr(ops, "SOURCES_FILE", sources)
+    from agent import routines
+
+    await routines.put_stream(db, {"id": "hn-best", "type": "rss", "url": "https://hn"}, "system")
+    await routines.refresh(db)
     posts = Posts(db)
     tools = {t.name: t for t in _post_tools(posts)}
 
     out = await tools["change_watch"].handler({"source": "hn", "action": "stop", "why": "behöver inte HN"})
     assert "avstängd" in out["content"][0]["text"]
-    assert "enabled: false" in sources.read_text()
+    assert (await routines.find(db, "stream", "hn-best"))["status"] == "paused"
     note = (await posts.inbox("researcher"))[0]  # watched sources are Researcher's
     assert note["verbatim"] == "behöver inte HN" and "hn-best" in note["body"]
 

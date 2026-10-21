@@ -68,9 +68,12 @@ async def test_ingest_dedupes_baselines_and_batches(db):
 
     new = StreamItem(key="g3", title="Third")
     assert await ingest.emit(c, items + [new]) == 1  # only the new one
-    assert await ingest.emit(c, [StreamItem(key="g4", title="Fourth")]) == 1
     await asyncio.sleep(0.2)
-    assert processed == [1]  # two emits within the debounce window -> one processing run
+    assert processed == []  # an ordinary source waits for the next round of sorting
+    urgent = cfg(note="bara stora saker", urgent=True)   # one the owner asked for: sorted at once
+    assert await ingest.emit(urgent, [StreamItem(key="g4", title="Fourth")]) == 1
+    await asyncio.sleep(0.2)
+    assert processed == [1]  # everything waiting goes in that one round
 
     rows = await db.fetchall("SELECT dedupe_key, triaged_at, payload FROM events ORDER BY id")
     assert [(r["dedupe_key"], r["triaged_at"]) for r in rows] == [("g1", "baseline"), ("g2", "baseline"), ("g3", None), ("g4", None)]
@@ -108,3 +111,37 @@ async def test_websocket_end_to_end(db):
 
     assert received_subscribe.is_set()
     assert [i.title for i in emitted] == ["Live event"]
+
+
+async def test_a_source_that_only_fails_pauses_itself(db, monkeypatch):
+    from agent import routines
+    from agent.items import Items
+
+    monkeypatch.setattr(Items, "watchers", [routines.watch])   # as main wires it: a changed routine changes what runs
+    await routines.put_stream(db, {"id": "s", "type": "page", "url": "https://x.example/jobs"}, "system")
+    await routines.refresh(db)
+    ingest = Ingest(db, lambda: None)
+    for _ in range(4):
+        await ingest.record_error(cfg(), RuntimeError("404"))
+    await ingest.emit(cfg(), [StreamItem(key="k", title="Ett jobb")], baseline=True)   # a success starts the count over
+    for _ in range(4):
+        await ingest.record_error(cfg(), RuntimeError("404"))
+    assert (await routines.find(db, "stream", "s"))["status"] == "active"
+    await ingest.record_error(cfg(), RuntimeError("404"))
+    paused = await routines.find(db, "stream", "s")
+    assert paused["status"] == "paused" and "404" in paused["health"]
+    assert routines.streams() == []
+
+
+async def test_the_shelf_keeps_things_only_until_their_best_before(db):
+    from agent.pipeline.outbox import Outbox, add_candidate
+
+    outbox = Outbox(db, None, None)
+    fresh = await add_candidate(db, "news", "Ny", "b", {})
+    old = await add_candidate(db, "news", "Gammal", "b", {})
+    for c in (fresh, old):
+        await outbox.set_tier(c, "shelf", "shelved")
+    await db.execute("UPDATE candidates SET expires_at = '2026-01-01T00:00:00Z' WHERE id = ?", (old,))
+    assert await outbox.expire_shelf() == 1
+    status = {r["id"]: r["status"] for r in await db.fetchall("SELECT id, status FROM candidates")}
+    assert status == {fresh: "shelved", old: "expired"}

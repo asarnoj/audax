@@ -26,13 +26,16 @@ async def test_leads_accumulate_and_are_decided_once(db):
 
 
 async def test_audit_checks_an_independent_benchmark_against_what_audax_reaches(db, tmp_path):
-    sources, watchlist, research = tmp_path / "s.yaml", tmp_path / "w.yaml", tmp_path / "r.yaml"
-    sources.write_text("streams:\n  - id: jobtech\n    url: https://jobsearch.api.jobtechdev.se\n")
+    from agent import routines
+
+    watchlist = tmp_path / "w.yaml"
     watchlist.write_text("companies:\n  - name: Spotify\n  - name: Truecaller\n")
-    research.write_text("- id: jobs\n  goal: sommarpraktik\n")
+    await routines.put_stream(db, {"id": "jobtech", "type": "jobtech", "url": "https://jobsearch.api.jobtechdev.se"}, "system")
+    await routines.put_mission(db, {"id": "jobs", "goal": "sommarpraktik"}, "system")
+    await routines.refresh(db)
     await db.execute("INSERT INTO events (source, kind, dedupe_key, payload) VALUES ('stream:jobtech', 'job', 'k', ?)",
                      (json.dumps({"title": "Sommarpraktik – Ericsson AB"}),))
-    summary = await search_map.audit(db, "jobs", ["Spotify", "Ericsson", "King", "Klarna (tech)"], "från kunskap", (sources, watchlist, research))
+    summary = await search_map.audit(db, "jobs", ["Spotify", "Ericsson", "King", "Klarna (tech)"], "från kunskap", watchlist)
     assert summary == "täckning jobs: 2/4 (50%)"
     cov = await db.fetchone("SELECT * FROM coverage")
     assert json.loads(cov["missing"]) == ["King", "Klarna (tech)"]

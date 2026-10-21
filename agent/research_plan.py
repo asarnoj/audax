@@ -256,7 +256,7 @@ class ResearchPlanner:
     async def apply(self, out: dict, now: datetime) -> list[str]:
         changes: list[str] = []
         if missions := out.get("missions"):
-            changes += ops.apply_missions(missions)
+            changes += await ops.apply_missions(self.db, missions)
         known = {t.id for t in load_research()}
         for q in out.get("queries") or []:
             if q["mission"] in known and q["query"].strip():
@@ -267,17 +267,18 @@ class ResearchPlanner:
             changes.append(f"{n} nya sökfrågor")
         for s in out.get("senses") or []:
             if s["op"] == "tune" and s.get("poll_minutes"):
-                changes.append(ops.tune_sense(s["name"], s["poll_minutes"], s["reason"]))
+                changes.append(await ops.tune_sense(self.db, s["name"], s["poll_minutes"], s["reason"]))
             elif s["op"] == "disable":
-                changes.append(ops.disable_sense(s["name"], s["reason"]))
+                changes.append(await ops.disable_sense(self.db, s["name"], s["reason"]))
             elif not s.get("url"):
                 continue
             elif s["op"] == "add_company":
-                changes.append(await ops.add_company(s["name"], s["url"]))
+                changes.append(await ops.add_company(self.db, s["name"], s["url"]))
             elif s["op"] == "add_topic":
-                changes.append(ops.add_topic(s["name"], s["url"], "sv" if any(c in s["url"] for c in "åäö") else "en", s.get("note") or ""))
+                changes.append(await ops.add_topic(self.db, s["name"], s["url"], "sv" if any(c in s["url"] for c in "åäö") else "en", s.get("note") or ""))
             else:
-                changes.append(ops.add_page(s["name"], s["url"], s.get("note") or "", s.get("kind") or "event", "rss" if s["op"] == "add_feed" else "page"))
+                changes.append(await ops.add_page(self.db, s["name"], s["url"], s.get("note") or "", s.get("kind") or "event",
+                                                  "rss" if s["op"] == "add_feed" else "page"))
         for m in out.get("search_maps") or []:
             if m["mission"] not in known:
                 continue  # maps belong to missions
@@ -289,7 +290,7 @@ class ResearchPlanner:
         for a in out.get("coverage_audit") or []:
             if a["mission"] in known:
                 changes.append(await search_map.audit(
-                    self.db, a["mission"], a["benchmark"], a.get("note", ""), (ops.SOURCES_FILE, ops.WATCHLIST_FILE, ops.RESEARCH_FILE)
+                    self.db, a["mission"], a["benchmark"], a.get("note", ""), ops.WATCHLIST_FILE
                 ))
         for mid in out.get("deep_sweeps") or []:
             if mid in known:

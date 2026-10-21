@@ -205,6 +205,7 @@ class Dispatcher:
         """Delivers what is due after a last check; retries undecided findings; offers an idle moment for a question."""
         async with self._lock:
             await self._prepare()
+            await self.outbox.expire_shelf()
             now = self.schedule.now()
             if due := await self.agenda.due_findings(now):
                 await self._deliver_findings(due, now)

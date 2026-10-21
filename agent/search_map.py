@@ -89,13 +89,15 @@ async def decide_leads(db: Database, decisions: list[dict]) -> list[str]:
     return out
 
 
-def _watched_corpus(sources_file: Path, watchlist_file: Path, research_file: Path) -> str:
-    parts = []
-    for f in (sources_file, watchlist_file, research_file):
-        try:
-            parts.append(yaml.safe_dump(yaml.safe_load(f.read_text()) or {}, allow_unicode=True))
-        except Exception:
-            pass
+def _watched_corpus(watchlist_file: Path) -> str:
+    """Everything Audax watches: the routines (watched sources and missions) and the company watchlist."""
+    from agent import routines
+
+    parts = [yaml.safe_dump({"streams": routines.streams() or [], "missions": routines.missions() or []}, allow_unicode=True)]
+    try:
+        parts.append(yaml.safe_dump(yaml.safe_load(watchlist_file.read_text()) or {}, allow_unicode=True))
+    except Exception:
+        pass
     return "\n".join(parts).lower()
 
 
@@ -124,9 +126,9 @@ def _covered(name: str, watched: str, seen: str) -> str | None:
     return None
 
 
-async def audit(db: Database, mission: str, benchmark: list[str], note: str, files: tuple[Path, Path, Path]) -> str:
+async def audit(db: Database, mission: str, benchmark: list[str], note: str, watchlist_file: Path) -> str:
     """Checks a benchmark (from Director) against what Audax watches or has seen; stores and returns a summary."""
-    watched, seen = _watched_corpus(*files), await _seen_corpus(db)
+    watched, seen = _watched_corpus(watchlist_file), await _seen_corpus(db)
     covered, missing = [], []
     for name in dict.fromkeys(n.strip() for n in benchmark if n.strip()):
         state = _covered(name, watched, seen)

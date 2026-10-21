@@ -91,7 +91,7 @@ class Schedule:
         return datetime.now(self.tz)
 
     def set_sources(self, sources: list[CalendarSource]) -> None:
-        """Live reload of config/sources.yaml."""
+        """Live reload of the calendars in config/sources.yaml."""
         self.sources = sources
         self.relevance_mode = {s.config.id: s.config.relevance for s in sources}
 

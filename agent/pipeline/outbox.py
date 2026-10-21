@@ -7,11 +7,15 @@ from agent import trail
 import json
 import logging
 from collections.abc import Awaitable, Callable
+from datetime import datetime, timedelta, timezone
 
 from agent.db import Database
 from agent.schedule import Schedule, utc_iso
 
 log = logging.getLogger(__name__)
+# How long something stays on the shelf when it has no date of its own (an event's or a deadline's comes first).
+SHELF_DAYS = {"news": 14, "tech": 14, "ai": 14, "security": 7, "startups": 21, "insight": 30, "opportunity": 30, "event": 30}
+SHELF_DAYS_DEFAULT = 21
 
 SendText = Callable[..., Awaitable[list[int]]]  # (text) -> messages.id rows
 Speak = Callable[[str], Awaitable[list[int]]]  # the chat session writes and sends (docs/MODEL.md)
@@ -156,6 +160,21 @@ class Outbox:
             "UPDATE candidates SET tier = ?, status = COALESCE(?, status), updated_at = datetime('now') WHERE id = ?",
             (tier, status, candidate_id),
         )
+        if status == "shelved":   # everything on the shelf has a best-before date
+            row = await self.db.fetchone("SELECT kind, expires_at FROM candidates WHERE id = ?", (candidate_id,))
+            if row and not row["expires_at"]:
+                days = SHELF_DAYS.get(row["kind"], SHELF_DAYS_DEFAULT)
+                await self.db.execute("UPDATE candidates SET expires_at = ? WHERE id = ?",
+                                      (utc_iso(datetime.now(timezone.utc) + timedelta(days=days)), candidate_id))
+
+    async def expire_shelf(self) -> int:
+        """What is past its best-before date leaves the shelf (it is still in the history)."""
+        n = await self.db.execute_count(
+            "UPDATE candidates SET status = 'expired', updated_at = datetime('now') WHERE status = 'shelved' AND expires_at IS NOT NULL AND expires_at < ?",
+            (utc_iso(datetime.now(timezone.utc)),))
+        if n:
+            log.info("shelf: %d past their date", n)
+        return n
 
     async def record(self, candidate_id: int, module: str, tier: str, reason: str, context: dict) -> None:
         await self.db.insert("decisions", candidate_id=candidate_id, module=module, tier=tier, reason=reason,

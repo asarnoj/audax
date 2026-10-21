@@ -75,7 +75,44 @@ async def review(db: Database, role: str, now: datetime) -> str:
                                args=(f"{now:%Y-%m-%d}",))
     if expired:
         parts.append("Uppfattningar som passerat sitt datum (retract or renew):\n" + "\n".join(f"- {Items.line(i)}" for i in expired))
+    if role == "researcher":
+        parts.append(await source_yield(db))
+    rules = await items.find("rule", status="active", owner=role)
+    if rules:
+        parts.append("Regler (hits = how often each threw something away; one that never hits, or stops a lot, is worth a look):\n"
+                     + "\n".join(f"- {Items.line(r)} · hits {r.get('hits') or 0}" for r in rules))
     return "\n\n".join(parts) or "Inget att städa just nu."
+
+
+LOW_YIELD_AFTER = 20   # findings read before a source that has kept nothing is worth questioning
+
+
+async def source_yield(db: Database, days: int = 30) -> str:
+    """Each watched source's last month: what it brought, what was kept, what reached the owner; the weak and the
+    paused ones flagged, so Researcher can tune, pause or replace them (the LessWrong lesson, 20 Oct)."""
+    from agent import routines
+
+    rows = {r["source"]: r for r in await db.fetchall(
+        "SELECT e.source, count(DISTINCT e.id) AS n, count(c.id) AS judged, "
+        "sum(c.status NOT IN ('dropped', 'expired')) AS kept, sum(c.status = 'sent') AS sent "
+        "FROM events e LEFT JOIN candidates c ON c.event_id = e.id "
+        "WHERE e.source LIKE 'stream:%' AND e.created_at >= datetime('now', ?) GROUP BY e.source", (f"-{days} days",))}
+    lines = []
+    for r in await routines.all_routines(db, "stream"):
+        sid = r["_config"]["stream"]["id"]
+        y = rows.get(f"stream:{sid}")
+        n, kept, sent = (y["n"], y["kept"] or 0, y["sent"] or 0) if y else (0, 0, 0)
+        flag = ""
+        if r["status"] != "active":
+            flag = f" · {r['status']}" + (f" ({r['health']})" if r.get("health") else "")
+        elif n >= LOW_YIELD_AFTER and kept == 0:
+            flag = " · low yield"
+        elif n == 0:
+            flag = " · nothing in a month"
+        lines.append(f"- {ref(r)} {sid}: {n} in, {kept} kept, {sent} sent{flag}")
+    if not lines:
+        return "Källor: inga bevakningar ännu."
+    return f"Källor senaste {days} dagarna (in · kept · sent):\n" + "\n".join(lines)
 
 
 class Calendar:

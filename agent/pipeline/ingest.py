@@ -21,6 +21,9 @@ from agent.sources.streams import StreamConfig, StreamItem, load_stream_configs,
 log = logging.getLogger(__name__)
 
 DEBOUNCE_SECONDS = 120
+SORT_EVERY_MINUTES = 60      # default round for sorting what came in; a routine ({"skill": "triage"}) can change it
+PILE = 30                    # this many waiting are sorted at once
+FAILURES_BEFORE_PAUSE = 5
 
 
 class Ingest:
@@ -38,6 +41,7 @@ class Ingest:
         self._process = process  # triage + dispatcher
         self._debounce = debounce
         self._wake = asyncio.Event()
+        self._urgent = asyncio.Event()   # something from a source the owner asked for: sorted at once
         self._streams: list[asyncio.Task] = []
         self._loop_task: asyncio.Task | None = None
 
@@ -57,7 +61,10 @@ class Ingest:
         if new and not baseline:
             await trail.emit("print", "director", n=new)   # the printer on Director's desk
         await self._stats(config.id, fetched=len(items), new=0 if baseline else new)
+        await self.db.kv_set(f"stream.failures.{config.id}", 0)
         if new and not baseline:
+            if config.urgent:
+                self._urgent.set()
             self._wake.set()
         return new
 
@@ -72,7 +79,19 @@ class Ingest:
         )
 
     async def record_error(self, config: StreamConfig, error: Exception) -> None:
-        await self._stats(config.id, error=f"{type(error).__name__}: {error}"[:200])
+        """A source that only fails pauses itself after a few tries in a row, and lands in Researcher's cleaning pass,
+        instead of being fetched forever (seven dead careers pages, 9–19 Oct)."""
+        what = f"{type(error).__name__}: {error}"[:200]
+        await self._stats(config.id, error=what)
+        if "quota paused" in what:
+            return   # not the source's fault
+        failures = (await self.db.kv_get(f"stream.failures.{config.id}", 0)) + 1
+        await self.db.kv_set(f"stream.failures.{config.id}", failures)
+        if failures >= FAILURES_BEFORE_PAUSE:
+            from agent import routines
+
+            await routines.pause(self.db, "stream", config.id, "system", f"pausad efter {failures} fel i rad", health=what)
+            log.warning("stream %s paused after %d failures in a row: %s", config.id, failures, what)
 
     async def start(self, configs: list[StreamConfig] | None = None) -> None:
         await self._start_streams(load_stream_configs() if configs is None else configs)
@@ -81,7 +100,7 @@ class Ingest:
             self._wake.set()  # events left untriaged by a restart
 
     async def restart_streams(self) -> None:
-        """Called when config/sources.yaml changes."""
+        """Called when a watched source (a routine, agent/routines.py) is added, paused or changed."""
         await self._stop_streams()
         await self._start_streams(load_stream_configs())
 
@@ -113,11 +132,34 @@ class Ingest:
             self._loop_task.cancel()
             await asyncio.gather(self._loop_task, return_exceptions=True)
 
+    async def _round_due(self) -> bool:
+        """Sorting comes in rounds (about once an hour by default; the round is a routine the roles can change), or
+        at once when something urgent came in or a lot has piled up."""
+        if self._urgent.is_set():
+            return True
+        from agent import routines
+
+        every = routines.cadence("triage", "every_minutes", SORT_EVERY_MINUTES)
+        row = await self.db.fetchone("SELECT count(*) AS n, min(created_at) AS oldest FROM events WHERE triaged_at IS NULL")
+        if not row["n"]:
+            return False
+        if row["n"] >= PILE:
+            return True
+        waited = await self.db.fetchone("SELECT (julianday('now') - julianday(?)) * 1440 AS m", (row["oldest"],))
+        return waited["m"] >= every
+
     async def _loop(self) -> None:
         while True:
             await self._wake.wait()
             await asyncio.sleep(self._debounce)  # let a burst accumulate
+            if not await self._round_due():
+                try:   # not yet: look again in a minute, or as soon as something urgent comes in
+                    await asyncio.wait_for(self._urgent.wait(), timeout=60)
+                except asyncio.TimeoutError:
+                    pass
+                continue
             self._wake.clear()
+            self._urgent.clear()
             try:
                 await self._process()
             except Exception:
