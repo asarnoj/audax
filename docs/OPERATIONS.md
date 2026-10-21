@@ -34,6 +34,7 @@ Prenumerationen har ett tak. Det som förbrukar den är främst **hur mycket sam
 - När Claude Code varnar för att **5-timmarsfönstret** tar slut pausas bakgrundsjobben tills det återställs, och chatten fortsätter (`claude_gate.py`).
 - En varning för **veckan** under 90 % stoppar ingenting. Över 90 % väntar allt i bakgrunden. Veckan delas med ägarens egen Claude-användning.
 - **Budgeten** (`agent/budget.py`, `budget:` i settings.yaml): Audax andel av veckan, i början löst satt till 10 %. Veckans storlek i dollar är en uppskattning (`week_usd`) som kalibreras efter de nivåer Claude rapporterar. Varje förmåga har en nivå (`agent/vocab.py`). Samtalet, det ägaren bett om och den billiga pipelinen väntar aldrig. Rollernas vanliga arbete väntar när veckans andel är använd. Det tunga och utforskande väntar när dagens andel (veckans delad på sju) är använd, och fortsätter nästa dag. Förbrukningen och det som väntar syns under `/data/` och i chattens `activity_report`.
+- **Texterna ändras i delar** (`agent/texts.py`): rollerna byter ett avsnitt åt gången och skriver aldrig om hela filer, och arbetsminnet ingår i varje rolls svar. Mätt 21 okt: Managers körning 24 000 tokens (förut 28 000 i snitt).
 - **Bara de verktyg en körning får använda visas alls** för Claude. Övriga inbyggda verktyg döljs, så att varje körning bär mindre text. Uppmätt 19 okt: ett tomt anrop gick från 13 900 till 5 500 tokens.
 
 ## Felvägar

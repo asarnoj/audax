@@ -1,136 +1,43 @@
 # Så tänker Audax
 
-Status: beslutad modell, 13 okt 2026 · etapp 1–4 byggda (grunden, schemat, Researcher, natten); se "Från i dag till modellen" längst ner
+Status: modellen efter omdesignen, etapp 1–7 byggda (21 okt 2026); se "Från i dag till modellen" längst ner
 
-Audax är ett litet kontor som arbetar för dig. Fyra roller har var sitt ansvar och var sin anteckningsbok. De pratar med varandra genom en intern postgång, och bara en av dem pratar med dig.
+Människor blir lätt blinda av sin egen osäkerhet, eller lever i en bubbla med en smal bild av sina vägar. Audax finns för att hjälpa dig ut ur båda: förstå vem du är och vad du vill, hitta det som passar dina intressen, mål och projekt, och pröva sådant du inte bett om. Audax föreslår. Den gör aldrig saker i ditt namn och skriver aldrig meddelanden åt dig.
+
+Audax är ett litet kontor som arbetar för dig. Fyra roller har var sin fråga. De pratar med varandra genom en intern postgång, och bara en av dem pratar med dig.
 
 ## Vad en roll är
 
-En roll definieras av tre saker:
-
 1. **En fråga den äger.** Varje bedömning i systemet tillhör exakt en roll.
-2. **Anteckningar som är dess minne och dess "jag".** Varje körning är en ny instans som vaknar, läser sina anteckningar, gör sitt jobb och skriver tillbaka. Kontinuiteten bor i anteckningarna, inte i en pågående session.
-3. **Uppgifter: de stunder då den vaknar.** Långsamma uppgifter tänker efter och skriver anteckningar. Snabba uppgifter tillämpar rollens anteckningar i stunden och skriver bara sina beslut, aldrig i anteckningarna.
-
-En ny roll behövs bara när en ny fråga behöver sin egen anteckningsbok och kan krocka med de andra.
+2. **Förmågor: de stunder då den vaknar.** Långsamma förmågor tänker efter och planerar. Snabba förmågor tillämpar det rollen har bestämt, i stunden. Varje körning bär bara det underlag och de verktyg dess förmåga behöver.
+3. **Det den äger:** former i databasen och texter i minnet. Varje körning är en ny instans som vaknar, läser sitt arbetsminne och sin inkorg, gör sitt jobb och skriver tillbaka. Kontinuiteten bor i det rollen äger, inte i en pågående session.
 
 ## De fyra rollerna
 
 | | Assistant | Director | Researcher | Manager |
 |---|---|---|---|---|
-| **Frågan** | Vad säger du, och hur svarar jag? | Vad spelar roll för dig, och varför? | Hur hittar vi det som finns, och vad missar vi? | Hur ska det kännas: när, hur mycket, hur det låter? |
-| **Anteckningar** | minnet om dig (det du har sagt): profilen, med skola, intressen, vad som får störa, schema och vanor; arbetsminne | bild av dig, läget (fakta), målen och idéerna (#S); arbetsminne | sökuppdragen, sökkartor, frågeportföljer, ledtrådar, täckning, bevakningarna; arbetsminne | policyn (läget för din uppmärksamhet, tempo, hur chatten skriver), experiment, schemat, det sparade; arbetsminne |
-| **Långsamt** | nattpass: rensar och slår ihop minnet, skriver sitt arbetsminne och samtalssammanfattningen | genomgång (varje natt), reflektion (tre nätter i veckan) | planering (varje vecka, eller när ett uppdrag tystnar eller en ny beställning kommer) | nattgranskning: läser samtalet som en UX-granskare och planerar dagens schema |
+| **Frågan** | Vad säger du, och hur svarar jag? | Vad spelar roll för dig, och varför, och vad kan spela roll som du inte ser än? | Hur hittar vi det som finns, och vad missar vi? | Hur ska det kännas: när, hur mycket, hur det låter? |
+| **Äger** | uppfattningarna ur det du sagt; samtalet; arbetsminne | bilden av dig (`person.md`), läget (`now.md`), målen och idéerna, planerna, experiment om innehållet; arbetsminne | sökuppdragen med sina sökfrågor, bevakningarna, sökkartorna, reglerna för källorna; arbetsminne | policyn, experiment om upplevelsen, schemat, det sparade; arbetsminne |
+| **Långsamt** | nattpass: städar uppfattningarna, skriver samtalssammanfattningen, bokar löften | genomgång (varje natt), reflektion (en rutin, i början varannan dag) | planering (varje vecka, eller när ett steg, en beställning eller ett tyst uppdrag kräver det) | nattgranskning: läser samtalet som en UX-granskare och ser över schemat |
 | **Snabbt** | samtalet, leveranser (med kort underlag), intervjun | triage: är det här värt något för dig? | sökuppdragen: letar brett och lämnar fynd | dispatchern: när ska det här nå dig? |
 | **Gör inte** | bedömer inte relevans eller tidpunkt | bestämmer inte hur det letas, eller när du störs | bestämmer inte vad som är värt något | bestämmer inte vad som är relevant |
 
-**Gränsen mellan Director och Researcher:** Director är uppdragsgivaren och säger *vad* som behövs och *varför* ("sommarpraktik inom mjukvara, inte bank, före februari"). Researcher äger *hur* och *var*: sökfrågor, bevakningar, kartor och täckning. Arbetsrelationen ser ut så här:
+**Gränsen mellan Director och Researcher:** Director är uppdragsgivaren och säger *vad* som behövs och *varför* ("sommarpraktik inom mjukvara, inte bank, före februari"). Researcher äger *hur* och *var*.
 
-1. **Beställning:** Director skickar en post.
-2. **Leverans:** Researcher letar brett och lämnar fynd. Researcher frågar "kan det här spela roll?".
-3. **Mottagningskontroll:** triage, Directors snabba bedömning av varje leverans. Triage frågar "spelar det roll?".
-4. **Återkoppling:** i genomgången ser Director vad varje uppdrag gav och hur du reagerade, och skickar feedback till Researcher.
+1. **Beställning:** en post för ett bestående behov, eller ett steg för en fråga med datum ("kolla att Collide går att gå på som individ, till tisdag").
+2. **Leverans:** Researcher letar brett och lämnar fynd, eller svarar på steget.
+3. **Mottagningskontroll:** triage, Directors snabba bedömning av varje fynd.
+4. **Återkoppling:** i genomgången ser Director vad varje uppdrag gav och hur du reagerade, och skickar feedback.
 
 **Gränsen mellan Director och Manager:** Director äger fakta om läget ("tenta torsdag, flytt"). Manager läser dem och äger bara slutsatsen för din uppmärksamhet ("höj ribban lite, färre men bättre"). Läget höjer ribban men stänger aldrig av.
 
-## Arbetsminnet
+## Tre lager
 
-Varje roll har ett kort arbetsminne som skrivs om vid varje långsam körning och läses först vid nästa:
+Det som behöver vara stabilt är kod. Det kontoret själv bygger och ändrar är former i databasen. Det som är tolkning och ton är text.
 
-- **nuvarande fokus**
-- **öppna hypoteser** och vad som skulle pröva dem
-- **vad den väntar på** (svar, datum, poster)
-- **vad den har prövat** och vad den lärde sig
+**1. Koden** är grunden ingen roll kan ändra: formerna och deras kontroller, motorerna (kalendern, budgeten, reglerna före triage, den sista kontrollen före Telegram) och verktygen. Byggläget ändrar den när du ber om det.
 
-Det är det som gör Director till samma varelse från natt till natt. Varje körning (#R) sparar dessutom en kort redogörelse för vad den gjorde och varför. Den är historik för dig och webbsidan och matas inte tillbaka till rollerna; några loggfiler finns inte.
-
-## Rättigheter: alla läser, ägaren skriver
-
-- Varje fil och varje tabell har en ägare. Bara ägaren skriver, och rättigheterna i koden följer ägarskapet. Promptarna är inte det enda skyddet.
-- Alla roller kan läsa allt. Varje uppgift får ett utvalt sammanhang, och resten kan den slå upp själv.
-- **Dina ord vinner.** Det du uttryckligen säger gäller direkt, via Assistant, även i en annan rolls område: "sluta bevaka X" eller "jag har sökt Y". Ägaren får en post och bygger vidare, men kör inte över det du har sagt.
-
-## Postgången
-
-All kommunikation mellan rollerna går genom en central postlogg. Varje rolls inkorg är "det i loggen som är adresserat till mig".
-
-- **Post:** en anteckning eller en förfrågan, med avsändare, mottagare, ID och, när det gäller, dina exakta ord.
-- **Kan vänta** är det vanliga. Mottagaren läser posten vid sin nästa ordinarie körning och markerar den som behandlad, med en notis om vad den gjorde.
-- **Väck** startar mottagarens körning snart. Det är tillåtet i två fall:
-  - när kedjan började med dig (du sa något),
-  - när något är brådskande och väcker **framåt mot dig** (Researcher → triage → dispatcher → Assistant).
-
-  Ingen kan väcka bakåt, så loopar kan inte uppstå.
-- Rollerna väcker aldrig varandra direkt. De lägger post, och motorn väcker.
-- **Bara Assistant pratar med dig.** Frågor från de andra rollerna är poster till Assistant.
-
-## Schemat (Managers)
-
-Allt kontoret planerar att höra av sig om ligger i ett gemensamt schema med tider:
-
-- utskick av fynd,
-- knuffar före deadlines,
-- påminnelser du har bett om,
-- frågor till dig,
-- idéer och lägesrapporter,
-- avstämningar,
-- Assistants löften.
-
-- **Andra roller begär en tid eller ett tidsfönster** ("knuff om Google, helst 16 okt, senast 21 okt"). Manager bestämmer var det hamnar: den sprider ut, buntar ihop, flyttar och stryker enligt policyn och din kalender.
-- **Dispatchern** är Managers snabba uppgift. När något nytt kommer in placerar den det i schemat, med en tidpunkt, eller i det sparade, eller släpper det. Den planerar bara om när något har ändrats: något nytt har kommit in, din kalender har ändrats, du har bett om tystnad, eller en deadline har flyttats.
-- **Leveransen är Python, inte Claude.** När klockan slår görs en sista kontroll (nattro, paus, gäller saken fortfarande?). Sedan skriver Assistant meddelandet.
-- **Bokning före löfte.** När du ber om något ("påminn mig fredag") bokar Assistant först. Bokningen svarar direkt med "bokat" eller en krock ("fredag 23:30 är nattro", "du har tenta 09:00"). Vid en krock frågar Assistant dig innan den lovar något.
-- **Dina bokningar ligger fast.** Manager kan föreslå en flytt via Assistant, men flyttar aldrig i tysthet.
-- **Det sparade** är en lista utan tid. Du kan be om det ("något nytt?"), och Manager kan boka in något därifrån när det passar.
-- **Din kalender** (TimeEdit och Apple) är fakta om dig och läses men ägs inte. **Kontorets egna körningar** är infrastruktur och hör inte till schemat.
-
-## Från fynd till dig
-
-```
-Nytt fynd → triage (Director: värt något?) → dispatcher (Manager: när?) → schemat → Assistant skriver
-```
-
-- **Koden före Claude** (`agent/rules.py`): det som kan avgöras utan omdöme sorteras bort innan triage frågar Claude. Det gäller dubbletter (samma adress eller rubrik som ett fynd de senaste 30 dagarna, från vilken källa som helst), det som redan har passerat sitt datum, och det rollernas egna regler (#G) säger. Varje regel räknar sina träffar, så att den som äger den ser om den fungerar.
-- **Triage sorterar i omgångar**, ungefär en gång i timmen (takten är en rutin rollerna kan ändra). En källa du själv har bett om är markerad brådskande och sorteras direkt. Det som är brådskande i sig, som en deadline i morgon, når dig ändå samma timme.
-- **Hyllan har bäst-före-datum.** Det som sparas för senare har ett datum efter sitt slag (nyheter två veckor, möjligheter och event en månad) och lämnar hyllan när det passerat. Det finns kvar i historiken.
-- **Direkt, förbi schemat:** allt du själv tar initiativ till. Det gäller svar när du skriver, resultat av en sökning du har bett om, bekräftelser, byggläget och larm om att något är trasigt. Tar du initiativet kommer svaret direkt. Tar kontoret initiativet bestämmer schemat.
-
-## Rösten
-
-Assistant är det enda du möter, och skriver allt du läser. Fyra saker håller rösten sann och billig:
-
-- **Leveranser skrivs för sig.** När kontoret har något åt dig (fynd, en påminnelse, ett löfte, en fråga från en roll) skriver Assistant det med ett kort underlag: de senaste meddelandena, vad som ska fram och varför, profilen och Managers policy. Det långa samtalet bärs inte med. Nästa gång du skriver får samtalet en rad om vad som skickats och vad det gällde, så att rösten vet vad den själv har sagt. Det du inte bett om kommer alltid med ett "varför just det här".
-- **Läget läses, inte minns.** Verktyget `situation` visar vad rollerna senast gjorde, de planerade stegen med datum, vad som väntar på budgeten och varför, vad som är bokat och vad som skickats i dag. Chatten säger inget om bakgrunden som den inte har läst där.
-- **Löften är bokningar eller steg.** "Jag hör av mig i morgon" är en bokning. "Jag hör av mig när planen är klar" är ett steg som väntar på planen, och Assistant väcks när den blir klar. Utan något sådant ger chatten inget löfte.
-- **Samtalet hålls kort.** När det har vuxit förbi sitt fönster (i början 30 000 tokens) och varit tyst en stund viks det ihop till en sammanfattning, och nästa meddelande börjar en ny session från den, de senaste meddelandena och det sökningen hittar. Hur stort och hur tyst är en rutin som går att ändra.
-
-## Bevakningar och sökuppdrag är rutiner
-
-Varje bevakad källa och varje sökuppdrag är en rutin (#N) i kontorets kärna, inte en rad i en inställningsfil. Den har en ägare (Researcher), ett syfte, en historik och en hälsa. Rollerna lägger till, ändrar och pausar dem med kontorets verktyg, och det som körs ändras direkt. En källa som bara ger fel pausar sig själv efter fem försök i rad. Researchers genomgång visar varje källas senaste månad (in, behållet, skickat), och flaggar den som läser mycket men aldrig ger något och den som har pausats. Researcher kan då justera källan, sätta en regel, pausa den eller ersätta den.
-
-## Natten: ett svep i ordning
-
-En kedja som startar när du med störst sannolikhet sover. Starttiden räknas fram ur när du brukar skriva sist och nattron (en smartklocka kan kopplas in senare).
-
-1. **Assistant** rensar minnet och bokar sina löften.
-2. **Director** gör sin genomgång, eller reflektion de nätter den ska göras.
-3. **Researcher** planerar, om en beställning, feedback eller ett tyst uppdrag kräver det.
-4. **Manager** granskar gårdagen och planerar dagens schema med den färska bilden.
-
-Tar kvoten slut stannar kedjan och fortsätter där den slutade.
-
-## Körfält och köer
-
-- **Två körfält:** ett för samtalet (det får aldrig vänta på bakgrundsarbete) och ett för allt annat.
-- **En instans per roll åt gången.** Väcks en roll medan den står i kö blir det en körning som läser all post. Snabba uppgifter skriver inte i anteckningarna och kan därför köras samtidigt som rollens långsamma uppgift.
-
-## ID:n och uppslag
-
-Allt som ska gå att följa upp får ett ID: poster (#P), det du satsar på (#S), fynd (#F), bokningar (#B) och körningar (#R). Meddelanden i samtalet kopplas till de ID:n de handlar om, och allt en körning skriver bär dess id.
-
-**#S** är en enda sorts post för mål, projekt, tillfällen (det du visat intresse för, sökt eller valt bort) och Directors idéer. Var och en har ett varför, en status, ett nästa steg, en deadline och anteckningar, och ett tillfälle eller en idé hör till målet det tjänar. Ett mål bär också planen för det som drivs över tid (tidigare "trådar"). Director äger målen och idéerna; Assistant för in det du säger. Assistant slår upp ("vad lovade jag om Google?") i stället för att minnas. Schemat är minnet av löftena. ID:n är kökets verktyg och syns på webbsidan, inte i chatten.
-
-Allt som ska följas över tid ligger i en gemensam kärna (`agent/forms.py`, `agent/items.py`). Allt har samma grund: id, form, ägare, status, vad det tjänar, källa, när det ses över, hur länge det gäller och en historik. Varje form har dessutom egna fält som koden kontrollerar. Formerna och deras bokstäver:
+**2. Formerna** är allt som är värt att följa. Allt har samma grund: id, form, ägare, status, vad det tjänar, källa, när det ses över, hur länge det gäller och en historik. Varje form har egna fält som koden kontrollerar (`agent/forms.py`, `agent/items.py`), och rollerna skriver med kontorets verktyg (`agent/office_tools.py`), som prövar varje skrivning mot formen och rollens rättigheter.
 
 | Bokstav | Form | Vad det är |
 |---|---|---|
@@ -140,30 +47,145 @@ Allt som ska följas över tid ligger i en gemensam kärna (`agent/forms.py`, `a
 | U | uppfattning | något Audax tror om dig, med källa |
 | Q | fråga | något en roll vill veta |
 | G | regel | något koden gör utan Claude |
-| N | rutin | återkommande arbete |
+| N | rutin | återkommande arbete: en bevakad källa, ett sökuppdrag, en takt |
 
-Rollerna läser och skriver med kontorets verktyg (`agent/office_tools.py`), som kontrollerar varje skrivning mot formen och rollens rättigheter. Rådatan finns under `/data/items/`.
+Inget löper för evigt: steg, experiment och frågor har ett datum då de ses över igen.
 
-**Det du säger om dig själv** blir uppfattningar (#U), var och en med ditt meddelande och dina ord som källa. En ny uppfattning ersätter en äldre, och den gamla finns kvar i historiken, så det syns när du ändrade dig och varför. En tvekan sparas som en tvekan. **Profilen** (`profile.md`) är en vy som koden skriver ur de uppfattningar som gäller just nu. Ingen roll redigerar den.
+**3. Texterna** är tolkningar, resonemang, ton och lärdomar (`agent/texts.py`). Tre principer:
+- **Texten hänvisar, den kopierar inte.** En deadline eller något du sagt står i en form, med ett id, och upprepas inte.
+- **Texten ändras i delar.** En roll ändrar ett avsnitt åt gången, så att inget försvinner i en omskrivning.
+- **Varje text har en ägare och en ungefärlig storlek.** En text som växer förbi sin storlek hamnar i ägarens städpass.
 
-**Sökningen** (`agent/search.py`) går över samtalet, posten, fynden och formerna. Den klarar böjningar och visar vem som sa vad och när. Före varje svar söker koden på det du skrev och lägger med det relevanta, så att det som har sagts kommer fram även när chatten inte tänker på att leta.
+| Text | Ägare | Vad den är |
+|---|---|---|
+| `direction/person.md` | Director | berättelsen om dig: vad som driver dig, mönster, hur bilden har ändrats |
+| `direction/now.md` | Director | läget med egna ord; datumen läggs till av koden |
+| `policy.md` | Manager | resonemanget om din uppmärksamhet och tonen; dina egna önskemål om stil ordagrant |
+| `research/maps/` | Researcher | hur man söker inom ett område |
+| `arbetsminne/<roll>.md` | varje roll | fokus, öppna hypoteser, väntar på, prövat och lärt |
+| `lardomar.md` | alla | kontorets lärdomar om arbetet, sådant som inte kan vara en regel |
 
-**Director och Manager som utforskare.** Båda prövar saker över tid med samma former. Director gör det för innehållet: vad du gör, söker och satsar på. Manager gör det för upplevelsen: hur, när och hur mycket Audax hörs.
-- **Planer** är steg (#T) under det mål de tjänar. Varje steg har en ägare, ett datum och vad som räknas som klart. Ett steg som Assistant äger och som ska tas upp med dig gör Assistant vid sitt datum. Så når en plan dig, i stället för löften i chatten.
-- **Experiment** (#E) prövar något: att *förbättra* det som finns, eller att *utforska* något utanför de nuvarande målen. Varje experiment har en hypotes, vad som görs, vad som mäts och ett datum för utvärdering, och slutar i ett beslut. Ingen takt är hårdkodad. Granskningen visar balansen mellan förbättra och utforska.
-- **Uppfattningar** (#U) bär förståelsen av dig: det du sagt (Assistant), och Directors slutsatser med belägg (mönster, värden, hypoteser). Tre markeringar gör bubblan synlig: *utesluter*, *kanske en begränsning* och *aldrig övervägt*.
-- **Frågor** (#Q) ställer rollerna när ett svar skulle hjälpa mer än signalerna. Assistant ställer dem med egna ord när det passar, och svaret går tillbaka till den som frågade. En fråga utan svar stängs efter en vecka, och det är också något att förstå.
-- **Kalendern** (`agent/due.py`) väcker ägaren när ett steg, ett experiment eller en fråga är dags.
-- **Städpass:** varje körning får en granskning av det som är dags, har stannat, pågår eller väntar, och rollen tar ställning till varje sak.
-- **Lärdomar** om hur arbetet görs står i `lardomar.md`, som alla roller läser.
-- **Reflektionen** är en rutin (#N) som Director själv kan ändra takten på. Den startade på ungefär varannan dag.
+**Profilen** (`profile.md`) är ingen text någon skriver: koden bygger den ur de uppfattningar som gäller just nu. Det är samma vy som webbsidan visar: det här vet Audax om dig, och varifrån.
+
+## Principer
+
+Det här är principer att bedöma efter, inte lagar. Rollerna väger dem mot läget.
+
+- **Din uppmärksamhet är knapp.** Tystnad är standard, och det som når dig ska förtjäna sin plats. Det du inte bett om kommer med varför just det här.
+- **Dina egna ord väger tyngst** och vinner även i en annan rolls område. Ägaren av området bygger vidare på dem.
+- **Man ändrar sig.** En tvekan stänger inget; ett beslut gör det. Rollerna kan komma tillbaka till något varsamt, men är aldrig envisa.
+- **Fråga när det är oklart.** Det är alltid okej att fråga.
+- **Pröva, och bestäm.** Experiment slutar i ett beslut. Ingen manipulation, och frågar du om något var ett test får du ett ärligt svar.
+- **Sanning.** Ingen roll påstår en handling den inte gjort.
+- **Sparsamhet.** Varje körning använder din prenumeration.
+
+## Rättigheter: alla läser, ägaren skriver
+
+- Varje form och varje text har en ägare. Bara ägaren skriver, och rättigheterna i koden följer ägarskapet. Promptarna är inte det enda skyddet.
+- Alla roller kan läsa allt. Varje förmåga får ett utvalt underlag, och resten kan den slå upp.
+- **Dina ord vinner.** Det du uttryckligen säger gäller direkt, via Assistant, även i en annan rolls område: "sluta bevaka X" eller "jag har sökt Y". Ägaren får en post och bygger vidare.
+
+## Postgången
+
+All kommunikation mellan rollerna går genom en central postlogg (#P). Varje rolls inkorg är det i loggen som är adresserat till den.
+
+- **Kan vänta** är det vanliga. Mottagaren läser posten vid sin nästa körning och markerar den som behandlad.
+- **Väck** startar mottagarens körning snart, bara när kedjan började med dig, eller när något brådskande väcker framåt mot dig (Researcher → triage → dispatcher → Assistant). Ingen kan väcka bakåt, så loopar kan inte uppstå.
+- **Bara Assistant pratar med dig.** Rollernas frågor till dig är frågor (#Q) som Assistant ställer med egna ord när det passar.
+
+## Kalendern och städpassen
+
+- **Kalendern** (`agent/due.py`) går var femte minut. När ett steg, ett experiment eller en fråga är dags väcks ägaren. Ett steg som Assistant äger och som ska tas upp med dig gör Assistant vid sitt datum, utom under nattro eller paus. Så når en plan dig, i stället för löften i chatten.
+- **Ett steg kan vänta på något.** När det det väntar på blir klart är steget dags direkt.
+- **En fråga utan svar** stängs efter en vecka. Det är också något att förstå, inte något att fråga om igen direkt.
+- **Städpasset:** varje långsam körning får en granskning av det som är dags, har stannat, pågår eller väntar, uppfattningar som passerat sitt datum, texter som vuxit förbi sin storlek, och för Researcher varje källas avkastning. Rollen tar ställning till varje sak.
+
+## Schemat (Managers)
+
+Allt kontoret planerar att höra av sig om ligger i ett gemensamt schema med tider: utskick av fynd, knuffar före deadlines, påminnelser du har bett om, Assistants löften.
+
+- **Dispatchern** är Managers snabba förmåga. När något nytt har sorterats placerar den det i schemat med en tidpunkt, i det sparade, eller släpper det.
+- **Leveransen är Python, inte Claude.** När klockan slår görs en sista kontroll (nattro, paus, gäller saken fortfarande?). Sedan skriver Assistant meddelandet.
+- **Bokning före löfte.** När du ber om något ("påminn mig fredag") bokar Assistant först och får direkt "bokat" eller en krock ("fredag 23:30 är nattro"). Vid en krock frågar Assistant dig innan den lovar något.
+- **Dina bokningar ligger fast.** Manager kan föreslå en flytt, men flyttar aldrig i tysthet.
+- **Det sparade** är en hylla utan tid, med bäst-före-datum. Du kan be om det ("något nytt?"), och Manager kan ta fram något därifrån när det passar.
+- **Din kalender** (TimeEdit och Apple) är fakta om dig och läses men ägs inte.
+
+## Från fynd till dig
+
+```
+Nytt fynd → regler (koden) → triage (Director: värt något?) → dispatcher (Manager: när?) → schemat → Assistant skriver
+```
+
+- **Koden före Claude** (`agent/rules.py`): dubbletter (samma adress eller rubrik som ett fynd de senaste 30 dagarna, från vilken källa som helst), det som redan passerat sitt datum, och det rollernas regler (#G) säger, sorteras bort innan triage frågar Claude. Varje regel räknar sina träffar.
+- **Triage sorterar i omgångar**, ungefär en gång i timmen. En källa du själv har bett om är brådskande och sorteras direkt.
+- **Hyllan har bäst-före-datum:** nyheter två veckor, möjligheter och event en månad.
+- **Direkt, förbi schemat:** allt du själv tar initiativ till. Svar när du skriver, resultat av en sökning du bett om, byggläget och larm om att något är trasigt.
+
+## Rösten
+
+Assistant är det enda du möter, och skriver allt du läser.
+
+- **Bara svaret går ut.** Det som skickas är chattens färdiga meddelande, aldrig text mellan verktygsanropen, och en sista kontroll före Telegram tar bort kontorets interna id:n.
+- **Leveranser skrivs för sig**, med ett kort underlag: de senaste meddelandena, vad som ska fram och varför, profilen och Managers policy. Nästa gång du skriver får samtalet en rad om vad som skickats och vad det gällde.
+- **Läget läses, inte minns.** Verktyget `situation` visar vad rollerna senast gjorde, de planerade stegen med datum, vad som väntar på budgeten, vad som är bokat och vad som skickats i dag. Chatten säger inget om bakgrunden som den inte läst där.
+- **Löften är bokningar eller steg.** "Jag hör av mig i morgon" är en bokning; "jag hör av mig när planen är klar" är ett steg som väntar på planen. Utan något sådant ger chatten inget löfte.
+- **Samtalet hålls kort.** När det vuxit förbi sitt fönster (i början 30 000 tokens) och varit tyst en stund viks det ihop till en sammanfattning, och nästa meddelande börjar en ny session från den, de senaste meddelandena och det sökningen hittar.
+
+## Minnet av dig
+
+- **Det du säger om dig själv** blir uppfattningar (#U) med ditt meddelande och dina ord som källa. En ny ersätter en äldre, och den gamla finns kvar i historiken, så det syns när du ändrade dig. Det som bara gäller ett tag har ett slutdatum. En tvekan sparas som en tvekan.
+- **Directors slutsatser** är också uppfattningar: mönster, värden och hypoteser, med belägg. Tre markeringar gör bubblan synlig: *utesluter*, *kanske en begränsning* och *aldrig övervägt*.
+- **Sökningen** (`agent/search.py`) går över samtalet, posten, fynden och formerna, klarar böjningar och visar vem som sa vad och när. Före varje svar söker koden på det du skrev och lägger med det relevanta.
+
+## Director och Manager som utforskare
+
+Båda prövar saker över tid med samma former. Director gör det för innehållet, Manager för upplevelsen.
+
+- **Planer** är steg (#T) under det de tjänar, med ägare, datum och vad som räknas som klart.
+- **Experiment** (#E) *förbättrar* det som finns eller *utforskar* något utanför de nuvarande målen. Ingen takt är hårdkodad; granskningen visar balansen.
+- **Frågor** (#Q) ställs när ett svar skulle hjälpa mer än signalerna. Svaret går tillbaka till den som frågade.
+- **Reflektionen** är en rutin som Director själv ändrar takten på.
+
+## Bevakningar och sökuppdrag är rutiner
+
+Varje bevakad källa och varje sökuppdrag är en rutin (#N) med en ägare (Researcher), ett syfte, en historik och en hälsa. Det som körs ändras direkt när en rutin ändras.
+
+- **En källa som bara ger fel** pausar sig själv efter fem försök i rad, med felet som hälsa.
+- **Sökfrågorna** är en del av sökuppdragets rutin. Ett sökuppdrag väljer bland beprövade och nya frågor; de som körts några gånger utan att något behållits visas för Researcher som värda att byta.
+- **Platser sökningarna stöter på** blir anteckningar som Researcher kan göra till källor, steg eller kartanteckningar.
+- **Täckning** prövas som ett experiment när Researcher misstänker en blind fläck: ett oberoende riktmärke jämförs med det som bevakas.
+
+## Budgeten
+
+Audax andel av din veckokvot sätts löst, i början 10 % (`agent/budget.py`). Varje förmåga har en nivå. Samtalet, det du bett om och det billiga flödet väntar aldrig. Rollernas vanliga arbete väntar när veckans andel är använd, det tunga och utforskande när dagens. Det som väntar syns i läget och på webbsidan.
+
+## Natten: ett svep i ordning
+
+En kedja som startar när du med störst sannolikhet sover, räknat ur när du brukar skriva sist och nattron.
+
+1. **Assistant** städar uppfattningarna, skriver samtalssammanfattningen och bokar sina löften.
+2. **Director** gör sin genomgång, eller reflektion när den är dags.
+3. **Researcher** planerar, om något kräver det.
+4. **Manager** granskar gårdagen och ser över schemat med den färska bilden.
+
+Tar kvoten slut stannar kedjan och fortsätter där den slutade.
+
+## Körfält och köer
+
+- **Två körfält:** ett för samtalet och leveranserna (det får aldrig vänta på bakgrundsarbete) och ett för allt annat.
+- **En instans per roll åt gången.** Snabba förmågor kan köras samtidigt som rollens långsamma.
+
+## ID:n och uppslag
+
+Allt som ska gå att följa upp har ett id: formerna (#S, #T, #E, #U, #Q, #G, #N), poster (#P), fynd (#F), bokningar (#B) och körningar (#R). Meddelanden i samtalet kopplas till de id:n de handlar om, och allt en körning skriver bär dess id. Assistant slår upp i stället för att minnas. Id:n är kökets verktyg och syns på webbsidan, inte i chatten. Rådatan finns under `/data/`.
 
 ## Återkoppling: hur kontoret blir bättre
 
-- **Director → Researcher:** vad varje uppdrag gav, vad som behölls och hur du reagerade blir feedback inför nästa planering.
-- **Manager → dispatchern:** varje natt en rapport med dispatcherns beslut och skäl, plus stickprov där Manager prövar om besluten följde policyn. Missar ("varför sa du inte det här?", saker du själv hämtade ur det sparade) kopplas tillbaka till beslutet som höll inne dem.
-- **Mått för Manager** räknas fram av Python och tolkas av Manager: svarstid, reaktioner per sort och tid på dygnet, pauser, hämtningar och knuffar som följdes. Det är mått, inte regler.
-- **Täckning:** Researcher reviderar regelbundet mot ett oberoende riktmärke för att se vad den missar.
+- **Director → Researcher:** vad varje uppdrag gav och hur du reagerade blir feedback inför nästa planering.
+- **Manager → dispatchern:** varje natt dispatcherns beslut med skäl och stickprov mot policyn. Missar ("varför sa du inte det här?", det du själv hämtade ur det sparade) kopplas till beslutet som höll inne dem.
+- **Mått för Manager** räknas fram av Python och tolkas av Manager: svarstid, reaktioner, pauser, hämtningar och knuffar som följdes. Det är signaler, inte mål.
+- **Lärdomar** som gäller hela kontoret står i `lardomar.md`.
 
 ## Utanför kontoret
 
@@ -172,16 +194,14 @@ Rollerna läser och skriver med kontorets verktyg (`agent/office_tools.py`), som
 
 ## Från i dag till modellen
 
-1. **Klart (etapp 3):** Researcher är utbruten ur Director. Kartor, ledtrådar, täckning, bevakningar och takt flyttar, och djupsvep och nya sökfrågor går upp i planeringen. Uppdragsfilen ägs av Researcher, och Director beställer via post.
-2. **Klart (etapp 2–3):** triage är Directors snabba uppgift och dispatchern Managers.
-3. **Klart (etapp 1):** postgången ersätter anteckningar och förfrågningar, och `open-questions.md` är borta.
-4. **Klart (etapp 2):** schemat ersätter "vänta på lucka" och rundan var 10:e minut. Fynd och knuffar får en tidpunkt, och påminnelser och löften är bokningar. Kvar: frågor, avstämningar och schemafrågor ställs fortfarande i en ledig stund (kontrolleras var 15:e minut) i stället för att bokas.
-5. **Klart (etapp 1, 3 och 4):** arbetsminne för alla fyra roller, och Assistants nattpass (som nu skriver samtalssammanfattningen).
-6. **Klart (etapp 1):** rättigheterna följer ägarskapet. Assistant har skrivrätt bara till sina egna filer.
-7. **Klart (etapp 1 och 4):** läget: Director äger fakta (`now.md`), Manager äger slutsatsen. Målen hör till Director; Assistants nattpass flyttar dem ur profilen.
-8. **Klart (etapp 4):** nattsvepet i ordning, med starttid räknad ur när ägaren brukar skriva sist.
-9. **Klart (etapp 1):** två körfält.
-10. **Klart (etapp 1 och 2):** ID:n (#P, #S, #F, #B) och uppslagsverktyget.
-11. **Klart (etapp 4):** Managers rapport om dispatcherns beslut och missarna, stickprov och mått.
-12. **Klart (etapp 2–4):** promptarna är omskrivna mot den här sidan, en roll i taget. `how_i_work` läser den här sidan direkt (`self.md` är borta).
-13. **Klart (16 okt):** förenklat minne. Mål, trådar, projekt, ansökningsspår och idéer är #S-poster i databasen i stället för filer. Profilen tog upp skola, intressen, vad som får störa och schemat; policyn tog upp stilen och läget. Loggarna och journalen ersattes av en redogörelse per körning. Minnet är nio filer: profilen, bilden av dig, läget, policyn, fyra arbetsminnen och sökkartorna.
+Omdesignen i oktober 2026 byggdes i sju etapper, var och en driftsatt för sig. Designen och problemlistan finns i instansens granskningsmapp.
+
+1. **Kärnan:** en tabell för allt som är värt att följa, med former som koden kontrollerar.
+2. **Uppfattningar och minne:** det du säger sparas med källa, profilen är en vy, sökningen hittar det som sagts.
+3. **Förmågor, budget och gränsvakt:** varje körning bär bara sina verktyg, budgeten fördelar efter nivå, inget internt når Telegram.
+4. **Director och Manager som utforskare:** planer i steg, experiment, frågor, kalendern och städpassen.
+5. **Flödet:** bevakningar och sökuppdrag som rutiner, regler före Claude, sortering i omgångar, hylla med bäst-före-datum.
+6. **Rösten:** leveranser med kort underlag, läget, löften som håller, ett kort samtal.
+7. **Texten:** texter som ändras i delar med ägare och storlek, en gemensam CLAUDE.md med kortare rollprompter, sökfrågorna i uppdragen, kontorssidan visar formerna.
+
+Kvar att pröva i drift: att Director lägger planer i steg och att Manager och Director frågar och experimenterar i den takt läget kräver.
