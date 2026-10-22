@@ -433,3 +433,12 @@ async def test_a_big_quiet_conversation_is_folded_into_its_summary_and_starts_fr
     assert tasks[-1].prompt.count("hej igen") == 1   # the turn's own message isn't repeated among the latest
     assert "Google-ansökan" in tasks[-1].prompt and "Ska jag söka Google?" in tasks[-1].prompt   # summary and the latest messages
     assert await chat.tidy() is False   # a fresh session is small
+
+
+def test_a_failed_turn_never_shows_the_owner_the_raw_error():
+    from agent.chat import failure_words
+
+    raw = "ResultError: Claude Code returned an error result: You've hit your session limit · resets 12:30am (Europe/Stockholm) (exit code: 1)"
+    assert failure_words(raw) == "Min Claude-kvot är slut just nu. Den återställs 00:30, skriv igen då."
+    assert failure_words("You've hit your weekly limit · resets 2pm") == "Min Claude-kvot är slut just nu. Den återställs 14:00, skriv igen då."
+    assert "Error" not in failure_words("ResultError: boom") and "Error" not in failure_words(None)

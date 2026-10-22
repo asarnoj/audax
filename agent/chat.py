@@ -87,6 +87,20 @@ Send = Callable[..., Awaitable[list[int]]]
 Typing = Callable[[], Awaitable[None]]
 
 
+def failure_words(error: str | None) -> str:
+    """What the owner reads when a turn failed: in their world, never the error itself."""
+    import re
+
+    text = error or ""
+    if re.search(r"(session|usage|weekly|rate) limit", text, re.I):
+        m = re.search(r"resets\s+(\d{1,2})(?::(\d{2}))?\s*(am|pm)", text, re.I)
+        if m:
+            hour = int(m.group(1)) % 12 + (12 if m.group(3).lower() == "pm" else 0)
+            return f"Min Claude-kvot är slut just nu. Den återställs {hour:02d}:{m.group(2) or '00'}, skriv igen då."
+        return "Min Claude-kvot är slut just nu. Skriv igen om en stund."
+    return "Något gick fel på min sida. Försök igen om en stund."
+
+
 def _first_row(batch: list[Incoming]) -> int | None:
     rows = [m.message_row_id for m in batch if m.message_row_id]
     return min(rows) if rows else None
@@ -445,7 +459,8 @@ class ChatSession:
         if result.is_error:
             if internal:
                 raise RuntimeError(result.error or "chat error")
-            await self._send(f"Det blev fel: {result.error or 'okänt'}", origin="chat", in_session=True)
+            log.warning("chat turn failed: %s", result.error)
+            await self._send(failure_words(result.error), origin="chat", in_session=True)   # never the raw error (22 Oct)
             return
 
         if result.session_id:
