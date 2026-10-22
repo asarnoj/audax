@@ -3,7 +3,7 @@
 Two loops, both in the background, never talking to the owner directly:
 - understand (daily, Sonnet): keeps the picture (person, now), the goals and what the owner goes for (#S) current,
   and steers the search
-- reflect (2-3x/week, Opus, high effort, web search): thinks deeply, checks ideas, and occasionally
+- reflect (a routine, about every other day; Sonnet, medium effort, web search): thinks deeply, checks ideas, and occasionally
   shares one through the outbox, where the dispatcher and Manager's policy still decide when
 
 Python gathers the facts, Claude judges and writes beliefs, aims, steps, experiments and questions with the office's
@@ -173,7 +173,7 @@ class Director:
                     prompt=(prompt_template("director") + "\n\n" + prompt_template(f"director_{mode}")).format(**context),
                     priority=Priority.MANAGER,
                     model=self.settings.models.reflect if reflect else self.settings.models.director,
-                    effort="high" if reflect else None,
+                    effort="medium" if reflect else None,   # thorough, not the most expensive
                     allowed_tools=tools,
                     mcp_servers=mcp,
                     output_schema=SCHEMA,

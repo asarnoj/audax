@@ -51,7 +51,7 @@ CALLS: dict[str, Call] = {
                                 "prompts/director.md + director_understand.md", "models.director", "memory (read), web search, web_read, mail (read)",
                                 "the night sweep (daily review, or reflection Mon/Wed/Sat); when woken by the owner's words"),
     "director_reflect": Call("Director", "Deep reflection: hidden assets, gaps, connections; checked ideas",
-                             "prompts/director.md + director_reflect.md", "models.reflect (high effort)", "web search, web_read, github, mail (read), memory (read)",
+                             "prompts/director.md + director_reflect.md", "models.reflect (medium effort)", "web search, web_read, github, mail (read), memory (read)",
                              "the night sweep on Mon/Wed/Sat mornings"),
     "manager": Call("Manager", "UX review of the conversation; pacing, situation, style (policy.md), shelf",
                     "prompts/manager.md", "models.manager", "memory (read); its own files are written from its answer", "the night sweep, last step; when woken by the owner's words"),

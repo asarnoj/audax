@@ -93,7 +93,7 @@ async def test_apply_writes_the_picture_posts_ideas_lessons_dates_and_its_accoun
     assert any(c.startswith("idé till") for c in changes)
 
 
-async def test_reflect_uses_opus_high_effort_with_web_and_understand_does_not(env, tmp_path):
+async def test_reflect_thinks_longer_with_web_and_understand_does_not(env, tmp_path):
     db, memory, *_ = env
     calls = []
     d = director(db, memory, tmp_path, structured=BASE, calls=calls)
@@ -101,7 +101,7 @@ async def test_reflect_uses_opus_high_effort_with_web_and_understand_does_not(en
     assert await d.run("reflect") is not None
     u, r = calls
     assert (u.model, u.effort) == ("sonnet", None) and "WebSearch" not in u.allowed_tools
-    assert (r.model, r.effort) == ("opus", "high") and "WebSearch" in r.allowed_tools
+    assert (r.model, r.effort) == ("sonnet", "medium") and "WebSearch" in r.allowed_tools
     assert "hidden assets" in r.prompt.lower() and "Profil" in r.prompt
     assert await db.kv_get("director.last_reflect") is not None
 

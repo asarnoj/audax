@@ -19,7 +19,7 @@ models:
   manager: sonnet
   builder: sonnet
   director: sonnet   # daglig genomgång
-  reflect: opus      # djup reflektion 2–3 ggr/vecka
+  reflect: sonnet    # reflektionen, ungefär varannan dag
 
 paths:
   workspace: workspace

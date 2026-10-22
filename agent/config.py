@@ -62,7 +62,7 @@ class Models(BaseModel):
     manager: str = "sonnet"
     builder: str = "sonnet"
     director: str = "sonnet"
-    reflect: str = "opus"
+    reflect: str = "sonnet"   # Opus cost ~1 $ a reflection (21 Oct); the owner chose Sonnet
 
 
 class Paths(BaseModel):
