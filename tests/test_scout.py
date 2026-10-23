@@ -98,3 +98,15 @@ async def test_a_deep_sweep_runs_only_when_researcher_asked_and_is_spaced(db, tm
     assert await db.kv_get("research.deep_requested.jobs") is None  # done
     await db.kv_set("research.deep_requested.jobs", "2026-10-13T06:00:00+02:00")
     assert await r.due_deep() is None  # spaced: no second deep sweep right after
+
+
+def test_a_finding_whose_page_was_never_read_says_so():
+    from agent.research import hold_to_the_page
+
+    london = "https://www.google.com/about/careers/applications/jobs/results/100028133205254854-intern-2027"
+    f = {"url": london, "checked": "page", "unconfirmed": None}
+    hold_to_the_page(f, {"https://www.google.com/about/careers/applications/jobs/results/?q=intern"})
+    assert f["checked"] == "other_sites" and "inte bekräftade" in f["unconfirmed"]
+    ok = {"url": london + "/", "checked": "page", "unconfirmed": None}
+    hold_to_the_page(ok, {london})
+    assert ok == {"url": london + "/", "checked": "page", "unconfirmed": None}

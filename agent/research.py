@@ -19,7 +19,7 @@ from agent.memory import MemoryRepo
 from agent import search_map
 from agent.prompts import prompt as prompt_template
 from agent.pursuits import judged_against
-from agent.tools import build_web_tools
+from agent.tools import TurnContext, build_web_tools
 
 log = logging.getLogger(__name__)
 
@@ -42,8 +42,12 @@ FINDINGS_SCHEMA = {
                     "location": {"type": ["string", "null"]},
                     "organization": {"type": ["string", "null"], "description": "Who offers it (company, university, organisation)"},
                     "query": {"type": "string", "description": "The query (exactly as given) that led to the finding"},
+                    "checked": {"type": "string", "enum": ["page", "other_sites", "search_results"],
+                                "description": "Where the facts come from: the page at `url` itself, copies on other sites, or only search results"},
+                    "unconfirmed": {"type": ["string", "null"],
+                                    "description": "Swedish: what in the summary is NOT confirmed by the page at `url` (a date, the place, who may apply), or null"},
                 },
-                "required": ["title", "url", "summary", "why_you", "kind", "query"],
+                "required": ["title", "url", "summary", "why_you", "kind", "query", "checked", "unconfirmed"],
             },
         },
         "leads": {
@@ -94,6 +98,20 @@ class ResearchTask:
     interval_days: float
     enabled: bool
     queries: tuple[str, ...] = ()   # the mission's portfolio, part of its routine (agent/routines.py)
+
+
+def hold_to_the_page(finding: dict, pages_read: set[str]) -> None:
+    """A finding's facts must come from the page it links to. If that page was never read in the run, the finding says
+    so, whatever the run claimed (9 Oct: a Stockholm posting's facts were linked to the London posting, whose page
+    couldn't be read; the caveat lay in a free-text field and was lost on the way, until the owner was told the wrong
+    deadline on 23 Oct)."""
+    read = {normalize_url(u) for u in pages_read}
+    if normalize_url(finding["url"]) in read:
+        return
+    if finding.get("checked") == "page":
+        finding["checked"] = "other_sites"
+    note = "Sidan på länken gick inte att läsa i sökningen, så uppgifterna är inte bekräftade där."
+    finding["unconfirmed"] = (finding.get("unconfirmed") or "").strip() + (" " if finding.get("unconfirmed") else "") + note
 
 
 def load_research() -> list[ResearchTask]:
@@ -226,7 +244,8 @@ class Researcher:
         except QuotaPaused:
             log.info("research %s postponed: quota paused", task.id)
             return 0
-        web_servers, web_names = build_web_tools(self.web) if self.web else ({}, [])
+        turn = TurnContext()
+        web_servers, web_names = build_web_tools(self.web, turn) if self.web else ({}, [])
         if deep:
             now = datetime.now(self.tz).isoformat()
             await self.db.kv_set(f"research.last_deep.{task.id}", now)
@@ -274,6 +293,7 @@ class Researcher:
         for f in findings:
             if not f.get("url") or not f.get("title"):
                 continue
+            hold_to_the_page(f, turn.pages_read)
             if f.get("query") not in queries:  # keep yield attribution honest
                 f["query"] = next((q for q in queries if q.lower() in str(f.get("query", "")).lower()), f.get("query"))
             new += bool(await self.db.insert("events", ignore=True, source=source, kind=f.get("kind", "opportunity"),

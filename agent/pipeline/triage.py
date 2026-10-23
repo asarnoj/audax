@@ -139,6 +139,8 @@ class Triage:
             payload = json.loads(row["payload"])
             features = {k: item[k] for k in FEATURES if k in item}
             features["reason"] = item.get("reason", "")
+            if payload.get("unconfirmed"):   # what the search couldn't confirm travels with the finding, all the way to the owner
+                features["unconfirmed"] = payload["unconfirmed"]
             try:
                 cid = await add_candidate(
                     self.db,

@@ -126,7 +126,8 @@ class Outbox:
         chat at all (tests, a bare engine) is the plain draft sent."""
         if self.speak is not None:
             items = "\n".join(f"- #F{r['id']} {r['title']}: {r['body'].strip()} {r['url'] or ''}".strip()
-                              + (f"\n  why it was kept (for you): {why}" if (why := _why(r)) else "") for r in rows)
+                              + (f"\n  why it was kept (for you): {why}" if (why := _why(r)) else "")
+                              + (f"\n  NOT confirmed (say so): {doubt}" if (doubt := _feature(r, "unconfirmed")) else "") for r in rows)
             try:
                 ids = await self.speak(
                     "Findings for the owner: one message, one line per item, links kept, each with what it is and why it is "
@@ -234,8 +235,12 @@ class FallbackDispatcher:
         await self.outbox.deliver(rows)  # the rest stays undecided; the desk tries again when Claude is back
 
 
-def _why(row) -> str:
+def _feature(row, key: str) -> str:
     try:
-        return (json.loads(row["features"] or "{}").get("reason") or "").strip()
+        return (json.loads(row["features"] or "{}").get(key) or "").strip()
     except ValueError:
         return ""
+
+
+def _why(row) -> str:
+    return _feature(row, "reason")

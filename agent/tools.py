@@ -54,6 +54,7 @@ class TurnContext:
     mail_read: bool = False
     refs: set = field(default_factory=set)  # IDs this turn touched (#P, #S, #F), linked to the messages afterwards
     message_row_id: int | None = None  # messages.id of the owner's latest message in this turn: the source of what they said
+    pages_read: set = field(default_factory=set)  # addresses web_read could actually read in this run (agent/research.py checks findings against them)
 
 
 ISOLATED = (
@@ -205,6 +206,7 @@ def build_chat_tools(
         return _text(
             f"[internal] {'Tracked' if created else 'Updated'} #S{pid} ({KIND_LABEL[row['kind']]}): {row['title']} · {LABEL.get(row['status'], row['status'])}"
             + (f" · deadline {row['deadline']}" if row.get("deadline") else " · no deadline known")
+            + (f" · link {row['url']}" if row.get("url") else " · no link")
             + (f" · reminder {row['remind_at']}" if row.get("remind_at") else "")
         )
 
@@ -807,6 +809,8 @@ def build_web_tools(web, turn: TurnContext | None = None) -> tuple[dict[str, Any
         if turn is not None and turn.mail_read:
             return _text(personalize(ISOLATED))
         text, method = await web.read(args["url"])
+        if turn is not None and method != "none":
+            turn.pages_read.add(args["url"])
         return _text(f"[{method}]\n{text}")
 
     return {"web": create_sdk_mcp_server("web", tools=[web_read])}, ["mcp__web__web_read"]

@@ -75,3 +75,16 @@ async def test_researchers_review_shows_each_sources_yield_and_its_rules(db):
     assert "amanita: 1 in, 1 kept, 0 sent" in text
     assert "dead-careers: 0 in, 0 kept, 0 sent · paused (404)" in text
     assert "LessWrong: inga AI-nyheter" in text and "hits 0" in text
+
+
+async def test_postings_with_the_same_title_on_the_same_site_are_not_duplicates(db):
+    await add_candidate(db, "opportunity", "Software Engineering Intern 2027, Google", "b", {},
+                        url="https://www.google.com/about/careers/jobs/100028133205254854-london")
+    ids = [
+        await event(db, "research:jobs", "opportunity", title="Software Engineering Intern 2027, Google",
+                    url="https://www.google.com/about/careers/jobs/142747733357142726-emea"),        # another posting, same site
+        await event(db, "stream:aggregator", "opportunity", title="Software Engineering Intern 2027, Google",
+                    url="https://jobs.example/google-intern"),                                          # the same news elsewhere
+    ]
+    decided = await screen(db, await db.fetchall("SELECT * FROM events ORDER BY id"))
+    assert set(decided) == {ids[1]}

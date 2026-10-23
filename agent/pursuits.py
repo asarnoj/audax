@@ -140,9 +140,11 @@ class Pursuits:
         deadline = _day(payload.get("deadline") or payload.get("date"))
         if not deadline and c["expires_at"]:
             deadline = datetime.fromisoformat(c["expires_at"]).astimezone(self.tz).date().isoformat()
+        doubt = payload.get("unconfirmed")
         pid, _ = await self.upsert({
             "candidate_id": candidate_id, "title": c["title"], "organization": payload.get("organization"),
             "url": c["url"], "deadline": deadline, "status": status,
+            **({"about": f"Inte bekräftat när det hittades: {doubt}"} if doubt else {}),
         }, by)
         return pid
 

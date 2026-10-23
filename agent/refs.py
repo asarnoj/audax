@@ -8,6 +8,7 @@ for the owner's chat.
 
 from __future__ import annotations
 
+import json
 import re
 
 from agent.db import Database
@@ -56,9 +57,9 @@ async def describe(db: Database, ref: str) -> str | None:
     if c is None:
         return None
     why = await db.fetchone("SELECT reason FROM decisions WHERE candidate_id = ? ORDER BY id DESC LIMIT 1", (n,))
+    doubt = (json.loads(c["features"] or "{}").get("unconfirmed") or "").strip()
     return f"#F{n} · {c['kind']} · {c['status']} · {c['title']}\n{c['body']}" + (f"\n{c['url']}" if c["url"] else "") + (
-        f"\nDecision: {why['reason']}" if why else ""
-    )
+        f"\nNOT confirmed: {doubt}" if doubt else "") + (f"\nDecision: {why['reason']}" if why else "")
 
 
 async def lookup(db: Database, query: str, limit: int = 12) -> str:
