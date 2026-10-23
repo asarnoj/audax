@@ -23,6 +23,7 @@ from zoneinfo import ZoneInfo
 from agent import refs
 from agent.claude_gate import RUNNING
 from agent.db import Database
+from agent.forms import FORMS
 from agent.items import Items, ref
 from agent.vocab import KINDS, NAMES, OUT_TOOLS, ROLES, kinds_of, role_of, task_name
 
@@ -241,15 +242,36 @@ class Office:
             f"SELECT id, kind, created_at, finished_at, duration_ms, is_error FROM claude_runs WHERE kind IN ({','.join('?' * len(kinds))}) "
             "AND finished_at IS NOT NULL ORDER BY id DESC LIMIT 60", tuple(kinds))
         summary = await self._summaries(runs)
+        made = await self._made([r["id"] for r in runs])
         return {
             "role": role, "title": NAMES[role], "about": ABOUT[role],
             "working": self.working().get(role), "last": (await self.last_active())[role],
             "inbox": await self.inbox(role),
             "plans": await self.plans(role),
             "memory": wm.read_text() if wm.is_file() else None,
-            "work": [{"id": r["id"], "kind": r["kind"], "task": task_name(r["kind"]), "summary": summary.get(r["id"]),
+            "work": [{"id": r["id"], "kind": r["kind"], "task": task_name(r["kind"]), "summary": summary.get(r["id"]), "made": made.get(r["id"], []),
                       "at": self.local(r["finished_at"]), "seconds": (r["duration_ms"] or 0) // 1000, "failed": bool(r["is_error"])} for r in runs],
         }
+
+    async def _made(self, run_ids: list[int]) -> dict[int, list[dict]]:
+        """What each run came to, in the office's own forms: the ideas, steps, questions, experiments, beliefs and
+        opportunities it made or changed (the summary says why; this shows what)."""
+        if not run_ids:
+            return {}
+        rows = await self.db.fetchall(
+            f"SELECT l.run_id, l.item_id, l.status, l.changes, l.note, i.form, i.kind, i.title, i.status AS now, "
+            f"(SELECT min(id) FROM item_log WHERE item_id = l.item_id) = l.id AS created "
+            f"FROM item_log l JOIN items i ON i.id = l.item_id WHERE l.run_id IN ({','.join('?' * len(run_ids))}) ORDER BY l.id", tuple(run_ids))
+        out: dict[int, dict[int, dict]] = {}
+        for r in rows:
+            if r["form"] == "routine" and not r["created"]:
+                continue   # a source's routine bookkeeping is noise here
+            seen = out.setdefault(r["run_id"], {})
+            entry = seen.get(r["item_id"]) or {"ref": f"#{FORMS[r['form']].letter}{r['item_id']}", "form": FORMS[r["form"]].label,
+                                               "kind": r["kind"], "title": r["title"], "status": r["now"], "new": bool(r["created"]), "note": r["note"]}
+            entry["new"] = entry["new"] or bool(r["created"])
+            seen[r["item_id"]] = entry
+        return {run: list(items.values()) for run, items in out.items()}
 
     async def _summaries(self, runs: list) -> dict[int, str]:
         """One line per piece of work saying what happened, from what the run wrote (by its id)."""

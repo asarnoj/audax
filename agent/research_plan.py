@@ -163,6 +163,8 @@ class ResearchPlanner:
             return "inbox"
         if await due_items(self.db, now, "researcher"):
             return "steps due"
+        if await Items(self.db).find("step", status="planned", owner="researcher", limit=1):
+            return "steps to do"
         for t in load_research():
             if not t.enabled:
                 continue

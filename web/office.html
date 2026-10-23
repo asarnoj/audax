@@ -1312,7 +1312,9 @@ function render(name, d) {
         html += `<div class="row"><span class="when">${esc(w.count > 1 ? clock(w.first) + "–" + clock(w.at) : clock(w.at))}</span><span class="muted">Read ${w.count > 1 ? plural(w.count, "watched page") : "a watched page"}</span></div>`;
         continue;
       }
-      html += `<div class="work row" data-id="${w.id}"><span class="when">${esc(clock(w.at))}</span><span class="what">${esc(w.summary || w.task)}</span></div><div class="detail" id="work-${w.id}" hidden></div>`;
+      html += `<div class="work row" data-id="${w.id}"><span class="when">${esc(clock(w.at))}</span><span class="what">${esc(w.summary || w.task)}</span></div>`;
+      if (w.made && w.made.length) html += `<ul class="plain made">` + w.made.map(m => `<li class="row"><span class="when">${esc(m.ref)}</span><span>${esc(m.title)}<div class="muted">${esc(m.form)}${m.kind ? " · " + esc(m.kind) : ""} · ${m.new ? "new" : "changed"} · now ${esc(m.status)}</div></span></li>`).join("") + "</ul>";
+      html += `<div class="detail" id="work-${w.id}" hidden></div>`;
     }
     if (!d.work.length) html += "<p class='muted'>Nothing yet.</p>";
     html += `<h3>Its notes</h3>` + (d.memory ? `<div class="notes">${notes(d.memory)}</div>` : "<p class='muted'>Empty.</p>");

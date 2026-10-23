@@ -54,7 +54,7 @@ LABEL = {
 DEFAULT_LEAD = timedelta(days=3)
 POSITIVE_REACTIONS = {"👍", "❤", "❤️", "🔥", "🤩", "👏", "💯", "😍", "🥰", "🎉", "⚡", "🙏", "❤‍🔥"}
 PURSUABLE = ("opportunity", "event", "insight", "search_update")
-DATA = ("organization", "url", "deadline", "remind_at", "next_step", "why", "about", "candidate_id")   # the aim's own fields
+DATA = ("organization", "url", "deadline", "remind_at", "next_step", "why", "about", "candidate_id", "opportunity")   # the aim's own fields
 
 
 def _day(value: str | None) -> str | None:
@@ -141,9 +141,14 @@ class Pursuits:
         if not deadline and c["expires_at"]:
             deadline = datetime.fromisoformat(c["expires_at"]).astimezone(self.tz).date().isoformat()
         doubt = payload.get("unconfirmed")
+        oid = payload.get("opportunity") or json.loads(c["features"] or "{}").get("opportunity")
+        o = await self.items.get(int(oid)) if oid else None
+        if o is not None:   # the opportunity's own facts, not the finding's headline
+            deadline = o.get("deadline") or deadline
+            doubt = o.get("unconfirmed")
         pid, _ = await self.upsert({
-            "candidate_id": candidate_id, "title": c["title"], "organization": payload.get("organization"),
-            "url": c["url"], "deadline": deadline, "status": status,
+            "candidate_id": candidate_id, "title": c["title"], "organization": (o or {}).get("organization") or payload.get("organization"),
+            "url": (o or {}).get("url") or c["url"], "deadline": deadline, "status": status, **({"opportunity": o["id"]} if o else {}),
             **({"about": f"Inte bekräftat när det hittades: {doubt}"} if doubt else {}),
         }, by)
         return pid

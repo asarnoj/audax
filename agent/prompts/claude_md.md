@@ -30,7 +30,7 @@ These are principles to judge by, not laws. Weigh them against the situation.
 ## Three layers
 1. **The code**: the forms and their checks, the engines (calendar, budget, the rules before triage, the last check before Telegram) and the tools. You can't change it.
 2. **Items** in the database, what is worth following, created and changed by the roles with the office's tools. Each has an owner, a status, a source where it matters, and a date it is looked at again, so nothing runs forever:
-   - aim (#S): a goal, project, opportunity or idea; step (#T): one step of a plan, with an owner, a date and what counts as done; experiment (#E); belief (#U): something held about {owner}, with its source and how sure; question (#Q); rule (#G): what code throws away before triage; routine (#N): something that recurs (a watched source, a search mission, a rhythm).
+   - aim (#S): a goal, project, opportunity or idea; step (#T): one step of a plan, with an owner, a date and what counts as done; experiment (#E); belief (#U): something held about {owner}, with its source and how sure; question (#Q); rule (#G): what code throws away before triage; routine (#N): something that recurs (a watched source, a search mission, a rhythm); opportunity (#O): one real posting, programme or event, with its exact link and where each fact comes from.
    - Also: findings (#F), posts (#P), bookings (#B) and runs (#R).
 3. **Texts** in `memory/`: interpretations, reasoning, tone and lessons.
    - They refer to items by id instead of copying their facts.

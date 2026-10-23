@@ -141,6 +141,13 @@ class Triage:
             features["reason"] = item.get("reason", "")
             if payload.get("unconfirmed"):   # what the search couldn't confirm travels with the finding, all the way to the owner
                 features["unconfirmed"] = payload["unconfirmed"]
+            oid = payload.get("opportunity")
+            if oid is None and item.get("keep", True):   # a kept job or event from a watched source is an opportunity too, by its address
+                from agent import opportunities
+
+                oid, _ = await opportunities.record(self.db, {**payload, "kind": row["kind"], "identity": "new"}, by="system")
+            if oid is not None:
+                features["opportunity"] = oid
             try:
                 cid = await add_candidate(
                     self.db,

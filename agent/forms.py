@@ -84,6 +84,7 @@ FORMS: dict[str, Form] = {f.name: f for f in (
             Field("candidate_id", "int"),
             Field("nudged_at", "datetime"),
             Field("nudge_candidate_id", "int"),
+            Field("opportunity", "int", help="the #O it is about (an opportunity): its link and dates come from there"),
         ),
     ),
     Form(
@@ -148,6 +149,27 @@ FORMS: dict[str, Form] = {f.name: f for f in (
         ),
     ),
     Form(
+        "opportunity", "O", "Möjlighet",
+        "One real thing out there that the owner could apply to or go to: a job posting, a programme, an event, a course, "
+        "a competition. One item per real thing, with its exact link, so two postings with the same title for different "
+        "places stay two, and copies of one posting on other sites are the same. Every fact says where it comes from.",
+        {k: ("open", "upcoming", "closed", "gone") for k in ("job", "programme", "event", "course", "competition", "other")},
+        closed=("closed", "gone"),
+        fields=(
+            Field("url", "url", True, help="the exact page of this thing: the posting for this place, not a search or a sibling posting"),
+            Field("organization", required=True),
+            Field("place", help="where, as the page says it (cities one can choose, online)"),
+            Field("deadline", "date", help="last day to apply"),
+            Field("date", "date", help="when it happens (an event)"),
+            Field("who", help="Swedish: who may apply, as the page says it"),
+            Field("checked", "enum", False, ("page", "other_sites", "search_results"),
+                  help="where the facts come from: the page at url itself, copies elsewhere, or only search results"),
+            Field("unconfirmed", help="Swedish: what is not confirmed by the page itself"),
+            Field("also_at", help="other addresses that lead to this same thing, one per line"),
+            Field("differs_from", help="Swedish: similar things it is NOT, and how it differs (e.g. the London posting #O12)"),
+        ),
+    ),
+    Form(
         "rule", "G", "Regel",
         "Something the code does without Claude, made by a role: a filter for a source, a check before something is sent.",
         {"": ("active", "paused", "retired")},
@@ -185,7 +207,7 @@ CORE = ("id", "form", "kind", "title", "status", "owner", "parent_id", "source",
 CREATE = {
     "assistant": {"aim", "belief", "question", "step"},
     "director": {"aim", "belief", "question", "step", "experiment", "rule"},
-    "researcher": {"step", "question", "rule", "routine"},
+    "researcher": {"step", "question", "rule", "routine", "opportunity"},
     "manager": {"belief", "question", "step", "experiment", "rule", "routine"},
 }
 UPDATE_ANY = {

@@ -222,6 +222,19 @@ async def write_now(db: Database, path, now: datetime, text: str | None = None) 
 
 
 
+def starter(wake: Callable[[str, str], None]):
+    """An Items watcher: a research step another role (or the code) gives Researcher wakes it at once. The step's date
+    is when the answer is needed at the latest, not when the work starts (22 Oct: an improv question asked on 16 Oct
+    had a step dated 4 Nov, and nothing happened until then). Spaced by the waker, so it can't loop."""
+
+    async def start(db: Database, item: dict) -> None:
+        if (item["form"] == "step" and item["owner"] == "researcher" and item["status"] == "planned"
+                and item["by"] != "researcher" and item["created_at"] == item["updated_at"]):
+            wake("researcher", f"nytt steg {ref(item)}: {item['title']}")
+
+    return start
+
+
 def follower(tz: str):
     """An Items watcher: when something is over, the open steps that waited for it are due now, so a promise like
     "jag hör av mig när planen är klar" is kept when it happens rather than at a guessed time."""

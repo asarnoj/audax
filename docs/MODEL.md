@@ -48,6 +48,7 @@ Det som behöver vara stabilt är kod. Det kontoret själv bygger och ändrar ä
 | Q | fråga | något en roll vill veta |
 | G | regel | något koden gör utan Claude |
 | N | rutin | återkommande arbete: en bevakad källa, ett sökuppdrag, en takt |
+| O | möjlighet | en verklig annons, ett program eller ett event: exakt länk, ort, sista dag, vem som får söka, varifrån varje uppgift kommer |
 
 Inget löper för evigt: steg, experiment och frågor har ett datum då de ses över igen.
 
@@ -96,6 +97,7 @@ All kommunikation mellan rollerna går genom en central postlogg (#P). Varje rol
 ## Kalendern och städpassen
 
 - **Kalendern** (`agent/due.py`) går var femte minut. När ett steg, ett experiment eller en fråga är dags väcks ägaren. Ett steg som Assistant äger och som ska tas upp med dig gör Assistant vid sitt datum, utom under nattro eller paus. Så når en plan dig, i stället för löften i chatten.
+- **Ett steg till Researcher görs direkt.** Researcher väcks när steget skapas; datumet är när svaret behövs senast.
 - **Ett steg kan vänta på något.** När det det väntar på blir klart är steget dags direkt.
 - **En fråga utan svar** stängs efter en vecka. Det är också något att förstå, inte något att fråga om igen direkt.
 - **Städpasset:** varje långsam körning får en granskning av det som är dags, har stannat, pågår eller väntar, uppfattningar som passerat sitt datum, texter som vuxit förbi sin storlek, och för Researcher varje källas avkastning. Rollen tar ställning till varje sak.
@@ -146,6 +148,12 @@ Båda prövar saker över tid med samma former. Director gör det för innehåll
 - **Experiment** (#E) *förbättrar* det som finns eller *utforskar* något utanför de nuvarande målen. Ingen takt är hårdkodad; granskningen visar balansen.
 - **Frågor** (#Q) ställs när ett svar skulle hjälpa mer än signalerna. Svaret går tillbaka till den som frågade.
 - **Reflektionen** är en rutin som Director själv ändrar takten på.
+
+## Möjligheter: en post per verklig sak
+
+Varje annons, program eller event som kontoret hittar blir en möjlighet (#O) med sin exakta länk, och för varje uppgift (ort, sista dag, vem som får söka) står varifrån den kommer och om den är läst på sidan själv. Två annonser med samma rubrik för olika orter är två möjligheter; en kopia av samma annons på en annan sajt är samma. Sökuppdraget ser de möjligheter som finns och säger om varje fynd är samma, nytt eller oklart, och koden håller det mot adresserna. Oklart blir ett steg där Researcher reder ut det direkt. Det du satsar på (#S) tar länken och datumen från möjligheten, så en påminnelse eller ett svar i chatten bygger på det kontrollerade, inte på ett fynds rubrik. Det som inte är bekräftat följer med hela vägen och sägs ut.
+
+Det byggdes efter 23 okt: ett sökuppdrag hade länkat Londonannonsen till fakta om Stockholmsannonsen, och förbehållet tappades på vägen.
 
 ## Bevakningar och sökuppdrag är rutiner
 

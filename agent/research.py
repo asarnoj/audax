@@ -19,6 +19,7 @@ from agent.memory import MemoryRepo
 from agent import search_map
 from agent.prompts import prompt as prompt_template
 from agent.pursuits import judged_against
+from agent import opportunities
 from agent.tools import TurnContext, build_web_tools
 
 log = logging.getLogger(__name__)
@@ -46,8 +47,14 @@ FINDINGS_SCHEMA = {
                                 "description": "Where the facts come from: the page at `url` itself, copies on other sites, or only search results"},
                     "unconfirmed": {"type": ["string", "null"],
                                     "description": "Swedish: what in the summary is NOT confirmed by the page at `url` (a date, the place, who may apply), or null"},
+                    "who": {"type": ["string", "null"], "description": "Swedish: who may apply, as the page says it"},
+                    "identity": {"type": "string", "enum": ["new", "same", "unclear"],
+                                 "description": "Against the known opportunities: a new thing, the same as one of them (same_as), or unclear"},
+                    "same_as": {"type": ["string", "null"], "description": "The #O it is (identity same) or may be (unclear)"},
+                    "identity_note": {"type": ["string", "null"],
+                                      "description": "Swedish: how it matches or differs from similar ones (place, level, posting id, dates)"},
                 },
-                "required": ["title", "url", "summary", "why_you", "kind", "query", "checked", "unconfirmed"],
+                "required": ["title", "url", "summary", "why_you", "kind", "query", "checked", "unconfirmed", "identity"],
             },
         },
         "leads": {
@@ -261,6 +268,7 @@ class Researcher:
             memory=await judged_against(self.db, self.memory, self.settings.timezone),
             seen="\n".join(seen_lines) or "(nothing yet)",
             gaps=await search_map.gaps(self.memory.path, task.id) or "(no map yet: explore freely)",
+            known=await opportunities.known(self.db),
         )
         try:
             result = await self.gate.run(
@@ -294,6 +302,10 @@ class Researcher:
             if not f.get("url") or not f.get("title"):
                 continue
             hold_to_the_page(f, turn.pages_read)
+            oid, how = await opportunities.record(self.db, f, mission=task.id)
+            if oid is not None:
+                f["opportunity"] = oid
+                log.info("research %s: %s is #O%s (%s)", task.id, f["url"], oid, how)
             if f.get("query") not in queries:  # keep yield attribution honest
                 f["query"] = next((q for q in queries if q.lower() in str(f.get("query", "")).lower()), f.get("query"))
             new += bool(await self.db.insert("events", ignore=True, source=source, kind=f.get("kind", "opportunity"),
