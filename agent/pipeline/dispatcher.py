@@ -315,7 +315,20 @@ class Dispatcher:
             return
         question = await self.schedule.next_question()
         if question is not None:
-            poll_id, message_row_id = await self.send_poll(question["question"], question["options"])
+            if self.outbox.speak is None:   # no chat at all (tests, a bare engine)
+                poll_id, message_row_id = await self.send_poll(question["question"], question["options"])
+            else:   # the one voice asks, as part of the conversation, and the chat records the answer (22 Oct: a poll came out of nowhere)
+                sessions = "\n".join(f"- {o} (series {i})" for o, i in zip(question["options"], question["series_ids"]))
+                try:
+                    ids = await self.outbox.speak(
+                        "Ask the owner which of these sessions in their timetable apply to them: briefly, as a question in your "
+                        "conversation, with a few words on why (so you know when they are busy). When they answer, record it with "
+                        "set_series_relevance for each series (mine, not_mine or sometimes).\n" + sessions,
+                        about={f"TimeEdit-serie {i}" for i in question["series_ids"]})
+                except Exception as e:
+                    log.warning("couldn't ask about the schedule: %s", e)
+                    return
+                poll_id, message_row_id = f"chat:{ids[0] if ids else 0}", ids[0] if ids else None
             await self.schedule.record_poll(poll_id, message_row_id, question)
             log.info("asked about %d schedule series", len(question["series_ids"]))
             return
@@ -347,6 +360,15 @@ class Dispatcher:
     async def _ask_manager(self, q: dict) -> None:
         if q["type"] == "proposal":
             message_row_id = await self.send_proposal(q["text"], q["id"])
+        elif self.outbox.speak is not None:   # a check-in is a question in the conversation; Manager reads the answer there
+            try:
+                ids = await self.outbox.speak(
+                    "Manager wants a short check-in. Ask the owner, in your own words and as part of the conversation: "
+                    f"{q['question']} (the kinds of answer that help: {', '.join(q['options'])}). Nothing else.")
+            except Exception as e:
+                log.warning("couldn't ask the check-in: %s", e)
+                return
+            message_row_id = ids[0] if ids else None
         else:
             poll_id, message_row_id = await self.send_poll(q["question"], q["options"], multiple=False)
             await self.db.execute(

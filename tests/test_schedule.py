@@ -181,3 +181,15 @@ async def test_free_windows_between_sessions_until_quiet_hours(db, now):
     w = [(f"{a:%H:%M}", f"{b:%H:%M}") for a, b in await s.free_windows(now)]
     # 09–10 free, 10–12 meeting, 12:00–12:05 too short, 12:05–13:05 lab, then free until 23:00
     assert w == [("09:00", "10:00"), ("13:05", "23:00")]
+
+
+async def test_a_question_asked_in_the_chat_is_closed_by_the_answer_recorded_there(db, now):
+    src = FakeSource("timeedit", "ask")
+    src.ics = ics(*[vevent(f"e{i}", now + timedelta(hours=2 + i), 1, f"Kurs {i}") for i in range(2)])
+    s = make(db, now, src)
+    await s.sync()
+    q = await s.next_question()
+    await s.record_poll("chat:7", None, q)   # the voice asked it (agent/pipeline/dispatcher.py)
+    assert await s.next_question() is None
+    await s.set_relevance(q["series_ids"][0], "mine")   # the chat records the owner's answer
+    assert (await db.fetchone("SELECT answered_at FROM polls WHERE poll_id = 'chat:7'"))["answered_at"] is not None

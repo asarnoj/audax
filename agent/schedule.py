@@ -263,7 +263,11 @@ class Schedule:
             "UPDATE calendar_series SET relevance = ?, note = COALESCE(?, note), updated_at = datetime('now') WHERE id = ?",
             (relevance, note, series_id),
         )
-        return (await self.db.fetchone("SELECT changes() AS n"))["n"] > 0
+        changed = (await self.db.fetchone("SELECT changes() AS n"))["n"] > 0
+        for poll in await self.db.fetchall("SELECT poll_id, payload FROM polls WHERE kind = 'schedule_relevance' AND answered_at IS NULL"):
+            if series_id in json.loads(poll["payload"]).get("series_ids", []):   # answered in the conversation
+                await self.db.execute("UPDATE polls SET answered_at = datetime('now'), answer = 'i chatten' WHERE poll_id = ?", (poll["poll_id"],))
+        return changed
 
     async def unknown_series(self) -> list[dict]:
         """Unknown series with an upcoming session, soonest first: these are worth asking about."""
@@ -278,14 +282,14 @@ class Schedule:
 
     async def next_question(self) -> dict | None:
         """A poll about unknown series, or None if one is already open or nothing is unknown."""
-        if await self.db.fetchone("SELECT 1 FROM polls WHERE kind = 'schedule_relevance' AND answered_at IS NULL"):
+        if await self.db.fetchone("SELECT 1 FROM polls WHERE kind = 'schedule_relevance' AND answered_at IS NULL AND created_at >= datetime('now', '-3 days')"):
             return None
         unknown = (await self.unknown_series())[:POLL_MAX_OPTIONS]
         if not unknown:
             return None
         options = [_option(u["label"], u["next_start"], self.tz) for u in unknown]
         return {
-            "question": "Vilka av de här passen i TimeEdit gäller dig? (Kryssa i alla som gäller.)",
+            "question": "Vilka av de här passen i TimeEdit gäller dig? (Kryssa i alla som gäller.)",   # as a poll only without a chat
             "options": options + ["Inga av dessa"],
             "series_ids": [u["id"] for u in unknown],
         }
