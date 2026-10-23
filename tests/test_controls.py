@@ -160,3 +160,22 @@ async def test_book_moves_and_cancels_through_one_tool(setup):
     promise = (await Items(db).find("step", owner="assistant"))[0]
     out = (await tools["book"].handler({"id": f"#T{promise['id']}", "cancel": True}))["content"][0]["text"]
     assert "cancelled" in out and (await Items(db).get(promise["id"]))["status"] == "dropped"
+
+
+async def test_the_situation_shows_the_nights_work_apart_from_the_latest_fast_skill(setup):
+    from agent.situation import situation
+
+    db, *_ = setup
+    await db.execute("INSERT INTO claude_runs (kind, finished_at, summary) VALUES ('director_understand', '2026-10-22 23:58:00', 'Lade steg för Google.')")
+    await db.execute("INSERT INTO claude_runs (kind, finished_at, is_error) VALUES ('triage', '2026-10-23 07:50:00', 1)")
+    text = await situation(db, "Europe/Stockholm")
+    line = next(x for x in text.splitlines() if x.startswith("- Director"))
+    assert "daily review" in line.lower() and "Lade steg för Google." in line and "triage" in line and "misslyckades" in line
+
+
+def test_repeated_claude_failures_reach_the_owner_in_their_own_words():
+    from agent.inspect import claude_failing
+
+    raw = "ResultError: Claude Code returned an error result: Failed to authenticate: OAuth session expired and could not be refreshed"
+    assert claude_failing(raw).startswith("Claude-inloggningen på Pi:n har gått ut") and "ResultError" not in claude_failing(raw)
+    assert "Error" not in claude_failing("ResultError: boom")

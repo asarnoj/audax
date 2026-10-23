@@ -22,20 +22,35 @@ def _local(sqlite_utc: str | None, tz: ZoneInfo) -> str:
     return f"{t:%a %d/%m %H:%M}"
 
 
+FAST = {"triage", "dispatcher", "page_extract", "research", "research_deep", "deliver", "chat_summary", "scout_queries"}
+
+
+async def _last(db: Database, kinds: list[str]):
+    if not kinds:
+        return None
+    return await db.fetchone(
+        f"SELECT kind, finished_at, summary, is_error FROM claude_runs WHERE kind IN ({','.join('?' * len(kinds))}) "
+        "AND finished_at IS NOT NULL ORDER BY id DESC LIMIT 1", tuple(kinds))
+
+
 async def roles(db: Database, tz: ZoneInfo) -> list[str]:
+    """Per role its latest slow run (review, planning, night pass) and, apart, its latest fast skill: the latest run
+    alone was usually a triage or a page read, and hid the night's work (23 Oct: "Director har hängt sig")."""
     lines = []
     for role in ROLES:
-        kinds = kinds_of(role)
-        last = await db.fetchone(
-            f"SELECT kind, finished_at, summary, is_error FROM claude_runs WHERE kind IN ({','.join('?' * len(kinds))}) "
-            "AND kind != 'chat' AND finished_at IS NOT NULL ORDER BY id DESC LIMIT 1", tuple(kinds))
+        kinds = [k for k in kinds_of(role) if k != "chat"]
+        slow, fast = await _last(db, [k for k in kinds if k not in FAST]), await _last(db, [k for k in kinds if k in FAST])
+        parts = []
+        if slow:
+            what = f"senast {task_name(slow['kind']).lower()} {_local(slow['finished_at'], tz)}" + (" (misslyckades)" if slow["is_error"] else "")
+            if slow["summary"]:
+                what += f": {' '.join(slow['summary'].split())[:220]}"
+            parts.append(what)
+        if fast:
+            parts.append(f"snabbt arbete senast: {task_name(fast['kind']).lower()} {_local(fast['finished_at'], tz)}"
+                         + (" (misslyckades)" if fast["is_error"] else ""))
         waiting = await db.fetchone("SELECT count(*) AS n FROM posts WHERE recipient = ? AND status = 'new'", (role,))
-        what = "inget eget arbete ännu"
-        if last:
-            what = f"senast {task_name(last['kind']).lower()} {_local(last['finished_at'], tz)}" + (" (misslyckades)" if last["is_error"] else "")
-            if last["summary"]:
-                what += f": {' '.join(last['summary'].split())[:220]}"
-        lines.append(f"- {NAMES[role]}: {what}" + (f" · {waiting['n']} i inkorgen" if waiting["n"] else ""))
+        lines.append(f"- {NAMES[role]}: {'; '.join(parts) or 'inget eget arbete ännu'}" + (f" · {waiting['n']} i inkorgen" if waiting["n"] else ""))
     return lines
 
 

@@ -20,6 +20,17 @@ from agent.db import Database
 WEEKDAYS = ["mån", "tis", "ons", "tor", "fre", "lör", "sön"]
 
 
+def claude_failing(error: str | None) -> str:
+    """Repeated Claude failures in words the owner can act on; the raw error stays in the log (23 Oct: an English
+    ResultError reached Telegram)."""
+    text = (error or "").lower()
+    if "authenticate" in text or "oauth" in text or "login" in text or "401" in text:
+        return "Claude-inloggningen på Pi:n har gått ut, så inget i bakgrunden körs. Logga in igen: ssh till Pi:n, kör claude i motorns mapp och skriv /login"
+    if "limit" in text:
+        return "Claude-kvoten är slut, bakgrundsjobben väntar tills den återställs"
+    return "Claude misslyckas upprepat, så bakgrundsjobben står still (felet finns i loggen)"
+
+
 class Inspector:
     def __init__(self, db: Database, tz: str = "Europe/Stockholm"):
         self.db = db
@@ -39,12 +50,12 @@ class Inspector:
         """Problems worth knowing about. Empty list = healthy."""
         from agent.sources.streams import CONFIG_ERRORS
 
-        problems = [f"Inställningsfilen {f} går inte att läsa ({err})" for f, err in CONFIG_ERRORS.items()]
+        problems = [f"Inställningsfilen {f} går inte att läsa" for f in CONFIG_ERRORS]   # the error itself is in the log
         recent = await self.db.fetchall(
             "SELECT kind, is_error, error FROM claude_runs WHERE created_at >= datetime('now', '-2 hours') ORDER BY id DESC LIMIT 6"
         )
         if len(recent) >= 3 and all(r["is_error"] for r in recent[:3]):
-            problems.append(f"Claude misslyckas upprepat ({recent[0]['kind']}: {(recent[0]['error'] or '')[:120]})")
+            problems.append(claude_failing(recent[0]["error"]))
         rl = await self.db.fetchone("SELECT rate_limit FROM claude_runs WHERE rate_limit IS NOT NULL ORDER BY id DESC LIMIT 1")
         if rl and json.loads(rl["rate_limit"]).get("status") == "rejected":
             problems.append("Claude-kvoten är slut, bakgrundsjobben väntar tills den återställs")
