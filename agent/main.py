@@ -292,6 +292,9 @@ async def run() -> None:
         return await director.run("understand") is not None
 
     async def researcher_step() -> bool:
+        if await db.kv_get("night.force_researcher"):   # a replay of the night (agent/night.py)
+            await db.kv_set("night.force_researcher", None)
+            return await planner.run("a replay of last night") is not None
         reason = await planner.due()
         return reason is None or await planner.run(reason) is not None
 

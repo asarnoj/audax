@@ -155,3 +155,24 @@ async def test_a_sweep_asked_for_by_hand_runs_now_in_full(db):
     await db.kv_set(FORCE_KEY, True)
     await night.tick(noon)
     assert ran == ["assistant", "director", "researcher", "manager"] and not await db.kv_get(FORCE_KEY)
+
+
+async def test_a_replay_sets_every_role_back_to_the_evening_before_last_night(db):
+    from datetime import datetime
+    from zoneinfo import ZoneInfo
+
+    from agent.config import load_settings
+    from agent.night import FORCE_KEY, SINCE_KEYS, Night
+
+    ran = []
+
+    async def step():
+        ran.append(await db.kv_get("director.last_reflect"))
+        return True
+
+    night = Night(load_settings(), db, [("director", step)])
+    await db.kv_set("director.last_reflect", "2026-10-24T16:23:00+02:00")
+    await db.kv_set(FORCE_KEY, "replay")
+    await night.tick(datetime(2026, 10, 24, 17, 40, tzinfo=ZoneInfo("Europe/Stockholm")))
+    assert ran == ["2026-10-23T18:00:00+02:00"] and await db.kv_get("night.force_researcher")
+    assert all([await db.kv_get(k) == "2026-10-23T18:00:00+02:00" for k in SINCE_KEYS])

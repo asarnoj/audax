@@ -26,6 +26,9 @@ log = logging.getLogger(__name__)
 
 Step = Callable[[], Awaitable[bool]]  # True when done (or nothing to do), False to try again
 STATE_KEY = "night.state"
+# What each role's "since my last run" is measured from: a replay sets them back to the evening before last night's
+# sweep, so the sweep reads the whole day again, as a real night would (24 Oct).
+SINCE_KEYS = ("assistant.last_night", "director.last_understand", "director.last_reflect", "manager.last_run", "researcher.last_plan")
 FORCE_KEY = "night.force"   # set by the maintainer (deploy/audax night): one whole sweep now, whatever the hour
 MARGIN = timedelta(minutes=60)  # after the owner's usual last message
 LATEST_BEFORE_END = timedelta(minutes=150)  # the sweep must start this long before quiet hours end
@@ -40,6 +43,15 @@ class Night:
         self.steps = steps
         self.paused = paused  # the background quota is paused: wait, don't count it as an attempt
         self.running = False
+
+    async def rewind(self, now: datetime) -> None:
+        """Last night again: every role reads from the evening before last night's sweep, and the steps that only run
+        when something is due run anyway."""
+        last_night = datetime.fromisoformat(self.night_of(now - timedelta(days=1))).replace(tzinfo=now.tzinfo, hour=18)
+        for key in SINCE_KEYS:
+            await self.db.kv_set(key, last_night.isoformat())
+        await self.db.kv_set("night.force_researcher", True)
+        log.info("night replay: the roles read from %s", f"{last_night:%Y-%m-%d %H:%M}")
 
     def night_of(self, now: datetime) -> str:
         """The evening a night belongs to: 02:00 on the 14th is the night of the 13th."""
@@ -83,9 +95,11 @@ class Night:
         """Called every ten minutes: starts or continues tonight's sweep when it is time."""
         if self.running:
             return
-        if await self.db.kv_get(FORCE_KEY):   # a sweep asked for by hand runs now, in full; tonight's runs as usual
+        if force := await self.db.kv_get(FORCE_KEY):   # a sweep asked for by hand runs now, in full; tonight's runs as usual
             await self.db.kv_set(FORCE_KEY, None)
-            log.info("night sweep started by hand")
+            if force == "replay":
+                await self.rewind(now)
+            log.info("night sweep started by hand%s", " (a replay of last night)" if force == "replay" else "")
             self.running = True
             try:
                 await self._sweep({"night": f"by hand {now:%Y-%m-%d %H:%M}", "done": [], "attempts": {}})
