@@ -9,6 +9,8 @@ to the owner: questions for the owner are posts to the Assistant, asked one at a
 
 from __future__ import annotations
 
+from datetime import date, timedelta
+
 import logging
 from collections.abc import Callable
 
@@ -26,6 +28,9 @@ def ref(post_id: int) -> str:
     return f"#P{post_id}"
 
 
+ORDER_DAYS = 14   # how long an order holds when its sender gives no date
+
+
 class Posts:
     waker: Callable[[str], None] | None = None  # set by main: starts a role's run soon (coalesced, rate-limited)
 
@@ -34,11 +39,13 @@ class Posts:
 
     async def send(
         self, sender: str, to: str, kind: str, body: str, *, verbatim: str | None = None, context: str | None = None,
-        answer_to: int | None = None, from_owner: bool = False, wake: bool = False,
+        answer_to: int | None = None, from_owner: bool = False, wake: bool = False, until: str | None = None,
     ) -> int:
         assert to in ROLES and kind in KINDS, (to, kind)
+        if kind == "order" and not until:   # an order holds for a while, not for ever
+            until = f"{date.today() + timedelta(days=ORDER_DAYS):%Y-%m-%d}"
         pid = await self.db.insert("posts", sender=sender, recipient=to, kind=kind, body=body, verbatim=verbatim, context=context,
-                                   answer_to=answer_to, from_owner=int(from_owner))
+                                   answer_to=answer_to, from_owner=int(from_owner), until=until)
         await trail.emit("post", sender, to=to, what=kind, ref=ref(pid))
         if answer_to is not None:
             await self.db.execute(
@@ -50,6 +57,25 @@ class Posts:
             else:
                 log.info("post %s asked to wake %s, but only the owner's words may wake a role; it waits", pid, to)
         return pid
+
+    # --- standing orders --------------------------------------------------------
+
+    async def standing(self, recipient: str | None = None, sender: str | None = None) -> list[dict]:
+        """Orders still in force: not withdrawn, and not past their date (an order from before the dates: two weeks)."""
+        sql = (f"SELECT *, coalesce(until, date(created_at, '+{ORDER_DAYS} days')) AS until FROM posts WHERE kind = 'order' AND withdrawn_at IS NULL "
+               f"AND coalesce(until, date(created_at, '+{ORDER_DAYS} days')) >= date('now')")
+        args: list = []
+        if recipient:
+            sql += " AND recipient = ?"; args.append(recipient)
+        if sender:
+            sql += " AND sender = ?"; args.append(sender)
+        return [dict(r) for r in await self.db.fetchall(sql + " ORDER BY id", tuple(args))]
+
+    async def withdraw(self, post_id: int, sender: str, why: str) -> bool:
+        n = await self.db.execute_count(
+            "UPDATE posts SET withdrawn_at = datetime('now'), outcome = ? WHERE id = ? AND sender = ? AND kind = 'order' AND withdrawn_at IS NULL",
+            (f"återkallad: {why}", post_id, sender))
+        return bool(n)
 
     # --- a role's inbox ------------------------------------------------------
 

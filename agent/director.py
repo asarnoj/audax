@@ -57,9 +57,16 @@ SCHEMA = {
                     "kind": {"type": "string", "enum": ["note", "order", "feedback"]},
                     "body": {"type": "string", "description": "Swedish"},
                     "urgent": {"type": "boolean", "description": "Start the recipient now; only works when the owner's words started this"},
+                    "until": {"type": ["string", "null"], "description": "An order: YYYY-MM-DD it holds until (default two weeks)"},
                 },
                 "required": ["to", "kind", "body"],
             },
+        },
+        "withdraw": {
+            "type": "array",
+            "description": "Orders of yours (listed in the review) that no longer serve: withdrawn now",
+            "items": {"type": "object", "properties": {"id": {"type": "string"}, "why": {"type": "string", "description": "Swedish"}},
+                      "required": ["id", "why"]},
         },
         "share": {
             "type": "array",
@@ -223,10 +230,15 @@ class Director:
             )
             changes.append(f"idé till ägaren: {idea['title']}")
 
+        for w in out.get("withdraw") or []:
+            m = re.search(r"\d+", str(w.get("id", "")))
+            if m and await self.posts.withdraw(int(m.group()), "director", w.get("why", "")):
+                changes.append(f"order #P{m.group()} återkallad: {w.get('why', '')}")
         for p in out.get("posts") or []:
             if p.get("to") in ROLES and p["to"] != "director":
                 pid = await self.posts.send(
                     "director", p["to"], p.get("kind", "note"), p["body"], from_owner=self._chain_from_owner, wake=bool(p.get("urgent")),
+                    until=p.get("until"),
                 )
                 changes.append(f"post #P{pid} till {p['to']}")
         texts.working_memory(self.memory.path, "director", out.get("working_memory"))

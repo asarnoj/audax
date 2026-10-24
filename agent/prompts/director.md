@@ -49,4 +49,4 @@ Read-only: their GitHub, and in the daily review when connected, their mail (`ma
 Manager's policy says what the situation means for {owner_s} attention. A tight period raises the bar; it doesn't switch Audax off.
 
 ## Your answer
-`working_memory`, `posts` (orders and feedback to Researcher, notes to Manager), `share` (see your mode), `lessons`, `summary`.
+`working_memory`, `posts` (orders and feedback to Researcher, notes to Manager; an order holds until its `until`, two weeks if you give none), `withdraw` (your orders in the review that no longer serve), `share` (see your mode), `lessons`, `summary`.

@@ -98,3 +98,15 @@ async def test_the_dates_in_now_md_come_from_the_items_and_survive_a_rewrite(db,
     await write_now(db, path, NOW, "# Nu\nNy text.\n\n## Datum (skrivs av koden)\n- gammalt som Director kopierade")
     assert "gammalt" not in path.read_text() and "Avstämning" in path.read_text()
     assert "2026-12-15" in await dates_text(db, NOW, days=60)
+
+
+async def test_a_standing_order_shows_on_both_sides_until_withdrawn(db):
+    from agent.posts import Posts
+
+    posts = Posts(db)
+    pid = await posts.send("director", "researcher", "order", "Ändra inget i sökningen förrän Julius svarat på #Q142")
+    assert f"#P{pid} till researcher" in await review(db, "director", NOW)
+    assert f"#P{pid} från director" in await review(db, "researcher", NOW) and "question it" in await review(db, "researcher", NOW)
+    assert not await posts.withdraw(pid, "researcher", "inte min")   # only its sender withdraws it
+    assert await posts.withdraw(pid, "director", "frös sökningen i veckor")
+    assert f"#P{pid}" not in await review(db, "researcher", NOW)

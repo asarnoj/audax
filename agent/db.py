@@ -556,6 +556,12 @@ MIGRATIONS: list[str] = [
     ALTER TABLE claude_runs ADD COLUMN prompt TEXT;
     ALTER TABLE claude_runs ADD COLUMN transcript TEXT;
     """,
+    # 25: standing orders (agent/posts.py): an order holds until its date or until its sender withdraws it, and both
+    # sides see it in their review (24 Oct: an order to freeze the search held for weeks, unseen by its sender).
+    """
+    ALTER TABLE posts ADD COLUMN until TEXT;
+    ALTER TABLE posts ADD COLUMN withdrawn_at TEXT;
+    """,
 ]
 
 # Tables whose rows carry the id of the run that wrote them (agent/trail.py).

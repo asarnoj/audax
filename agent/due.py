@@ -76,6 +76,16 @@ async def review(db: Database, role: str, now: datetime, memory=None) -> str:
                                args=(f"{now:%Y-%m-%d}",))
     if expired:
         parts.append("Uppfattningar som passerat sitt datum (retract or renew):\n" + "\n".join(f"- {Items.line(i)}" for i in expired))
+    from agent.posts import Posts
+
+    mine = await Posts(db).standing(sender=role)
+    if mine:
+        parts.append("Dina order som gäller (still right? `withdraw` one that no longer serves; it ends by itself on its date):\n"
+                     + "\n".join(f"- #P{o['id']} till {o['recipient']}, gäller till {o['until'] or '?'}: {o['body'][:240]}" for o in mine))
+    under = await Posts(db).standing(recipient=role)
+    if under:
+        parts.append("Order du arbetar under (if one stops your work or seems wrong, question it with a post to the sender, and do what it doesn't cover):\n"
+                     + "\n".join(f"- #P{o['id']} från {o['sender']}, gäller till {o['until'] or '?'}: {o['body'][:240]}" for o in under))
     if memory is not None:
         from agent.texts import oversized
 
