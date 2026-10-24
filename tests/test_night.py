@@ -131,3 +131,27 @@ async def test_a_promise_already_booked_is_not_booked_again(db, tmp_path):
     a2.agenda = agenda
     await a2.apply(out, datetime.now(TZ))
     assert len(await db.fetchall("SELECT id FROM bookings")) == 2
+
+
+async def test_a_sweep_asked_for_by_hand_runs_now_in_full(db):
+    from datetime import datetime
+    from zoneinfo import ZoneInfo
+
+    from agent.config import load_settings
+    from agent.night import FORCE_KEY, Night
+
+    ran = []
+
+    def step(name):
+        async def run():
+            ran.append(name)
+            return True
+        return run
+
+    night = Night(load_settings(), db, [(n, step(n)) for n in ("assistant", "director", "researcher", "manager")])
+    noon = datetime(2026, 10, 24, 12, 0, tzinfo=ZoneInfo("Europe/Stockholm"))
+    await night.tick(noon)
+    assert ran == []   # daytime: nothing
+    await db.kv_set(FORCE_KEY, True)
+    await night.tick(noon)
+    assert ran == ["assistant", "director", "researcher", "manager"] and not await db.kv_get(FORCE_KEY)

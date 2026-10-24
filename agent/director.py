@@ -24,7 +24,7 @@ from datetime import datetime, timedelta
 from zoneinfo import ZoneInfo
 
 from agent import search_map, texts, trail
-from agent.due import answered_since, review, write_now
+from agent.due import answered_since, earlier_runs, review, write_now
 from agent.items import Items
 from agent.office_tools import build_office_tools, describe_forms
 from agent.pursuits import Pursuits
@@ -127,7 +127,8 @@ class Director:
         self._chain_from_owner = any(p["from_owner"] for p in inbox)
         context = {
             "now": f"{now:%Y-%m-%d %H:%M} ({['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'][now.weekday()]})",
-            "working_memory": self.memory.read(WORKING_MEMORY) or "(empty: this is your first run with a working memory)",
+            "working_memory": (self.memory.read(WORKING_MEMORY) or "(empty: this is your first run with a working memory)")
+            + await earlier_runs(self.db, "director", self.settings.timezone),
             "direction": self._direction(),
             "memory": self.memory.read("profile.md", "lardomar.md"),
             "time": await self._time(now),

@@ -20,7 +20,7 @@ from zoneinfo import ZoneInfo
 from agent import chat, texts, trail
 from agent.agenda import Agenda
 from agent.beliefs import write_profile
-from agent.due import write_now
+from agent.due import earlier_runs, write_now
 from agent.office_tools import build_office_tools
 from agent.claude_gate import ClaudeGate, ClaudeTask, Priority, QuotaPaused
 from agent.config import Settings
@@ -85,7 +85,8 @@ class AssistantNight:
         await write_now(self.db, self.memory.path / "direction" / "now.md", now)   # the dates in now.md, fresh for the night
         context = {
             "now": f"{now:%Y-%m-%d %H:%M}",
-            "working_memory": self.memory.read(WORKING_MEMORY) or "(empty: this is your first night pass)",
+            "working_memory": (self.memory.read(WORKING_MEMORY) or "(empty: this is your first night pass)")
+            + await earlier_runs(self.db, "assistant", self.settings.timezone),
             "conversation": await self._conversation(since_sql),
             "memory": self.memory.read("profile.md"),
             "planned": await self.agenda.upcoming(14) if self.agenda else "(no schedule)",

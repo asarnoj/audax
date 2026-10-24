@@ -26,6 +26,7 @@ log = logging.getLogger(__name__)
 
 Step = Callable[[], Awaitable[bool]]  # True when done (or nothing to do), False to try again
 STATE_KEY = "night.state"
+FORCE_KEY = "night.force"   # set by the maintainer (deploy/audax night): one whole sweep now, whatever the hour
 MARGIN = timedelta(minutes=60)  # after the owner's usual last message
 LATEST_BEFORE_END = timedelta(minutes=150)  # the sweep must start this long before quiet hours end
 AWAKE = timedelta(minutes=45)  # the owner wrote this recently: probably still awake
@@ -81,6 +82,15 @@ class Night:
     async def tick(self, now: datetime) -> None:
         """Called every ten minutes: starts or continues tonight's sweep when it is time."""
         if self.running:
+            return
+        if await self.db.kv_get(FORCE_KEY):   # a sweep asked for by hand runs now, in full; tonight's runs as usual
+            await self.db.kv_set(FORCE_KEY, None)
+            log.info("night sweep started by hand")
+            self.running = True
+            try:
+                await self._sweep({"night": f"by hand {now:%Y-%m-%d %H:%M}", "done": [], "attempts": {}})
+            finally:
+                self.running = False
             return
         start, end = self._window(now)
         if not (start <= now < end):

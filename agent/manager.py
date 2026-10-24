@@ -19,7 +19,7 @@ from zoneinfo import ZoneInfo
 
 
 from agent import texts, trail
-from agent.due import answered_since, review
+from agent.due import answered_since, earlier_runs, review
 from agent.items import Items
 from agent.office_tools import build_office_tools, describe_forms
 from agent.pursuits import Pursuits
@@ -133,7 +133,8 @@ class Manager:
         prompt = prompt_template("manager").format(
             now=f"{now:%Y-%m-%d %H:%M} ({['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'][now.weekday()]})",
             since=f"{since:%Y-%m-%d %H:%M}",
-            working_memory=self.memory.read(WORKING_MEMORY) or "(empty: this is your first run with a working memory)",
+            working_memory=(self.memory.read(WORKING_MEMORY) or "(empty: this is your first run with a working memory)")
+            + await earlier_runs(self.db, "manager", self.settings.timezone),
             situation=self.memory.read("direction/now.md") or "(Director has no picture yet)",
             planned=await self.agenda.upcoming(7) if self.agenda else "(no schedule)",
             desk=await self._desk(since_sql),

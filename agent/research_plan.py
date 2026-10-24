@@ -27,7 +27,7 @@ from agent.memory import MemoryRepo
 from agent.pipeline.outbox import add_candidate
 from agent.posts import ROLES, Posts
 from agent.prompts import prompt as prompt_template
-from agent.due import due_items, review
+from agent.due import due_items, earlier_runs, review
 from agent.forms import FormError
 from agent.items import Items, parse_ref, ref
 from agent.office_tools import build_office_tools
@@ -210,7 +210,8 @@ class ResearchPlanner:
         context = {
             "now": f"{now:%Y-%m-%d %H:%M} ({['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'][now.weekday()]})",
             "trigger": trigger,
-            "working_memory": self.memory.read(WORKING_MEMORY) or "(empty: this is your first run with a working memory)",
+            "working_memory": (self.memory.read(WORKING_MEMORY) or "(empty: this is your first run with a working memory)")
+            + await earlier_runs(self.db, "researcher", self.settings.timezone),
             "notes": Posts.format(inbox),
             "goals": await judged_against(self.db, self.memory, self.settings.timezone),
             "missions": await self._missions(),

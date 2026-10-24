@@ -250,3 +250,23 @@ def follower(tz: str):
                 await items.update(step["id"], "system", review_at=now, note=f"{ref(item)} är klart")
 
     return follow
+
+
+async def earlier_runs(db: Database, role: str, tz: str, n: int = 3) -> str:
+    """What the role concluded in its last slow runs, so a run takes up the thread and thinks on from it instead of
+    starting over (24 Oct: "det är ett pågående arbete")."""
+    from agent.situation import FAST
+    from agent.vocab import kinds_of, task_name
+
+    kinds = [k for k in kinds_of(role) if k not in FAST and k != "chat"]
+    if not kinds:
+        return ""
+    rows = await db.fetchall(
+        f"SELECT kind, finished_at, summary FROM claude_runs WHERE kind IN ({','.join('?' * len(kinds))}) AND summary IS NOT NULL "
+        "AND is_error = 0 ORDER BY id DESC LIMIT ?", (*kinds, n))
+    zone = ZoneInfo(tz)
+    lines = []
+    for r in rows:
+        when = datetime.fromisoformat(r["finished_at"][:19] + "+00:00").astimezone(zone)
+        lines.append(f"- {when:%d/%m} {task_name(r['kind']).lower()}: {' '.join(r['summary'].split())[:900]}")
+    return ("\n\n### Dina senaste körningar (vad du kom fram till: ta upp tråden och tänk vidare)\n" + "\n".join(lines)) if lines else ""

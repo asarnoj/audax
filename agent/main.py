@@ -283,6 +283,9 @@ async def run() -> None:
         return await night_pass.run() is not None
 
     async def director_step() -> bool:
+        if await db.kv_get("night.force_reflect"):   # deploy/audax night reflect
+            await db.kv_set("night.force_reflect", None)
+            return await director.run("reflect") is not None
         if await director.reflection_due() and await director.run("reflect") is not None:
             return True  # the reflection, as often as Director's own routine says (layer 2)
         return await director.run("understand") is not None
