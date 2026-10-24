@@ -72,8 +72,8 @@ async def test_the_office_tools_check_rights_and_tell_the_role_what_is_wrong(db)
     turn = TurnContext()
     researcher = {t.name: t for t in office_tools(db, "researcher", turn)}
     director = {t.name: t for t in office_tools(db, "director")}
-    out = await researcher["create"].handler({"form": "experiment", "title": "x", "kind": "explore"})
-    assert "researcher may not create a experiment" in out["content"][0]["text"]
+    out = await researcher["create"].handler({"form": "aim", "title": "x", "kind": "goal"})
+    assert "researcher may not create a aim" in out["content"][0]["text"]   # goals are Director's
     out = await director["create"].handler({"form": "aim", "kind": "goal", "title": "Sommarjobb 2027", "fields": {"why": "Komma in i branschen"}})
     goal = parse_ref(out["content"][0]["text"].split()[2])
     out = await director["create"].handler({"form": "step", "title": "Armada-listan", "parent": f"#S{goal}", "owner": "researcher",
@@ -87,7 +87,7 @@ async def test_the_office_tools_check_rights_and_tell_the_role_what_is_wrong(db)
     out = await director["find"].handler({"form": "step", "parent": f"#S{goal}"})
     assert "Armada-listan · done" in out["content"][0]["text"]
     out = await researcher["forms"].handler({})
-    assert "#T step" in out["content"][0]["text"] and "#E experiment" not in out["content"][0]["text"]
+    assert "#T step" in out["content"][0]["text"] and "#S aim" not in out["content"][0]["text"]   # only its own forms
     assert "#E experiment" in describe_forms()
 
 

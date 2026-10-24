@@ -62,7 +62,7 @@ def linked(text: str | None, limit: int | None = None) -> str:
 def page(title: str, body: str) -> HTMLResponse:
     return HTMLResponse(
         f'<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">'
-        f"<title>{e(title)} · Audax</title></head><body>"
+        f"<title>{e(title)} · Audax</title><style>pre{{white-space:pre-wrap;overflow-wrap:anywhere}}</style></head><body>"
         '<p><a href="/">Office</a> · <a href="/data/">Data</a> · <a href="/data/items/">Items</a> · <a href="/data/case/">Cases</a> · <a href="/data/files/">Files</a> · '
         '<a href="/data/tables/">Tables</a></p>'
         f"<h1>{e(title)}</h1>{body}</body></html>"
@@ -164,10 +164,22 @@ def build_app(db: Database, office: Office, roots: dict[str, Path]) -> Starlette
                            f"context {e(r['context_tokens'])}"),
                 ("Turns", e(r["turns"])), ("Quota", e(r["rate_limit"])), ("Error", e(r["error"]) if r["is_error"] else "no")]
         trace = "".join(f"<li>{e(t['tool'])}: {e(t['input'])}{' · failed' if t.get('error') else ''}</li>" for t in r["trace"])
+        steps = []
+        for t in r["transcript"]:   # the whole generation, in order
+            if "text" in t:
+                steps.append(f"<div class='thought'><b>Thinks</b><pre>{linked(t['text'])}</pre></div>")
+            elif "tool" in t:
+                steps.append(f"<div><b>Calls {e(t['tool'])}</b><pre>{e(t['input'])}</pre></div>")
+            else:
+                steps.append(f"<details><summary>{'Error' if t.get('error') else 'Result'} ({len(t.get('result') or '')} chars)</summary><pre>{e(t.get('result') or '')}</pre></details>")
+        whole = ("<h2>The whole generation</h2>" + "".join(steps)) if steps else ""
+        prompt = (f"<details><summary>The prompt it was given ({len(r['prompt'])} chars)</summary><pre>{e(r['prompt'])}</pre></details>"
+                  if r.get("prompt") else "")
         return page(f"#R{r['id']}",
                     "<table>" + "".join(f"<tr><th>{k}</th><td>{v}</td></tr>" for k, v in rows) + "</table>"
-                    f"<h2>Tools</h2>{'<ol>' + trace + '</ol>' if trace else '<p>None.</p>'}"
-                    f"<h2>Output (the start)</h2><pre>{linked(r['output'] or '')}</pre>")
+                    + prompt + whole
+                    + f"<h2>Tools</h2>{'<ol>' + trace + '</ol>' if trace else '<p>None.</p>'}"
+                    f"<h2>Output</h2><pre style='white-space: pre-wrap'>{linked(r['output'] or '')}</pre>")
 
     async def case_page(request: Request) -> Response:
         ref = request.path_params.get("ref", "")

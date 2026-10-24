@@ -362,7 +362,8 @@ class Office:
             return None
         out = dict(r)
         out.update(at=self.local(r["created_at"]), role=role_of(r["kind"]), task=task_name(r["kind"]),
-                   trace=json.loads(r["trace"]) if r["trace"] else [], rate_limit=json.loads(r["rate_limit"]) if r["rate_limit"] else None)
+                   trace=json.loads(r["trace"]) if r["trace"] else [], rate_limit=json.loads(r["rate_limit"]) if r["rate_limit"] else None,
+                   transcript=json.loads(r["transcript"]) if r["transcript"] else [])
         return out
 
     async def case(self, ref: str) -> dict | None:

@@ -550,6 +550,12 @@ MIGRATIONS: list[str] = [
         INSERT INTO search (body, kind, ref, who, at) VALUES (new.title || char(10) || new.data, 'item', new.id, coalesce(new.owner, ''), new.created_at);
     END;
     """,
+    # 24: a run's whole generation, to read afterwards on its page: the prompt it was given, and in order what it
+    # thought, which tools it called and what came back (24 Oct: "kan jag se hela genereringen?").
+    """
+    ALTER TABLE claude_runs ADD COLUMN prompt TEXT;
+    ALTER TABLE claude_runs ADD COLUMN transcript TEXT;
+    """,
 ]
 
 # Tables whose rows carry the id of the run that wrote them (agent/trail.py).

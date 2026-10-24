@@ -81,6 +81,7 @@ class RunResult:
     context_tokens: int | None = None  # largest single model call (input + cached), i.e. how much context is resent
     usage: dict[str, int] = field(default_factory=dict)  # totals: input, output, cache_read, cache_write, turns
     run_id: int | None = None  # this run's row in claude_runs (#R)
+    transcript: list[dict] = field(default_factory=list)  # in order: {"text"}, {"tool", "input"}, {"result", "error"}
 
 
 class QuotaPaused(Exception):
@@ -150,9 +151,15 @@ async def sdk_runner(task: ClaudeTask, workspace: Path, on_rate_limit: OnRateLim
     by_id: dict[str, dict] = {}
     context = 0
     result: ResultMessage | None = None
+    transcript: list[dict] = []
     async for msg in query(prompt=task.prompt, options=options):
         if isinstance(msg, AssistantMessage):
             texts.extend(b.text for b in msg.content if isinstance(b, TextBlock))
+            for b in msg.content:
+                if isinstance(b, TextBlock) and b.text.strip():
+                    transcript.append({"text": b.text})
+                elif isinstance(b, ToolUseBlock):
+                    transcript.append({"tool": b.name.removeprefix("mcp__"), "input": json.dumps(b.input, ensure_ascii=False)[:TRANSCRIPT_PART]})
             if msg.usage:
                 u = msg.usage
                 context = max(context, sum(u.get(k) or 0 for k in ("input_tokens", "cache_read_input_tokens", "cache_creation_input_tokens")))
@@ -166,15 +173,17 @@ async def sdk_runner(task: ClaudeTask, workspace: Path, on_rate_limit: OnRateLim
                     by_id[b.id] = entry
         elif isinstance(msg, UserMessage) and isinstance(msg.content, list):
             for b in msg.content:
-                if isinstance(b, ToolResultBlock) and b.tool_use_id in by_id and b.is_error:
-                    by_id[b.tool_use_id]["error"] = True
+                if isinstance(b, ToolResultBlock):
+                    transcript.append({"result": _result_text(b.content)[:TRANSCRIPT_PART], "error": bool(b.is_error)})
+                    if b.tool_use_id in by_id and b.is_error:
+                        by_id[b.tool_use_id]["error"] = True
         elif isinstance(msg, RateLimitEvent):
             on_rate_limit(msg.rate_limit_info)
         elif isinstance(msg, ResultMessage):
             result = msg
 
     if result is None:
-        return RunResult(text="", is_error=True, error="no result message", trace=trace)
+        return RunResult(text="", is_error=True, error="no result message", trace=trace, transcript=transcript)
     u = result.usage or {}
     return RunResult(
         trace=trace,
@@ -196,6 +205,7 @@ async def sdk_runner(task: ClaudeTask, workspace: Path, on_rate_limit: OnRateLim
         duration_ms=result.duration_ms,
         is_error=result.is_error,
         error=("; ".join(map(str, result.errors or [])) or result.subtype) if result.is_error else None,
+        transcript=transcript,
     )
 
 
@@ -213,6 +223,18 @@ class QuotaState:
 RUNNING: dict[int, tuple[ClaudeTask, float]] = {}
 
 WEEK_STOP = 0.9  # mechanical quota guard: above this share of the weekly window, all background work waits
+
+
+TRANSCRIPT_PART = 3000   # characters kept of each tool call and each tool result in a run's transcript
+UNRECORDED = {"page_extract", "triage", "dispatcher", "chat_summary"}   # frequent, cheap, with nothing to read back
+
+
+def _result_text(content: Any) -> str:
+    if isinstance(content, str):
+        return content
+    if isinstance(content, list):
+        return "\n".join(c.get("text", "") if isinstance(c, dict) else str(c) for c in content)
+    return str(content or "")
 
 
 def _short(value: Any, limit: int = 160) -> str:
@@ -336,6 +358,8 @@ class ClaudeGate:
         return result
 
     async def _log(self, task: ClaudeTask, r: RunResult) -> None:
+        if r.run_id and r.run_id % 50 == 0:   # now and then: whole generations are kept two months, the rest of the row for good
+            await self.db.execute("UPDATE claude_runs SET prompt = NULL, transcript = NULL WHERE prompt IS NOT NULL AND created_at < datetime('now', '-60 days')")
         rl = self.quota.last_rate_limit
         # A resumed session reports its running total; this run's own cost is the increase since the last run.
         own = r.cost_usd
@@ -349,7 +373,7 @@ class ClaudeGate:
         await self.db.execute(
             "UPDATE claude_runs SET session_id = ?, duration_ms = ?, cost_usd = ?, session_cost_usd = ?, is_error = ?, error = ?, rate_limit = ?, "
             "trace = ?, output = ?, context_tokens = ?, input_tokens = ?, output_tokens = ?, cache_read_tokens = ?, cache_write_tokens = ?, turns = ?, "
-            "finished_at = datetime('now') WHERE id = ?",
+            "prompt = ?, transcript = ?, finished_at = datetime('now') WHERE id = ?",
             (
                 r.session_id,
                 r.duration_ms,
@@ -361,13 +385,15 @@ class ClaudeGate:
                 if rl
                 else None,
                 json.dumps(r.trace, ensure_ascii=False) if r.trace else None,
-                (r.text or "")[:4000] or None,
+                (r.text or "")[:4000 if task.kind in UNRECORDED else 40000] or None,
                 r.context_tokens,
                 r.usage.get("input"),
                 r.usage.get("output"),
                 r.usage.get("cache_read"),
                 r.usage.get("cache_write"),
                 r.usage.get("turns"),
+                None if task.kind in UNRECORDED else ((task.system_prompt_append or "") and f"[system, appended]\n{task.system_prompt_append}\n\n[prompt]\n") + task.prompt,
+                None if task.kind in UNRECORDED else json.dumps(r.transcript, ensure_ascii=False) if r.transcript else None,
                 r.run_id,
             ),
         )

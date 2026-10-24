@@ -207,7 +207,7 @@ CORE = ("id", "form", "kind", "title", "status", "owner", "parent_id", "source",
 CREATE = {
     "assistant": {"aim", "belief", "question", "step"},
     "director": {"aim", "belief", "question", "step", "experiment", "rule"},
-    "researcher": {"step", "question", "rule", "routine", "opportunity"},
+    "researcher": {"step", "question", "rule", "routine", "opportunity", "experiment"},
     "manager": {"belief", "question", "step", "experiment", "rule", "routine"},
 }
 UPDATE_ANY = {

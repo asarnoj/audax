@@ -3,7 +3,7 @@
 Two loops, both in the background, never talking to the owner directly:
 - understand (daily, Sonnet): keeps the picture (person, now), the goals and what the owner goes for (#S) current,
   and steers the search
-- reflect (a routine, about every other day; Sonnet, medium effort, web search): thinks deeply, checks ideas, and occasionally
+- reflect (a routine, about every other day; Opus, medium effort, web search): thinks deeply, checks ideas, and occasionally
   shares one through the outbox, where the dispatcher and Manager's policy still decide when
 
 Python gathers the facts, Claude judges and writes beliefs, aims, steps, experiments and questions with the office's

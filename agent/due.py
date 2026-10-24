@@ -66,7 +66,7 @@ async def review(db: Database, role: str, now: datetime, memory=None) -> str:
     if running:
         parts.append("Experiment som pågår:\n" + "\n".join(f"- {describe(i)}" for i in running))
     recent = await items.find("experiment", owner=role, where="created_at >= datetime('now', '-21 days')")
-    if role in ("director", "manager"):
+    if role in ("director", "manager", "researcher"):
         n_explore = sum(1 for e in recent if e["kind"] == "explore")
         parts.append(f"Balans senaste tre veckorna: {len(recent) - n_explore} förbättra, {n_explore} utforska.")
     waiting = await items.find("question", status=("open", "asked"), owner=role)

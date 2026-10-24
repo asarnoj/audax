@@ -27,7 +27,7 @@ from agent.memory import MemoryRepo
 from agent.pipeline.outbox import add_candidate
 from agent.posts import ROLES, Posts
 from agent.prompts import prompt as prompt_template
-from agent.due import describe, due_items, review
+from agent.due import due_items, review
 from agent.items import Items, ref
 from agent.office_tools import build_office_tools
 from agent.pursuits import judged_against
@@ -239,7 +239,9 @@ class ResearchPlanner:
         out = []
         for s in rows:
             parent = await items.get(s["parent_id"]) if s["parent_id"] else None
-            out.append(f"- {describe(s)}" + (f" · tjänar {ref(parent)} {parent['title']}" if parent else ""))
+            extra = " · ".join(f"{k}: {s[k]}" for k in ("action", "done_when", "after") if s.get(k))
+            out.append(f"- {Items.line(s)} · svar senast {s['review_at'] or '?'}" + (f" · {extra}" if extra else "")
+                       + (f" · tjänar {ref(parent)} {parent['title']}" if parent else ""))
         return "\n".join(out) or "None."
 
     async def apply(self, out: dict, now: datetime) -> list[str]:
