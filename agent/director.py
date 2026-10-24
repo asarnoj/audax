@@ -64,7 +64,7 @@ SCHEMA = {
         },
         "withdraw": {
             "type": "array",
-            "description": "Orders of yours (listed in the review) that no longer serve: withdrawn now",
+            "description": "Orders and feedback of yours (listed in the review) that no longer serve: withdrawn now",
             "items": {"type": "object", "properties": {"id": {"type": "string"}, "why": {"type": "string", "description": "Swedish"}},
                       "required": ["id", "why"]},
         },

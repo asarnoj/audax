@@ -28,7 +28,8 @@ def ref(post_id: int) -> str:
     return f"#P{post_id}"
 
 
-ORDER_DAYS = 14   # how long an order holds when its sender gives no date
+ORDER_DAYS = 14   # how long an order or feedback holds when its sender gives no date
+STANDING = ("order", "feedback")
 
 
 class Posts:
@@ -42,7 +43,7 @@ class Posts:
         answer_to: int | None = None, from_owner: bool = False, wake: bool = False, until: str | None = None,
     ) -> int:
         assert to in ROLES and kind in KINDS, (to, kind)
-        if kind == "order" and not until:   # an order holds for a while, not for ever
+        if kind in STANDING and not until:   # an order or feedback holds for a while, not for ever
             until = f"{date.today() + timedelta(days=ORDER_DAYS):%Y-%m-%d}"
         pid = await self.db.insert("posts", sender=sender, recipient=to, kind=kind, body=body, verbatim=verbatim, context=context,
                                    answer_to=answer_to, from_owner=int(from_owner), until=until)
@@ -61,8 +62,10 @@ class Posts:
     # --- standing orders --------------------------------------------------------
 
     async def standing(self, recipient: str | None = None, sender: str | None = None) -> list[dict]:
-        """Orders still in force: not withdrawn, and not past their date (an order from before the dates: two weeks)."""
-        sql = (f"SELECT *, coalesce(until, date(created_at, '+{ORDER_DAYS} days')) AS until FROM posts WHERE kind = 'order' AND withdrawn_at IS NULL "
+        """Orders and feedback still in force: what one role told another to do or not do (24 Oct: a 'feedback' post
+        froze the search for weeks, unseen because only orders were shown). Not withdrawn, not past their date."""
+        sql = (f"SELECT *, coalesce(until, date(created_at, '+{ORDER_DAYS} days')) AS until FROM posts WHERE kind IN ('order', 'feedback') "
+               "AND sender != recipient AND sender IN ('director', 'manager', 'researcher') AND withdrawn_at IS NULL "
                f"AND coalesce(until, date(created_at, '+{ORDER_DAYS} days')) >= date('now')")
         args: list = []
         if recipient:
@@ -73,7 +76,7 @@ class Posts:
 
     async def withdraw(self, post_id: int, sender: str, why: str) -> bool:
         n = await self.db.execute_count(
-            "UPDATE posts SET withdrawn_at = datetime('now'), outcome = ? WHERE id = ? AND sender = ? AND kind = 'order' AND withdrawn_at IS NULL",
+            "UPDATE posts SET withdrawn_at = datetime('now'), outcome = ? WHERE id = ? AND sender = ? AND kind IN ('order', 'feedback') AND withdrawn_at IS NULL",
             (f"återkallad: {why}", post_id, sender))
         return bool(n)
 

@@ -105,8 +105,17 @@ async def test_a_standing_order_shows_on_both_sides_until_withdrawn(db):
 
     posts = Posts(db)
     pid = await posts.send("director", "researcher", "order", "Ändra inget i sökningen förrän Julius svarat på #Q142")
-    assert f"#P{pid} till researcher" in await review(db, "director", NOW)
-    assert f"#P{pid} från director" in await review(db, "researcher", NOW) and "question it" in await review(db, "researcher", NOW)
+    assert f"#P{pid} (order) till researcher" in await review(db, "director", NOW)
+    assert f"#P{pid} (order) från director" in await review(db, "researcher", NOW) and "question it" in await review(db, "researcher", NOW)
     assert not await posts.withdraw(pid, "researcher", "inte min")   # only its sender withdraws it
     assert await posts.withdraw(pid, "director", "frös sökningen i veckor")
     assert f"#P{pid}" not in await review(db, "researcher", NOW)
+
+
+async def test_feedback_that_tells_another_role_what_not_to_do_also_stands_until_its_date(db):
+    from agent.posts import Posts
+
+    pid = await Posts(db).send("director", "researcher", "feedback", "Ändra inget i sökningen förrän Julius har svarat på #Q142")
+    assert f"#P{pid} (feedback) från director" in await review(db, "researcher", NOW)
+    assert f"#P{pid} (feedback) till researcher" in await review(db, "director", NOW)
+    assert await Posts(db).withdraw(pid, "director", "frös sökningen")
