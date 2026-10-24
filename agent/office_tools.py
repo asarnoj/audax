@@ -153,7 +153,41 @@ def office_tools(db: Database, role: str, turn: TurnContext | None = None, memor
             return _text(f"[internal] Not linked: {e}")
         return _text(f"[internal] Linked {ref(await items.get(a))} —{args['relation']}→ {ref(await items.get(b))}")
 
-    tools = [forms, find, read, create, update, link]
+    @tool(
+        "find_out",
+        "Something you don't know and that matters: register it, with your best guess, and choose where the answer comes "
+        "from. ask=owner: the Assistant asks it in its own words when it fits. ask=world: Researcher finds out at once (a "
+        "step). ask=self: you test it (then create an experiment with this question as its parent) or wait for a signal "
+        "(give review_at). ask=director/manager/researcher: that role answers. The answer comes back to you, next to your "
+        "guess; then say what it meant (update: fields.conclusion, status settled).",
+        {"type": "object", "properties": {
+            "what": {"type": "string", "description": "Swedish: the question, plainly"},
+            "why": {"type": "string", "description": "Swedish: what hangs on it"},
+            "guess": {"type": "string", "description": "Swedish: your best guess now, and how sure"},
+            "settles_it": {"type": "string", "description": "Swedish: what would settle it"},
+            "ask": {"type": "string", "enum": ["owner", "world", "self", "director", "manager", "researcher"]},
+            "kind": {"type": "string", "enum": ["clarify", "intent", "check", "followup", "challenge"]},
+            "about": {"type": "string", "description": "the id of what it serves, e.g. #S5 or #U141"},
+            "review_at": {"type": "string", "description": "YYYY-MM-DD: when you want the answer at the latest"}},
+         "required": ["what", "why", "guess", "ask"]},
+    )
+    async def find_out(args: dict[str, Any]) -> dict[str, Any]:
+        try:
+            qid = await items.create(
+                "question", args["what"], role, kind=args.get("kind") or "clarify", owner=role,
+                parent=item_id(args["about"]) if args.get("about") else None, review_at=args.get("review_at"),
+                data={"to": args["ask"], "why": args["why"], "guess": args.get("guess"), "settles_it": args.get("settles_it")},
+                note="vill veta", check_rights=True)
+        except FormError as e:
+            return _text(f"[internal] Not registered: {e}")
+        touched(qid, "question")
+        q = await items.get(qid)
+        then = {"owner": "The Assistant asks it when it fits.", "world": "Researcher is on it now.",
+                "self": "Now create the experiment with this as its parent, or wait for the signal.",
+                }.get(args["ask"], f"{args['ask'].capitalize()} sees it in its review.")
+        return _text(f"[internal] {Items.line(q)}. {then}")
+
+    tools = [forms, find, read, create, update, link, find_out]
     if memory is not None:
         from agent import texts
 

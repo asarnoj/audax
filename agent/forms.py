@@ -138,13 +138,19 @@ FORMS: dict[str, Form] = {f.name: f for f in (
     ),
     Form(
         "question", "Q", "Fråga",
-        "Something a role wants to know, from the owner or another role, and why. The answer goes back to what it belongs to.",
-        {k: ("open", "asked", "answered", "unanswered", "dropped") for k in ("clarify", "intent", "check", "followup", "challenge")},
-        closed=("answered", "unanswered", "dropped"),
+        "Something a role doesn't know and that matters: what is unclear, what hangs on it, its best guess now, what would "
+        "settle it, and where the answer comes from: the owner, another role, the world (Researcher finds out) or itself "
+        "(an experiment, or a signal to wait for). The answer comes back to the one who asked, who says what it meant.",
+        {k: ("open", "asked", "answered", "unanswered", "settled", "dropped") for k in ("clarify", "intent", "check", "followup", "challenge")},
+        closed=("answered", "unanswered", "settled", "dropped"),
         fields=(
-            Field("to", "enum", True, ("owner", *ROLES)),
-            Field("why", required=True, help="Swedish"),
+            Field("to", "enum", True, ("owner", *ROLES, "world", "self"),
+                  help="who answers: owner (the Assistant asks), a role, world (a step for Researcher), self (an experiment or a signal)"),
+            Field("why", required=True, help="Swedish: what hangs on it"),
+            Field("guess", help="Swedish: your best guess now, and how sure"),
+            Field("settles_it", help="Swedish: what would settle it"),
             Field("answer", help="Swedish: the answer, in the owner's words where possible"),
+            Field("conclusion", help="Swedish: what the answer meant, and what changed because of it"),
             Field("asked_at", "datetime"),
         ),
     ),

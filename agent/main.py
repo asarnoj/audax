@@ -40,7 +40,7 @@ from agent.night import Night
 from agent import site
 from agent.config import INSTANCE
 from agent.office import Office
-from agent import opportunities
+from agent import opportunities, questions
 from agent.due import Calendar, follower, starter
 from agent.beliefs import write_profile
 from agent.items import Items
@@ -118,6 +118,7 @@ async def run() -> None:
     await routines.refresh(db)
     Items.watchers.append(routines.watch)
     Items.watchers.append(follower(settings.timezone))   # a promise that waited for something is due when it is done
+    Items.watchers.append(questions.route)   # a question to the world becomes a step; a step or experiment answers its question
     Items.watchers.append(opportunities.follow)   # what the owner goes for keeps its opportunity's link and dates
     Items.watchers.append(starter(lambda role, why: wake(role, why)))   # a research step is done now, not on its date (wake is set below)
     if await write_profile(db, memory.path, settings.owner or "ägaren", settings.timezone):

@@ -120,7 +120,8 @@ class Items:
         item = await self.get(item_id)
         if item is None:
             raise FormError(f"no item {item_id}")
-        if check_rights and not may(by, "update", item["form"], item["owner"]):
+        answering = item["form"] == "question" and item.get("to") == by   # the role a question is put to may answer it
+        if check_rights and not answering and not may(by, "update", item["form"], item["owner"]):
             raise FormError(f"{by} may not change {ref(item)} (owned by {item['owner']}).")
         new_kind = kind or item["kind"]
         _, new_kind, new_status, clean = check(item["form"], new_kind, status or item["status"], data or {}, title=title, source=source,

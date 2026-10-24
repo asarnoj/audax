@@ -288,7 +288,35 @@ def build_chat_tools(
                + "\n".join(f"#U{b['id']} {b['title']}" for b in others) if others else "")
         )
 
-    tools = [record_feedback, interview_guide, report_problem, track_pursuit, lookup, remember]
+    @tool(
+        "unclear",
+        "Something {owner} said that points more than one way, and that matters for what the office does: leave it with "
+        "Director as an open question, with their words and your reading, instead of guessing or asking them at once. "
+        "Director decides how to find out (perhaps by asking them later). Not for what you can simply ask now in the "
+        "conversation, and not for lasting facts (remember).",
+        {"type": "object", "properties": {
+            "what": {"type": "string", "description": "Swedish: what is unclear, as a question"},
+            "words": {"type": "string", "description": "{owner_s} own words"},
+            "reading": {"type": "string", "description": "Swedish: your best reading of it, and how sure"},
+            "why": {"type": "string", "description": "Swedish: what hangs on it"}},
+         "required": ["what", "words", "reading", "why"]},
+    )
+    async def unclear(args: dict[str, Any]) -> dict[str, Any]:
+        from agent.forms import FormError
+        from agent.items import Items
+
+        try:
+            qid = await Items(db).create(
+                "question", args["what"], "assistant", kind="clarify", owner="director",
+                data={"to": "self", "why": args["why"], "guess": args["reading"]},
+                source={"type": "owner", "quote": args["words"], "message": turn.message_row_id},
+                note="oklart i samtalet")
+        except FormError as e:
+            return _text(f"[internal] Not left: {e}")
+        turn.refs.add(f"#Q{qid}")
+        return _text(f"[internal] Left with Director as #Q{qid}. Don't promise {personalize('{owner}')} anything about it.")
+
+    tools = [record_feedback, interview_guide, report_problem, track_pursuit, lookup, remember, unclear]
 
     if schedule is not None:
 

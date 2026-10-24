@@ -92,6 +92,7 @@ All kommunikation mellan rollerna går genom en central postlogg (#P). Varje rol
 
 - **Kan vänta** är det vanliga. Mottagaren läser posten vid sin nästa körning och markerar den som behandlad.
 - **Väck** startar mottagarens körning snart, bara när kedjan började med dig, eller när något brådskande väcker framåt mot dig (Researcher → triage → dispatcher → Assistant). Ingen kan väcka bakåt, så loopar kan inte uppstå.
+- **Order gäller till ett datum.** En order (i början två veckor om inget annat sägs) syns både hos den som gav den och den som arbetar under den, tills den löper ut eller återkallas. En roll som får en order som stoppar arbetet säger ifrån.
 - **Bara Assistant pratar med dig.** Rollernas frågor till dig är frågor (#Q) som Assistant ställer med egna ord när det passar.
 
 ## Kalendern och städpassen
@@ -146,7 +147,7 @@ Båda prövar saker över tid med samma former. Director gör det för innehåll
 
 - **Planer** är steg (#T) under det de tjänar, med ägare, datum och vad som räknas som klart.
 - **Experiment** (#E) *förbättrar* det som finns eller *utforskar* något utanför de nuvarande målen. Ingen takt är hårdkodad; granskningen visar balansen.
-- **Frågor** (#Q) ställs när ett svar skulle hjälpa mer än signalerna. Svaret går tillbaka till den som frågade.
+- **Frågor** (#Q) är allt en roll vill veta och som spelar roll: vad som är oklart, vad som hänger på det, rollens bästa gissning och vad som skulle avgöra saken. Rollen väljer var svaret kommer ifrån: från dig (Assistant frågar när det passar), från en annan roll, från världen (Researcher tar reda på det direkt) eller från rollen själv (ett experiment eller en signal att vänta på). Svaret går tillbaka till den som frågade, bredvid gissningen, och den skriver vad det betydde. Chatten kan också lämna något du sa som pekar åt flera håll hos Director, i stället för att gissa. Inga frågor tvingas fram.
 - **Reflektionen** är en rutin som Director själv ändrar takten på.
 
 ## Möjligheter: en post per verklig sak

@@ -69,9 +69,10 @@ async def review(db: Database, role: str, now: datetime, memory=None) -> str:
     if role in ("director", "manager", "researcher"):
         n_explore = sum(1 for e in recent if e["kind"] == "explore")
         parts.append(f"Balans senaste tre veckorna: {len(recent) - n_explore} förbättra, {n_explore} utforska.")
-    waiting = await items.find("question", status=("open", "asked"), owner=role)
-    if waiting:
-        parts.append("Frågor som väntar på svar:\n" + "\n".join(f"- {describe(i) if i['review_at'] else Items.line(i)}" for i in waiting))
+    from agent.questions import wondering
+
+    if wonder := await wondering(db, role):
+        parts.append(wonder)
     expired = await items.find("belief", status="current", owner=role, where="valid_until IS NOT NULL AND valid_until < ?",
                                args=(f"{now:%Y-%m-%d}",))
     if expired:
