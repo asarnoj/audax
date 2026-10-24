@@ -28,7 +28,8 @@ from agent.pipeline.outbox import add_candidate
 from agent.posts import ROLES, Posts
 from agent.prompts import prompt as prompt_template
 from agent.due import due_items, review
-from agent.items import Items, ref
+from agent.forms import FormError
+from agent.items import Items, parse_ref, ref
 from agent.office_tools import build_office_tools
 from agent.pursuits import judged_against
 from agent.research import BATCH, RETIRE_AFTER_RUNS, Portfolio, load_research
@@ -45,6 +46,20 @@ QUIET_AFTER = timedelta(days=14)  # a mission with nothing kept this long is loo
 SCHEMA = {
     "type": "object",
     "properties": {
+        "steps": {
+            "type": "array",
+            "description": "Every open step of yours (the list below), with what you did about it in this run",
+            "items": {
+                "type": "object",
+                "properties": {
+                    "id": {"type": "string", "description": "#T…"},
+                    "outcome": {"type": "string", "enum": ["done", "waiting", "dropped"]},
+                    "result": {"type": "string", "description": "Swedish. done: the answer, with sources and dates. waiting: why, and "
+                                                             "what you will do and when. dropped: why it was the wrong question"},
+                },
+                "required": ["id", "outcome", "result"],
+            },
+        },
         "missions": {
             "type": "array",
             "description": "Add, update or disable a search mission (orders come from Director)",
@@ -133,7 +148,7 @@ SCHEMA = {
                     "description": "Swedish: lessons about how the office works that every role should know; usually none"},
         "summary": {"type": "string", "description": "Swedish. What you did in this run and why, briefly: the run's own account"},
     },
-    "required": ["missions", "queries", "senses", "working_memory", "summary"],
+    "required": ["steps", "missions", "queries", "senses", "working_memory", "summary"],
 }
 
 
@@ -248,6 +263,7 @@ class ResearchPlanner:
         changes: list[str] = []
         if missions := out.get("missions"):
             changes += await ops.apply_missions(self.db, missions)
+        changes += await self._account_steps(out.get("steps") or [], now)
         known = {t.id for t in load_research()}
         changes += await self._queries(out.get("queries") or [], known)
         for s in out.get("senses") or []:
@@ -297,6 +313,28 @@ class ResearchPlanner:
         await self.memory.commit_if_changed(f"researcher {now:%Y-%m-%d %H:%M}", by="researcher")
         log.info("researcher planned: %s", "; ".join(changes) or "inga ändringar")
         return changes
+
+    async def _account_steps(self, steps: list[dict], now: datetime) -> list[str]:
+        """Each open step gets an outcome in the answer, so none lies untouched until its date (22–24 Oct: the improv step
+        waited for 4 Nov). The code writes it on the step; an open step left out is named in the run's account."""
+        items = Items(self.db)
+        out, seen = [], set()
+        for s in steps:
+            n = parse_ref(str(s.get("id") or ""))
+            item = await items.get(n) if n else None
+            if item is None or item["form"] != "step" or item["owner"] != "researcher":
+                continue
+            seen.add(n)
+            status = {"done": "done", "waiting": "waiting", "dropped": "dropped"}[s["outcome"]]
+            try:
+                await items.update(n, "researcher", status=status, data={"result": s.get("result", "")}, note=s.get("result", "")[:300])
+                out.append(f"{ref(item)} {status}")
+            except FormError as e:
+                out.append(f"{ref(item)}: {e}")
+        left = [s for s in await items.find("step", open_only=True, owner="researcher") if s["id"] not in seen]
+        if left:
+            out.append("steg utan åtgärd: " + ", ".join(ref(s) for s in left))
+        return out
 
     async def _queries(self, changes: list[dict], known: set[str]) -> list[str]:
         """Adds and removes queries in each mission's routine."""

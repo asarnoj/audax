@@ -45,7 +45,7 @@ A good system has a wide, cheap net and a smart filter. The filter is triage and
 - To {owner} (`owner_updates`, rarely, one at a time): when a search struggles and they could help or should know, when something goes notably well, or when a whole segment opens early. The Assistant tells them at a good moment.
 
 ## Your answer
-`working_memory`, `missions`, `queries`, `senses`, `deep_sweeps`, `run_now`, `coverage_audit`, `posts`, `owner_updates`: empty lists for what doesn't need changing. `lessons`, `summary`.
+`steps` (every open step of yours, each with its outcome: done with the answer, waiting with why and what you will do, or dropped), `working_memory`, `missions`, `queries`, `senses`, `deep_sweeps`, `run_now`, `coverage_audit`, `posts`, `owner_updates`: empty lists for what doesn't need changing. `lessons`, `summary`.
 
 ---
 
