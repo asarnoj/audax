@@ -119,3 +119,15 @@ async def test_feedback_that_tells_another_role_what_not_to_do_also_stands_until
     assert f"#P{pid} (feedback) från director" in await review(db, "researcher", NOW)
     assert f"#P{pid} (feedback) till researcher" in await review(db, "director", NOW)
     assert await Posts(db).withdraw(pid, "director", "frös sökningen")
+
+
+async def test_the_review_presses_an_overdue_experiment_and_shows_beliefs_that_may_have_changed(db):
+    items = Items(db)
+    e = await items.create("experiment", "Korta meddelanden", "manager", kind="improve", status="running", owner="manager",
+                           review_at="2026-10-01", data={"hypothesis": "h", "intervention": "i", "measure": "m"})
+    b = await items.create("belief", "Vill ha korta meddelanden", "manager", kind="preference", owner="manager",
+                           source={"type": "observed"})
+    await db.execute("UPDATE items SET updated_at = datetime('now', '-60 days') WHERE id = ?", (b,))
+    text = await review(db, "manager", NOW)
+    assert "long förbi" not in text and f"#E{e}" in text.split("Experiment långt förbi sitt datum")[1]
+    assert f"#U{b}" in text.split("Uppfattningar som inte setts över")[1]

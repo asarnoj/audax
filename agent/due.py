@@ -23,6 +23,7 @@ log = logging.getLogger(__name__)
 
 UNANSWERED_AFTER = timedelta(days=7)
 STALLED_AFTER = timedelta(days=7)
+BELIEF_FRESH = timedelta(days=45)   # a preference, pattern or hypothesis not looked at this long may no longer hold
 OWNER_FACING = ("tell_owner", "ask_owner")
 
 
@@ -62,6 +63,11 @@ async def review(db: Database, role: str, now: datetime, memory=None) -> str:
     stalled = [s for s in stalled if s not in due]
     if stalled:
         parts.append("Steg som stannat (stalled a week or more):\n" + "\n".join(f"- {describe(i)}" for i in stalled))
+    overdue = [e for e in await items.find("experiment", status=("running", "evaluating"), owner=role)
+               if e["review_at"] and e["review_at"] < f"{now - timedelta(days=7):%Y-%m-%d}"]
+    if overdue:
+        parts.append("Experiment långt förbi sitt datum: decide now (kept, adjusted or dropped) on what you have; waiting longer "
+                     "rarely brings more data, and an undecided experiment teaches nothing:\n" + "\n".join(f"- {describe(e)}" for e in overdue))
     running = await items.find("experiment", status=("planned", "running", "evaluating"), owner=role)
     if running:
         parts.append("Experiment som pågår:\n" + "\n".join(f"- {describe(i)}" for i in running))
@@ -73,6 +79,14 @@ async def review(db: Database, role: str, now: datetime, memory=None) -> str:
 
     if wonder := await wondering(db, role):
         parts.append(wonder)
+    if role in ("assistant", "director", "manager"):
+        old = await items.find("belief", status="current", owner=role, kind=("preference", "pattern", "hypothesis", "value"),
+                               where="valid_until IS NULL AND updated_at < datetime('now', ?)", args=(f"-{BELIEF_FRESH.days} days",),
+                               order="updated_at", limit=8)
+        if old:
+            parts.append(f"Uppfattningar som inte setts över på {BELIEF_FRESH.days} dagar (may have changed: does anything since "
+                         "confirm or contradict them? Renew, revise or retract; or notice in passing whether they still hold):\n"
+                         + "\n".join(f"- {Items.line(i)} · senast {i['updated_at'][:10]}" for i in old))
     expired = await items.find("belief", status="current", owner=role, where="valid_until IS NOT NULL AND valid_until < ?",
                                args=(f"{now:%Y-%m-%d}",))
     if expired:
