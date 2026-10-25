@@ -162,7 +162,7 @@ class ChatSession:
         host = (self.settings.host or "").strip()
         where = (f"\n\nThis Audax runs on {host}'s computer, on {host}'s Claude subscription, so that the owner can try it. Say so early "
                  f"and plainly: what they write and what Audax learns about them is stored there, and {host} could read it. "
-                 "Let them decide what they share." if host else "")
+                 f"Let them decide what they share. Refer to {host} by name (\"{host}s dator\"), never as han or hon." if host else "")
         self.submit(Incoming(text=prompt_template("interview") + where + "\n\nBegin now: the hello, what Audax is, the office, and the names.",
                              internal=True))
 
