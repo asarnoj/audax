@@ -84,7 +84,7 @@ class Inspector:
         )
         out.append(f"Meddelanden ({sum(m['direction'] == 'in' for m in msgs)} in, {sum(m['direction'] == 'out' for m in msgs)} ut):")
         for m in msgs:
-            who = "du " if m["direction"] == "in" else {"proactive": "BRUNO→", "command": "kmd  "}.get(m["origin"], "svar ")
+            who = "du " if m["direction"] == "in" else {"proactive": "AUDAX→", "command": "kmd  "}.get(m["origin"], "svar ")
             out.append(f"  {self._t(m['created_at'])} {who} {m['text'][:110].replace(chr(10), ' / ')}")
 
         runs = await self.db.fetchall(

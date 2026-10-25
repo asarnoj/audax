@@ -36,7 +36,7 @@ async def test_day_and_runs_show_traces_and_skipped(db):
     )
     i = Inspector(db)
     day = await i.day()
-    assert "BRUNO→ Hackathon i nov" in day and "2 fynd, 0 nya, 1 bortvalda" in day and "inte intresserad av banker" in day
+    assert "AUDAX→ Hackathon i nov" in day and "2 fynd, 0 nya, 1 bortvalda" in day and "inte intresserad av banker" in day
     runs = await i.runs("research")
     assert "WebSearch: summer internship 2027 Stockholm" in runs
     assert "Skickat på eget initiativ: 1" in await i.summary()

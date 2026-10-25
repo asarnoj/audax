@@ -4,7 +4,7 @@ the history, so a changed mind is visible as what changed, when and why, not as 
 
 The profile is a view of them (omgång 5): written by the code from the current beliefs, grouped as the owner knows
 it, every line with where it came from. No role edits it. It is what the roles read as "the profile" and what the
-owner sees as "what Bruno knows about me".
+owner sees as "what Audax knows about me".
 """
 
 from __future__ import annotations

@@ -11,7 +11,7 @@ Mejlen ger Audax sammanhang om vad som händer i ditt liv: svar på ansökningar
 
 Motorn sparar inget från mejlen. Mejl är skrivna av andra, så de lämnas alltid till Claude som information och aldrig som instruktioner.
 
-**Isolering:** en körning som har läst mejl kan inte nå nya adresser på webben. Så kan ett mejl från en främling inte lura Audax att föra ut privat data i en webbadress. Därför läser Directors nattliga genomgång mejlen utan webbläsning, och reflektionen, som har webben, ser aldrig mejlen. Lägga till bevakningar gör Researcher, som aldrig läser mejl: en källa Director ser i mejlen blir en beställning till Researcher, som kontrollerar adressen. I chatten stängs webbläsningen resten av rundan efter att Bruno läst ett mejl.
+**Isolering:** en körning som har läst mejl kan inte nå nya adresser på webben. Så kan ett mejl från en främling inte lura Audax att föra ut privat data i en webbadress. Därför läser Directors nattliga genomgång mejlen utan webbläsning, och reflektionen, som har webben, ser aldrig mejlen. Lägga till bevakningar gör Researcher, som aldrig läser mejl: en källa Director ser i mejlen blir en beställning till Researcher, som kontrollerar adressen. I chatten stängs webbläsningen resten av rundan efter att chatten läst ett mejl.
 
 ## Varför en Google-nyckel och inte ett lösenord
 Nyckeln har bara behörigheten `gmail.readonly`, så den kan i sig inte skicka eller radera något. Motorn vägrar använda en nyckel med bredare behörighet. Ett app-lösenord hade gett full åtkomst.
@@ -29,7 +29,7 @@ Nyckeln har bara behörigheten `gmail.readonly`, så den kan i sig inte skicka e
    ```
    Logga in med ditt Gmail-konto. Google varnar att appen inte är verifierad: klicka **Advanced → Go to Audax** och godkänn läsbehörigheten.
 6. Skriptet skriver ut tre rader (`GMAIL_CLIENT_ID`, `GMAIL_CLIENT_SECRET`, `GMAIL_REFRESH_TOKEN`). Lägg in dem i `.env` på Pi:n och starta om motorn. Klistra aldrig in dem i Telegram.
-7. Testa genom att fråga Bruno något som står i din mejl.
+7. Testa genom att fråga Audax något som står i din mejl.
 
 Du kan dra tillbaka åtkomsten när som helst på [myaccount.google.com/permissions](https://myaccount.google.com/permissions).
 

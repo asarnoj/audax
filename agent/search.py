@@ -15,8 +15,8 @@ from zoneinfo import ZoneInfo
 
 from agent.db import Database
 
-WHO = {"owner": "Julius", "assistant": "Bruno", "director": "Director", "manager": "Manager", "researcher": "Researcher",
-       "office": "kontoret", "system": "systemet", "": "kontoret"}
+WHO = {"assistant": "assistenten", "director": "Director", "manager": "Manager", "researcher": "Researcher",
+       "office": "kontoret", "system": "systemet", "": "kontoret"}   # the owner is named from the settings, never in the code
 STOP = {"och", "att", "det", "som", "för", "med", "har", "inte", "den", "jag", "till", "var", "kan", "vad", "the", "and",
         "från", "när", "hur", "eller", "ska", "skulle", "om", "på", "du", "vi", "ni", "är", "fick", "finns", "något", "några"}
 
@@ -33,7 +33,10 @@ class Hit:
     def line(self, tz: str = "Europe/Stockholm") -> str:
         when = _local(self.at, tz)
         label = {"message": "", "post": f"post #P{self.ref} ", "finding": f"fynd #F{self.ref} ", "item": f"#{self.letter}{self.ref} "}[self.kind]
-        return f"{when} {label}{WHO.get(self.who, self.who)}: {self.text}"
+        from agent.prompts import owner
+
+        who = owner() if self.who == "owner" else WHO.get(self.who, self.who)
+        return f"{when} {label}{who}: {self.text}"
 
 
 def words_of(query: str) -> list[str]:

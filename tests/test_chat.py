@@ -328,7 +328,7 @@ async def test_search_finds_the_owners_own_words_and_says_who_and_when(db):
                      "(1, 'in', 'Tyvärr måste jag bestämma track 15e oktober och utbyte väldigt snart', '2026-10-12 18:17:07')")
     await db.execute("INSERT INTO messages (telegram_message_id, direction, text) VALUES (2, 'out', 'Google: https://www.google.com/about/careers/x-intern-2027')")
     found = await refs.lookup(db, "trackval 15 oktober deadline")   # 19 Oct: this found nothing, and the chat said it wasn't the owner's
-    assert "2026-10-12 20:17 Julius: Tyvärr måste jag bestämma track 15e oktober" in found
+    assert "2026-10-12 20:17 användaren: Tyvärr måste jag bestämma track 15e oktober" in found
     assert "careers/x-intern-2027" in await refs.lookup(db, "google careers länk")
 
 
@@ -396,7 +396,7 @@ async def test_the_chat_is_reminded_of_what_was_said_before_its_turn(db, tmp_pat
     chat = ChatSession(load_settings(), db, ClaudeGate(db, tmp_path, runner=runner), FakeMemory(), send, typing)
     chat.submit(Incoming(text="Varifrån fick ni att jag skulle välja track den 15 oktober?"))
     await wait_idle(chat)
-    assert "[minne:" in prompts[0] and "Julius: Tyvärr måste jag bestämma track 15e oktober" in prompts[0]
+    assert "[minne:" in prompts[0] and "användaren: Tyvärr måste jag bestämma track 15e oktober" in prompts[0]
 
 
 async def test_a_big_quiet_conversation_is_folded_into_its_summary_and_starts_fresh(db, tmp_path):
