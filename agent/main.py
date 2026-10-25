@@ -86,11 +86,10 @@ async def run() -> None:
     settings = load_settings()
     assert_subscription_auth()
     set_owner(settings.owner)
-    (settings.workspace / "CLAUDE.md").write_text(prompt("claude_md"))  # personalized agent instructions
     if not settings.telegram_token:
         raise SystemExit("TELEGRAM_TOKEN saknas i .env")
-
-    settings.workspace.mkdir(parents=True, exist_ok=True)
+    settings.workspace.mkdir(parents=True, exist_ok=True)   # a new home has none yet (25 Oct: a friend's first start)
+    (settings.workspace / "CLAUDE.md").write_text(prompt("claude_md"))  # personalized agent instructions
     db = Database(settings.database)
     await db.open()
     from agent import trail
