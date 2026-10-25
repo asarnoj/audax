@@ -159,7 +159,12 @@ class ChatSession:
 
     async def start_interview(self) -> None:
         """For a new owner (empty memory). Later interviews start from the chat itself (the interview_guide tool)."""
-        self.submit(Incoming(text=prompt_template("interview") + "\n\nBegin now with a short greeting and the first question.", internal=True))
+        host = (self.settings.host or "").strip()
+        where = (f"\n\nThis Audax runs on {host}'s computer, on {host}'s Claude subscription, so that the owner can try it. Say so early "
+                 f"and plainly: what they write and what Audax learns about them is stored there, and {host} could read it. "
+                 "Let them decide what they share." if host else "")
+        self.submit(Incoming(text=prompt_template("interview") + where + "\n\nBegin now: the hello, what Audax is, the office, and the names.",
+                             internal=True))
 
     async def reset(self) -> None:
         await self.db.kv_set(SESSION_KEY, None)
@@ -450,7 +455,10 @@ class ChatSession:
         except QuotaPaused as e:
             if internal:
                 raise
-            await self._send(f"Min Claude-kvot är slut just nu. Den återställs {datetime.fromtimestamp(e.resets_at):%H:%M}.", origin="chat", in_session=True)
+            if e.why.startswith("budget"):   # a guest's cap (agent/budget.py)
+                await self._send("Jag har tänkt klart för i dag. Skriv igen i morgon så fortsätter vi.", origin="chat", in_session=True)
+            else:
+                await self._send(f"Min Claude-kvot är slut just nu. Den återställs {datetime.fromtimestamp(e.resets_at):%H:%M}.", origin="chat", in_session=True)
             return
         finally:
             if typing:

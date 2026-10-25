@@ -28,7 +28,7 @@ HEADINGS = {
     "interrupt": "Får alltid störa",
     "schedule": "Schema och vanor",
     "communication": "Hur hen vill ha det",
-    "name": "Vad agenten heter",
+    "name": "Vad agenten och rollerna heter",
     "other": "Övrigt",
 }
 IN_PROFILE = ("preference", "fact", "value")   # patterns and hypotheses are Director's interpretation, not the profile
@@ -49,7 +49,7 @@ async def current(db: Database, area: str | None = None, subject: str | None = N
     return await Items(db).find("belief", kind=kinds, status="current", where=" AND ".join(where), args=tuple(args), order="id")
 
 
-def source_note(item: dict, owner_name: str = "Julius") -> str:
+def source_note(item: dict, owner_name: str = "ägaren") -> str:
     """Where a belief came from, in a few words: 'Julius, 9 okt', 'sett 14 okt', 'slutsats, Director'."""
     src = item.get("source") or {}
     when = src.get("date") or (item.get("created_at") or "")[:10]
@@ -68,7 +68,7 @@ def source_note(item: dict, owner_name: str = "Julius") -> str:
     return f"slutsats, {(src.get('by') or item.get('owner') or 'kontoret').capitalize()}"
 
 
-async def profile_text(db: Database, owner_name: str = "Julius", tz: str = "Europe/Stockholm") -> str:
+async def profile_text(db: Database, owner_name: str = "ägaren", tz: str = "Europe/Stockholm") -> str:
     today = datetime.now(ZoneInfo(tz)).date()
     beliefs = await current(db, today=today, kinds=IN_PROFILE)
     by_area: dict[str, list[dict]] = {}
@@ -95,7 +95,7 @@ async def profile_text(db: Database, owner_name: str = "Julius", tz: str = "Euro
     return "\n".join(parts).rstrip() + "\n"
 
 
-async def write_profile(db: Database, memory: Path, owner_name: str = "Julius", tz: str = "Europe/Stockholm") -> bool:
+async def write_profile(db: Database, memory: Path, owner_name: str = "ägaren", tz: str = "Europe/Stockholm") -> bool:
     """Writes memory/profile.md from the beliefs when there are any. Returns whether the file changed."""
     if not await Items(db).find("belief", limit=1):
         return False   # nothing moved over yet: leave the profile as it is

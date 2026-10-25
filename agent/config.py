@@ -16,12 +16,43 @@ from dotenv import load_dotenv
 from pydantic import BaseModel
 
 ROOT = Path(__file__).resolve().parent.parent
-INSTANCE = Path(os.getenv("AUDAX_INSTANCE") or ROOT / "instance")
+# Where one person's Audax lives: its instance, workspace, database and .env. The engine's own folder by default; a
+# friend's instance on the same machine has its own home (AUDAX_HOME, deploy/add-friend.sh) and never reads the
+# host's .env, memory or database.
+HOME = Path(os.getenv("AUDAX_HOME") or ROOT)
+INSTANCE = Path(os.getenv("AUDAX_INSTANCE") or HOME / "instance")
 INSTANCE_FILES = ("settings.yaml", "sources.yaml", "research.yaml", "watchlist.yaml")
 
 
 def instance_config(name: str) -> Path:
     return INSTANCE / "config" / name
+
+
+def ensure_workspace(workspace: Path) -> list[str]:
+    """A new home's workspace: the memory from the templates (its own git repo) and the permissions every run reads,
+    as deploy/init-memory.sh does for the engine's own folder. Never overwrites."""
+    import shutil
+    import subprocess
+
+    made = []
+    rules, own = ROOT / "workspace" / ".claude" / "settings.json", workspace / ".claude" / "settings.json"
+    if rules.exists() and not own.exists():
+        own.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copy(rules, own)
+        made.append(".claude/settings.json")
+    memory, templates = workspace / "memory", ROOT / "templates" / "memory"
+    for f in templates.rglob("*"):
+        target = memory / f.relative_to(templates)
+        if f.is_file() and not target.exists():
+            target.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copy(f, target)
+            made.append(str(target.relative_to(workspace)))
+    if not (memory / ".git").exists():
+        git = ["git", "-C", str(memory), "-c", "user.name=agent", "-c", "user.email=agent@localhost"]
+        subprocess.run(["git", "-C", str(memory), "init", "-q", "-b", "main"], check=True)
+        subprocess.run([*git, "add", "-A"], check=True)
+        subprocess.run([*git, "commit", "-q", "-m", "Init memory from templates"], check=True)
+    return made
 
 
 def ensure_instance() -> list[str]:
@@ -83,6 +114,10 @@ class Budget(BaseModel):
     # The week's size in API-equivalent dollars, an estimate: Claude only reports how full the week is near the top,
     # and that figure includes the owner's own use. Calibrated over time.
     week_usd: float = 250.0
+    # A guest on the host's subscription (a friend's instance): a hard cap in API-equivalent dollars for any rolling
+    # week, paced per day, with a part of each day's allowance held for the night's work. None: the host's own Audax.
+    cap_usd_week: float | None = None
+    night_reserve: float = 0.4
 
 
 class Settings(BaseModel):
@@ -93,6 +128,10 @@ class Settings(BaseModel):
     paths: Paths = Paths()
     site: Site = Site()
     budget: Budget = Budget()
+
+    builder: bool = True      # build mode: changing the engine is the host's alone; off for a friend's instance
+    host: str = ""            # whose machine this instance runs on, when it isn't the owner's own (told in the interview)
+    invite: str = ""          # a friend's instance: /start with this code binds the owner's Telegram chat (AUDAX_INVITE)
 
     telegram_token: str = ""
     telegram_chat_id: int | None = None
@@ -107,7 +146,7 @@ class Settings(BaseModel):
 
 
 def _resolve(p: Path) -> Path:
-    return p if p.is_absolute() else ROOT / p
+    return p if p.is_absolute() else HOME / p
 
 
 # Env vars that would make Claude Code bill an API account instead of the subscription.
@@ -125,7 +164,7 @@ def assert_subscription_auth() -> None:
 
 
 def load_settings(path: Path | None = None) -> Settings:
-    load_dotenv(ROOT / ".env")
+    load_dotenv(HOME / ".env")
     if path is None:
         path = instance_config("settings.yaml")
         if not path.exists():
@@ -135,4 +174,5 @@ def load_settings(path: Path | None = None) -> Settings:
     chat_id = os.getenv("TELEGRAM_CHAT_ID", "").strip()
     data["telegram_token"] = os.getenv("TELEGRAM_TOKEN", "").strip()
     data["telegram_chat_id"] = int(chat_id) if chat_id else None
+    data["invite"] = os.getenv("AUDAX_INVITE", "").strip()
     return Settings.model_validate(data)

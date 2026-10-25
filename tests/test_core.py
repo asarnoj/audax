@@ -247,3 +247,52 @@ async def test_the_budget_paces_the_heavy_work_and_never_the_conversation(db, tm
     assert (await gate.run(task("chat", Priority.CHAT))).text == "ok"
     words = await budget.words()
     assert "Audax förbrukning: i dag" in words and "väntar till" in words
+
+
+async def test_a_guests_cap_counts_the_conversation_and_holds_a_reserve_for_the_night(db, tmp_path):
+    from agent.budget import Budget
+    from agent.config import load_settings
+
+    settings = load_settings()
+    settings.budget.cap_usd_week, settings.budget.night_reserve = 7.0, 0.4   # 1 $ a day, 1.3 with slack; the day's work stops at 0.78
+    budget = Budget(db, settings)
+
+    async def runner(t, ws, on_rl):
+        return RunResult(text="ok", cost_usd=0.4)
+
+    gate = ClaudeGate(db, tmp_path, runner=runner, budget=budget)
+    assert (await gate.run(task("chat", Priority.CHAT))).text == "ok"
+    assert (await gate.run(task("chat", Priority.CHAT))).text == "ok"   # 0.8 spent
+    with pytest.raises(QuotaPaused) as e:
+        await gate.run(task("chat", Priority.CHAT))   # the conversation counts too, and leaves the night its reserve
+    assert e.value.why.startswith("budget") and "natten" in e.value.why
+    assert (await gate.run(task("director_understand", Priority.MANAGER))).text == "ok"   # the night may use the reserve: 1.2
+    assert (await gate.run(task("manager", Priority.MANAGER))).text == "ok"   # 1.2 is under the day's 1.3: it may start
+    with pytest.raises(QuotaPaused):
+        await gate.run(task("researcher_plan", Priority.MANAGER))   # 1.6: the day is used
+    await db.execute("INSERT INTO claude_runs (kind, cost_usd, created_at) VALUES ('chat', 6.0, datetime('now', '-3 days'))")
+    assert (await budget.wait("assistant_night")) is not None and "veckans tak" in (await budget.wait("chat"))[1]
+
+
+def test_a_friends_home_reads_its_own_env_never_the_hosts(tmp_path, monkeypatch):
+    import importlib
+
+    import agent.config as config
+
+    (tmp_path / ".env").write_text("TELEGRAM_TOKEN=friend-token\nAUDAX_INVITE=abc123\n")
+    monkeypatch.setenv("AUDAX_HOME", str(tmp_path))
+    monkeypatch.delenv("AUDAX_INSTANCE", raising=False)
+    monkeypatch.delenv("TELEGRAM_TOKEN", raising=False)
+    monkeypatch.delenv("TELEGRAM_CHAT_ID", raising=False)
+    monkeypatch.delenv("AUDAX_INVITE", raising=False)
+    try:
+        importlib.reload(config)
+        assert config.INSTANCE == tmp_path / "instance"
+        config.ensure_instance()
+        s = config.load_settings()
+        assert s.telegram_token == "friend-token" and s.invite == "abc123" and s.database == tmp_path / "data" / "agent.db"
+        made = config.ensure_workspace(s.workspace)
+        assert (tmp_path / "workspace" / "memory" / "profile.md").exists() and ".claude/settings.json" in made
+    finally:
+        monkeypatch.delenv("AUDAX_HOME")
+        importlib.reload(config)

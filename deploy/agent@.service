@@ -1,0 +1,21 @@
+[Unit]
+Description=Audax for a friend (%i), on the host's machine
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=__USER__
+WorkingDirectory=__REPO__
+Environment=PATH=__HOME__/.local/bin:/usr/local/bin:/usr/bin:/bin
+# The friend's own home: instance, workspace, database and .env. Never the host's.
+Environment=AUDAX_HOME=__HOME__/audax-friends/%i
+ExecStart=__HOME__/.local/bin/uv run --no-dev python -m agent.main
+# Restarts also after binding the friend's chat through the invite (exit 75).
+Restart=always
+RestartSec=5
+MemoryHigh=900M
+MemoryMax=1200M
+
+[Install]
+WantedBy=multi-user.target

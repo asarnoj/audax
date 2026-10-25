@@ -15,6 +15,14 @@ Se det live:
 - `./deploy/audax jobs`: livstecken, nästa körning för varje jobb, sinne och uppdrag
 - `./deploy/audax claude`: varje sorts Claude-anrop med prompt, modell, verktyg, utlösare, och senaste veckans körningar, kostnadsandel och storlek på sammanhanget
 
+## Vänner på samma Pi
+
+Ägaren kan låta vänner pröva Audax på sin Pi och sin prenumeration, med ett tak.
+- **Var sin hemmapp** (`~/audax-friends/<namn>/`): egen instans, eget minne, egen databas och egen `.env`. Motorn är densamma. En väns instans läser aldrig värdens `.env`, minne eller databas (`AUDAX_HOME`, `agent/config.py`). Ingen kontorssida och inget bygg-läge.
+- **Uppsättning:** skapa en bot hos @BotFather och kör `./deploy/audax friend <namn> "<förnamn>" [tak $/vecka]`. Skriptet frågar efter bot-token, startar `agent@<namn>` och skriver ut en inbjudningslänk. Vännen öppnar den och trycker Start; boten binder hens chatt, startar om och börjar med introduktionen (som säger att allt lagras hos värden).
+- **Taket** (`budget.cap_usd_week`, i början 7 $ i veckan i API-pris): allt räknas, även samtalet. En rullande vecka går aldrig över taket, varje dag får använda sin sjundedel (med lite marginal), och dagens arbete lämnar 40 % kvar åt nattens. När taket är nått säger chatten att den har tänkt klart för i dag.
+- `./deploy/audax friends` visar vännernas instanser och vad var och en använt senaste veckan. `deploy.sh` startar om alla.
+
 ## Kontorets sida
 
 En webbsida i samma process (`agent/site.py`, data i `agent/office.py`). På `/` det illustrerade kontoret ovanifrån ([KONTORET.md](KONTORET.md)): läget just nu och det som händer, i realtid, och bakom varje klick innehåll och historik. Under `/data/` rådatan i enkla sidor: vem som arbetar nu och kvoten, de senaste körningarna (#R) med sina steg, ärenden följda via id (#P, #S, #F, #B), filerna (minnet och instansens inställningar) och alla tabeller. Sidans fasta text är engelska. Sidan kan bara läsa.

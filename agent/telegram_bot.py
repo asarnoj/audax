@@ -7,6 +7,7 @@ from agent import guard, trail
 import asyncio
 import json
 import logging
+import os
 import re
 import time
 from datetime import timedelta
@@ -38,6 +39,15 @@ from agent.schedule import Schedule
 log = logging.getLogger(__name__)
 
 TELEGRAM_LIMIT = 4096
+
+
+def bind_chat(chat_id: int) -> None:
+    """Writes the owner's chat into this home's .env, once (the invite is spent)."""
+    from agent.config import HOME
+
+    env = HOME / ".env"
+    lines = [l for l in (env.read_text().splitlines() if env.exists() else []) if not l.startswith(("TELEGRAM_CHAT_ID=", "AUDAX_INVITE="))]
+    env.write_text("\n".join([*lines, f"TELEGRAM_CHAT_ID={chat_id}"]) + "\n")
 
 
 class TelegramBot:
@@ -231,7 +241,14 @@ class TelegramBot:
 
     async def cmd_start(self, update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
         chat_id = update.effective_chat.id
-        if self.settings.telegram_chat_id is None:
+        if self.settings.telegram_chat_id is None and self.settings.invite:
+            if ctx.args and ctx.args[0] == self.settings.invite:   # a friend's instance: the invite link binds their chat
+                bind_chat(chat_id)
+                await update.message.reply_text("Hej! Ett ögonblick, jag gör mig redo.")
+                log.info("bound to chat %s through the invite; restarting to begin", chat_id)
+                os._exit(75)   # systemd starts it again, bound, and the interview begins
+            await update.message.reply_text("Den här boten är redan tagen, eller så saknas inbjudan i länken.")
+        elif self.settings.telegram_chat_id is None:
             await update.message.reply_text(
                 f"Hej! Ditt chat-id är {chat_id}.\n"
                 "Lägg in det som TELEGRAM_CHAT_ID i .env och starta om agenten."

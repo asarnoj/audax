@@ -14,6 +14,6 @@ fi
 git pull --no-rebase --no-edit pi main
 uv run pytest -q
 git push pi main
-ssh "$PI_HOST" "cd ${PI_DIR:-Projekt/audax} && ./deploy/init-memory.sh >/dev/null && ~/.local/bin/uv sync --no-dev -q && sudo systemctl restart agent && sleep 8 && systemctl is-active agent && journalctl -u agent --no-pager -n 3 -o cat"
+ssh "$PI_HOST" "cd ${PI_DIR:-Projekt/audax} && ./deploy/init-memory.sh >/dev/null && ~/.local/bin/uv sync --no-dev -q && sudo systemctl restart agent $(systemctl list-units --plain --no-legend --all 'agent@*' | awk '{print $1}') && sleep 8 && systemctl is-active agent && journalctl -u agent --no-pager -n 3 -o cat"
 # The Pi pushes to GitHub (it has the GitHub key); this machine doesn't need one.
 ssh "$PI_HOST" "cd ${PI_DIR:-Projekt/audax} && git remote get-url github >/dev/null 2>&1 && git push -q github main && echo 'GitHub: pushad' || echo '(inget github-remote på Pi:n)'"

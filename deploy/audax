@@ -14,6 +14,8 @@
 #   ./deploy/audax memory          what changed in memory and instance lately (git log)
 #   ./deploy/audax night [reflect|replay] run the night sweep now, in full (within ten minutes); reflect: Director reflects;
 #                                  replay: last night again, every role reading the whole day since the evening before
+#   ./deploy/audax friend <name> "<first name>" [cap $/week]   set up Audax for a friend (asks for their bot's token)
+#   ./deploy/audax friends         the friends' instances: running or not, and what each spent this week
 #   ./deploy/audax rollback        undo the engine's latest commit on the Pi (e.g. a build-mode change that broke it) and restart
 set -euo pipefail
 [ -f "$(dirname "$0")/../.deploy.env" ] && . "$(dirname "$0")/../.deploy.env"
@@ -30,6 +32,9 @@ case "${1:-today}" in
     [ "${2:-}" = "replay" ] && force='\"replay\"' && extra="INSERT OR REPLACE INTO kv (key, value) VALUES ('night.force_reflect', 'true');"
     ssh "$PI_HOST" "cd $DIR && sqlite3 data/agent.db \"INSERT OR REPLACE INTO kv (key, value) VALUES ('night.force', '$force'); $extra\""
     echo "Nattsvepet startar inom tio minuter. Följ det med ./deploy/audax logs, eller på kontorssidan." ;;
+  friend) shift; exec ssh -t "$PI_HOST" "cd $DIR && ./deploy/add-friend.sh $(printf '%q ' "$@")" ;;
+  friends)
+    exec ssh "$PI_HOST" 'for d in ~/audax-friends/*/; do n=$(basename "$d"); s=$(systemctl is-active "agent@$n"); w=$(sqlite3 "$d/data/agent.db" "SELECT round(coalesce(sum(cost_usd),0),2) FROM claude_runs WHERE created_at >= datetime(\"now\",\"-7 days\")" 2>/dev/null || echo "?"); echo "$n: $s, $w \$ senaste 7 dagarna"; done' ;;
   memory) exec ssh "$PI_HOST" "cd $DIR && echo '== minne' && git -C workspace/memory log --since='3 days ago' --format='%ad %s' --date=format:'%d/%m %H:%M' | head -25 && echo && echo '== instans' && git -C instance log --since='7 days ago' --format='%ad %s' --date=format:'%d/%m %H:%M' | head -15" ;;
   *)      exec ssh "$PI_HOST" "cd $DIR && .venv/bin/python -m agent.inspect $*" ;;
 esac

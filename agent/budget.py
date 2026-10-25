@@ -24,6 +24,8 @@ from agent.vocab import task_name, tier_of
 
 log = logging.getLogger(__name__)
 UTC = ZoneInfo("UTC")
+NIGHT = {"assistant_night", "director_understand", "director_reflect", "researcher_plan", "manager"}   # the night's work
+DAY_SLACK = 1.3   # a day may use a little more than a seventh of the week, the week never more than the cap
 
 
 class Budget:
@@ -76,8 +78,25 @@ class Budget:
                 text += f" {task_name(kind)} väntar till {datetime.fromtimestamp(until, self.tz):%a %H:%M}: {why}."
         return text
 
+    async def capped(self, kind: str, now: datetime) -> tuple[float, str] | None:
+        """A guest's budget: everything counts, the conversation too. A rolling week never passes the cap; each day may
+        use its share (with a little slack for a lively day), and the day's work leaves a reserve for the night's."""
+        cap = self.settings.budget.cap_usd_week
+        week = await self.spent(now - timedelta(days=7))
+        tomorrow = self._midnight(now) + timedelta(days=1)
+        if week >= cap:
+            return tomorrow.timestamp(), f"budget: veckans tak ({cap:.2f} $) är nått"
+        day = min(cap / 7 * DAY_SLACK, cap - week + await self.spent(self._midnight(now)))
+        today = await self.spent(self._midnight(now))
+        limit = day if kind in NIGHT else day * (1 - self.settings.budget.night_reserve)
+        if today >= limit:
+            return tomorrow.timestamp(), f"budget: dagens del ({limit:.2f} $) är använd" + ("" if kind in NIGHT else ", resten är natten")
+        return None
+
     async def wait(self, kind: str, now: datetime | None = None) -> tuple[float, str] | None:
         """None if the skill may run now; else (until when, why) in words for the log and the office."""
+        if self.settings.budget.cap_usd_week:
+            return await self.capped(kind, now or datetime.now(self.tz))
         tier = tier_of(kind)
         if tier <= 3:
             return None

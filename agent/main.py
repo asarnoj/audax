@@ -16,7 +16,7 @@ from agent.budget import Budget
 from agent.builder import Builder
 from agent.claude_gate import ClaudeGate, Priority
 from agent.controls import Controls
-from agent.config import assert_subscription_auth, ensure_instance, instance_config, load_settings
+from agent.config import assert_subscription_auth, ensure_instance, ensure_workspace, instance_config, load_settings
 from agent.director import Director
 from agent.inspect import Inspector
 from agent.prompts import prompt, set_owner
@@ -101,10 +101,11 @@ async def run() -> None:
 
     budget = Budget(db, settings)
     gate = ClaudeGate(db, settings.workspace, budget=budget)  # the background lane: roles queue here, one run at a time
-    chat_gate = ClaudeGate(db, settings.workspace, quota=gate.quota)  # the conversation lane: never waits for background work
+    # The conversation lane never waits for background work; a guest's conversation counts against its cap too.
+    chat_gate = ClaudeGate(db, settings.workspace, quota=gate.quota, budget=budget if settings.budget.cap_usd_week else None)
     memory = MemoryRepo(settings.workspace / "memory")
-    if not (memory.path / ".git").exists():
-        raise SystemExit("workspace/memory saknas: kör ./deploy/init-memory.sh först")
+    if made := ensure_workspace(settings.workspace):   # a new home's memory, from the templates
+        log.info("created the workspace: %s", ", ".join(made))
 
     async def profile_watch(db_, item) -> None:   # the profile is a view of the beliefs (agent/beliefs.py)
         if item["form"] == "belief":
@@ -177,7 +178,9 @@ async def run() -> None:
     bot.controls = controls
     controls.speak = bot.chat.speak  # results the owner asked for come in the one voice
     bot.chat.controls = controls
-    builder = Builder(settings, db, ClaudeGate(db, settings.workspace, quota=gate.quota), on_ready=bot.send_change, notify=bot.send)
+    builder = None
+    if settings.builder:   # changing the engine is the host's alone: off in a friend's instance
+        builder = Builder(settings, db, ClaudeGate(db, settings.workspace, quota=gate.quota), on_ready=bot.send_change, notify=bot.send)
     bot.builder = builder
     bot.chat.builder = builder
 
@@ -321,9 +324,16 @@ async def run() -> None:
         loop.add_signal_handler(sig, stop.set)
 
     await bot.start()
+    if settings.telegram_chat_id is None:   # nobody to work for yet (a friend's instance before the invite): only /start answers
+        log.info("waiting for the owner to open the invite; nothing else runs")
+        await asyncio.Event().wait()
+    if settings.telegram_chat_id and memory.is_new() and not await db.kv_get("onboarding.started"):
+        await db.kv_set("onboarding.started", datetime.now().isoformat())   # a new owner who just joined: get to know them
+        await bot.chat.start_interview()
     scheduler.start()
     await ingest.start()
-    await builder.on_startup()
+    if builder is not None:
+        await builder.on_startup()
     watcher.start()
     web_site = None
     if settings.site.enabled:
