@@ -15,19 +15,20 @@ username=$(curl -fsS "https://api.telegram.org/bot${token}/getMe" | python3 -c '
   || { echo "Telegram känner inte igen den token."; exit 1; }
 invite=$(python3 -c 'import secrets; print(secrets.token_hex(8))')
 host_name=$(~/.local/bin/uv run --no-dev python -c 'from agent.config import load_settings; print(load_settings().owner)')
+host_pronoun=$(~/.local/bin/uv run --no-dev python -c 'from agent.config import load_settings; print(load_settings().pronoun)')
 
 mkdir -p "$home"
 umask 077
 printf 'TELEGRAM_TOKEN=%s\nAUDAX_INVITE=%s\n' "$token" "$invite" > "$home/.env"
-AUDAX_HOME="$home" ~/.local/bin/uv run --no-dev python - "$owner" "$host_name" "$cap" <<'PY'
+AUDAX_HOME="$home" ~/.local/bin/uv run --no-dev python - "$owner" "$host_name" "$cap" "$host_pronoun" <<'PY'
 import sys
 import yaml
 from agent.config import ensure_instance, instance_config
-owner, host, cap = sys.argv[1], sys.argv[2], float(sys.argv[3])
+owner, host, cap, pronoun = sys.argv[1], sys.argv[2], float(sys.argv[3]), sys.argv[4]
 ensure_instance()
 path = instance_config("settings.yaml")
 s = yaml.safe_load(path.read_text()) or {}
-s.update(owner=owner, host=host, builder=False, site={"enabled": False})
+s.update(owner=owner, host=host, host_pronoun=pronoun, builder=False, site={"enabled": False})
 s.setdefault("models", {})["reflect"] = "sonnet"   # a friend's test: the lighter reflection
 s["budget"] = {"cap_usd_week": cap, "night_reserve": 0.4}
 path.write_text(yaml.safe_dump(s, allow_unicode=True, sort_keys=False))

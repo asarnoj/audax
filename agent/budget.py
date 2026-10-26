@@ -86,15 +86,15 @@ class Budget:
         tomorrow = self._midnight(now) + timedelta(days=1)
         if week >= cap:
             return tomorrow.timestamp(), f"budget: veckans tak ({cap:.2f} $) är nått"
+        if tier_of(kind) <= 3:
+            return None   # what the guest notices (the conversation, a delivery, the cheap pipeline behind it) only meets the week's cap
         day = min(cap / 7 * DAY_SLACK, cap - week + await self.spent(self._midnight(now)))
         today = await self.spent(self._midnight(now))
-        # What the guest notices (the conversation, a delivery, the cheap pipeline behind it) may use the whole day: on
-        # 26 Oct a morning's searches used the day's share and held a finding with a deadline that same day. The heavy
-        # work of the day stops where the night's reserve begins.
-        whole_day = kind in NIGHT or tier_of(kind) <= 3
-        limit = day if whole_day else day * (1 - self.settings.budget.night_reserve)
+        # The roles' work is paced by the day; the heavy work of the day stops where the night's reserve begins (26 Oct:
+        # a morning's searches used the day's share and held a finding with a deadline that same day).
+        limit = day if kind in NIGHT else day * (1 - self.settings.budget.night_reserve)
         if today >= limit:
-            return tomorrow.timestamp(), f"budget: dagens del ({limit:.2f} $) är använd" + ("" if whole_day else ", resten är natten och samtalet")
+            return tomorrow.timestamp(), f"budget: dagens del ({limit:.2f} $) är använd" + ("" if kind in NIGHT else ", resten är natten och samtalet")
         return None
 
     async def wait(self, kind: str, now: datetime | None = None) -> tuple[float, str] | None:

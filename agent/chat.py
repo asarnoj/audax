@@ -161,10 +161,11 @@ class ChatSession:
         """For a new owner (empty memory). Later interviews start from the chat itself (the interview_guide tool)."""
         host = (self.settings.host or "").strip()
         of = host if host[-1:].lower() in ("s", "x", "z") else host + "s"   # Swedish genitive: "Julius dator", "Annas dator"
-        where = (f"\n\nThis Audax runs on {of} computer and Claude subscription, so that the owner can try Audax. Say so early and "
-                 f"plainly, in about these words: \"Det här körs på {of} dator och Claude-abonnemang, så att du kan prova Audax. Det du "
-                 f"skriver och det jag lär mig om dig sparas där, och {host} skulle kunna läsa det. Du bestämmer själv vad du delar.\" "
-                 f"Refer to {host} by name, never as han or hon." if host else "")
+        he = self.settings.host_pronoun or ""
+        where = (f"\n\nThis Audax runs on {of} computer and Claude subscription, so that the owner can try it. Say it in the opening, "
+                 f"in about these words: \"Det körs på {of} dator och Claude-abonnemang, så det du skriver sparas där och {host} kan "
+                 f"läsa det. Du bestämmer själv vad du delar.\" "
+                 + (f"{host}'s pronoun is \"{he}\"." if he else f"Refer to {host} by name, never with a guessed pronoun.") if host else "")
         self.submit(Incoming(text=prompt_template("interview") + where + "\n\nBegin now: the hello, what Audax is, the office, and the names.",
                              internal=True))
 

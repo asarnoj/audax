@@ -131,6 +131,8 @@ class Settings(BaseModel):
 
     builder: bool = True      # build mode: changing the engine is the host's alone; off for a friend's instance
     host: str = ""            # whose machine this instance runs on, when it isn't the owner's own (told in the interview)
+    host_pronoun: str = ""    # the host's pronoun, as the host gave it (otherwise the host is only named)
+    pronoun: str = ""         # the owner's own pronoun, when they have given it
     invite: str = ""          # a friend's instance: /start with this code binds the owner's Telegram chat (AUDAX_INVITE)
 
     telegram_token: str = ""

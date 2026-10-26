@@ -131,3 +131,12 @@ async def test_the_review_presses_an_overdue_experiment_and_shows_beliefs_that_m
     text = await review(db, "manager", NOW)
     assert "long förbi" not in text and f"#E{e}" in text.split("Experiment långt förbi sitt datum")[1]
     assert f"#U{b}" in text.split("Uppfattningar som inte setts över")[1]
+
+
+async def test_the_pulse_shows_a_quiet_conversation_and_what_is_worth_bringing_up(db):
+    from agent.due import pulse
+
+    await db.execute("INSERT INTO messages (telegram_message_id, direction, text, created_at) VALUES (1, 'in', 'hej', datetime('now', '-5 days'))")
+    await db.execute("INSERT INTO candidates (kind, title, body, status) VALUES ('event', 'Bologna Illustrators Exhibition', 'b', 'shelved')")
+    text = await pulse(db, NOW)
+    assert "Ägaren skrev senast: för 5 dagar sedan" in text and "Bologna" in text and "aldrig" in text

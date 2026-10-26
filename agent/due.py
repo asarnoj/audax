@@ -109,6 +109,8 @@ async def review(db: Database, role: str, now: datetime, memory=None) -> str:
             parts.append("Texter som vuxit förbi sin storlek (tighten: refer by id instead of copying):\n" + "\n".join(f"- {b}" for b in big))
     if role == "researcher":
         parts.append(await source_yield(db))
+    if role == "manager":
+        parts.append(await pulse(db, now))
     rules = await items.find("rule", status="active", owner=role)
     if rules:
         parts.append("Regler (hits = how often each threw something away; one that never hits, or stops a lot, is worth a look):\n"
@@ -296,3 +298,38 @@ async def earlier_runs(db: Database, role: str, tz: str, n: int = 3) -> str:
         when = datetime.fromisoformat(r["finished_at"][:19] + "+00:00").astimezone(zone)
         lines.append(f"- {when:%d/%m} {task_name(r['kind']).lower()}: {' '.join(r['summary'].split())[:900]}")
     return ("\n\n### Dina senaste körningar (vad du kom fram till: ta upp tråden och tänk vidare)\n" + "\n".join(lines)) if lines else ""
+
+
+async def pulse(db: Database, now: datetime) -> str:
+    """How alive the conversation is, and what the office has that is worth bringing up: for Manager, who keeps the
+    loop of work going without letting it run away (26 Oct: a guest who only starts Audax and rarely writes gives the
+    night runs nothing to work on, and it dies out; neither silence nor filler is the answer)."""
+    def days_since(row) -> float | None:
+        if not row or not row["t"]:
+            return None
+        return (datetime.now(ZoneInfo("UTC")) - datetime.fromisoformat(row["t"][:19] + "+00:00")).total_seconds() / 86400
+
+    wrote = days_since(await db.fetchone("SELECT max(created_at) AS t FROM messages WHERE direction = 'in'"))
+    spoke = days_since(await db.fetchone("SELECT max(created_at) AS t FROM messages WHERE direction = 'out' AND origin = 'proactive'"))
+    week = await db.fetchone(
+        "SELECT count(*) AS n, sum(EXISTS (SELECT 1 FROM messages r WHERE r.direction = 'in' AND r.created_at > m.created_at "
+        "AND r.created_at <= datetime(m.created_at, '+1 day'))) AS answered FROM messages m "
+        "WHERE m.direction = 'out' AND m.origin = 'proactive' AND m.created_at >= datetime('now', '-7 days')")
+    lines = ["Ägaren skrev senast: " + (f"för {wrote:.0f} dagar sedan" if wrote is not None and wrote >= 1 else "i dag" if wrote is not None else "aldrig"),
+             "Kontoret hörde av sig senast: " + (f"för {spoke:.0f} dagar sedan" if spoke is not None and spoke >= 1 else "i dag" if spoke is not None else "aldrig"),
+             f"Egna initiativ senaste veckan: {week['n'] or 0}, varav {week['answered'] or 0} fick svar inom ett dygn"]
+    worth = []
+    shelf = await db.fetchall("SELECT id, title FROM candidates WHERE status = 'shelved' AND (expires_at IS NULL OR expires_at > ?) "
+                              "ORDER BY json_extract(features, '$.relevance') = 'high' DESC, id DESC LIMIT 3", (f"{now.astimezone(ZoneInfo('UTC')):%Y-%m-%dT%H:%M}",))
+    worth += [f"- på hyllan: #F{r['id']} {r['title'][:90]}" for r in shelf]
+    items = Items(db)
+    soon = f"{now + timedelta(days=14):%Y-%m-%d}"
+    for o in await items.find("opportunity", status=("open", "upcoming"), where="json_extract(data, '$.deadline') BETWEEN ? AND ?",
+                              args=(f"{now:%Y-%m-%d}", soon), limit=3):
+        worth.append(f"- sista dag snart: {ref(o)} {o['title'][:80]} ({o['deadline']})")
+    for i in await items.find("aim", kind="idea", status="exploring", limit=3):
+        worth.append(f"- Directors idé: {ref(i)} {i['title'][:90]}")
+    for q in await items.find("question", status="open", where="json_extract(data, '$.to') = 'owner'", limit=3):
+        worth.append(f"- fråga som väntar: {ref(q)} {q['title'][:90]}")
+    return "Puls:\n" + "\n".join(f"- {x}" for x in lines) + ("\nDet kontoret har som kan vara värt att ta upp:\n" + "\n".join(worth) if worth else
+                                                                "\nKontoret har inget färskt att ta upp just nu.")
