@@ -142,7 +142,9 @@ class Triage:
             if payload.get("unconfirmed"):   # what the search couldn't confirm travels with the finding, all the way to the owner
                 features["unconfirmed"] = payload["unconfirmed"]
             oid = payload.get("opportunity")
-            if oid is None and item.get("keep", True):   # a kept job or event from a watched source is an opportunity too, by its address
+            if oid is None and item.get("keep", True) and (payload.get("deadline") or payload.get("date") or row["kind"] in ("opportunity", "job")):
+                # a kept job, or an event with a date, from a watched source is an opportunity too, by its address (a post
+                # in a feed labelled event is not: 26 Oct, a blog post became #O161)
                 from agent import opportunities
 
                 oid, _ = await opportunities.record(self.db, {**payload, "kind": row["kind"], "identity": "new"}, by="system")
