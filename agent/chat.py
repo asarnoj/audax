@@ -160,9 +160,11 @@ class ChatSession:
     async def start_interview(self) -> None:
         """For a new owner (empty memory). Later interviews start from the chat itself (the interview_guide tool)."""
         host = (self.settings.host or "").strip()
-        where = (f"\n\nThis Audax runs on {host}'s computer, on {host}'s Claude subscription, so that the owner can try it. Say so early "
-                 f"and plainly: what they write and what Audax learns about them is stored there, and {host} could read it. "
-                 f"Let them decide what they share. Refer to {host} by name (\"{host}s dator\"), never as han or hon." if host else "")
+        of = host if host[-1:].lower() in ("s", "x", "z") else host + "s"   # Swedish genitive: "Julius dator", "Annas dator"
+        where = (f"\n\nThis Audax runs on {of} computer and Claude subscription, so that the owner can try Audax. Say so early and "
+                 f"plainly, in about these words: \"Det här körs på {of} dator och Claude-abonnemang, så att du kan prova Audax. Det du "
+                 f"skriver och det jag lär mig om dig sparas där, och {host} skulle kunna läsa det. Du bestämmer själv vad du delar.\" "
+                 f"Refer to {host} by name, never as han or hon." if host else "")
         self.submit(Incoming(text=prompt_template("interview") + where + "\n\nBegin now: the hello, what Audax is, the office, and the names.",
                              internal=True))
 

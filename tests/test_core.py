@@ -261,15 +261,15 @@ async def test_a_guests_cap_counts_the_conversation_and_holds_a_reserve_for_the_
         return RunResult(text="ok", cost_usd=0.4)
 
     gate = ClaudeGate(db, tmp_path, runner=runner, budget=budget)
-    assert (await gate.run(task("chat", Priority.CHAT))).text == "ok"
-    assert (await gate.run(task("chat", Priority.CHAT))).text == "ok"   # 0.8 spent
+    assert (await gate.run(task("research", Priority.RESEARCH))).text == "ok"
+    assert (await gate.run(task("research", Priority.RESEARCH))).text == "ok"   # 0.8 spent
     with pytest.raises(QuotaPaused) as e:
-        await gate.run(task("chat", Priority.CHAT))   # the conversation counts too, and leaves the night its reserve
+        await gate.run(task("research", Priority.RESEARCH))   # the day's heavy work leaves the night its reserve
     assert e.value.why.startswith("budget") and "natten" in e.value.why
-    assert (await gate.run(task("director_understand", Priority.MANAGER))).text == "ok"   # the night may use the reserve: 1.2
+    assert (await gate.run(task("deliver", Priority.CHAT))).text == "ok"   # what the guest notices may use the whole day: 1.2
     assert (await gate.run(task("manager", Priority.MANAGER))).text == "ok"   # 1.2 is under the day's 1.3: it may start
     with pytest.raises(QuotaPaused):
-        await gate.run(task("researcher_plan", Priority.MANAGER))   # 1.6: the day is used
+        await gate.run(task("chat", Priority.CHAT))   # 1.6: the day is used, the conversation too
     await db.execute("INSERT INTO claude_runs (kind, cost_usd, created_at) VALUES ('chat', 6.0, datetime('now', '-3 days'))")
     assert (await budget.wait("assistant_night")) is not None and "veckans tak" in (await budget.wait("chat"))[1]
 
