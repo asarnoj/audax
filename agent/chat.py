@@ -11,7 +11,7 @@ import asyncio
 import logging
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import datetime, timedelta
 from zoneinfo import ZoneInfo
 
 from agent.claude_gate import ClaudeGate, ClaudeTask, Priority, QuotaPaused
@@ -33,8 +33,9 @@ async def open_item_question(db) -> dict | None:
     from agent.items import Items
 
     items = Items(db)
-    if await items.find("question", status="asked", where="json_extract(data, '$.to') = 'owner'", limit=1):
-        return None
+    if await items.find("question", status="asked", where="json_extract(data, '$.to') = 'owner' AND json_extract(data, '$.asked_at') >= ?",
+                        args=(f"{datetime.now() - timedelta(hours=24):%Y-%m-%dT%H:%M}",), limit=1):
+        return None   # one just asked: let it be answered first
     found = await items.find("question", status="open", where="json_extract(data, '$.to') = 'owner'", limit=1)
     return found[0] if found else None
 from agent.tools import TurnContext, build_chat_tools, build_github_tools, build_mail_tools, build_web_tools, create_sdk_mcp_server

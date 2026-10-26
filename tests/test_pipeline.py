@@ -370,3 +370,31 @@ async def test_a_booking_is_never_sent_as_its_raw_text(db, tmp_path):
         assert rows[broken]["status"] == "planned"  # tried again soon, a few times
     finally:
         Clock.at = None
+
+
+async def test_the_offices_questions_reach_a_quiet_owner_one_contact_at_a_time(db, tmp_path):
+    from agent.items import Items
+
+    d, _ = await make_dispatcher(db, tmp_path, {"decisions": []})
+    said = []
+
+    async def speak(instruction, about=frozenset()):
+        said.append((instruction, set(about)))
+        return [await db.execute("INSERT INTO messages (telegram_message_id, direction, text, origin) VALUES (1, 'out', 'q', 'proactive')")]
+
+    d.outbox.speak = speak
+    items = Items(db)
+    goal = await items.create("aim", "Barnboken", "director", kind="project")
+    q1 = await items.create("question", "Hur långt har du kommit med barnboken?", "director", kind="followup", owner="director", parent=goal,
+                            data={"to": "owner", "why": "Planen för våren"})
+    q2 = await items.create("question", "Finns ett datum från förlaget?", "director", kind="clarify", owner="director", parent=goal,
+                            data={"to": "owner", "why": "Deadline"})
+    q3 = await items.create("question", "Hur känns mängden meddelanden?", "manager", kind="check", owner="manager", data={"to": "owner", "why": "Takten"})
+    assert await d._ask_items()
+    [(text, about)] = said
+    assert about == {f"#Q{q1}", f"#Q{q2}"} and "barnboken" in text   # two that belong together, in one message
+    assert {(await items.get(q))["status"] for q in (q1, q2)} == {"asked"} and (await items.get(q3))["status"] == "open"
+    assert not await d._ask_items()   # spread out: not again right away
+    await db.kv_set("questions.last_contact", None)
+    await db.execute("INSERT INTO messages (telegram_message_id, direction, text) VALUES (2, 'in', 'hej')")
+    assert not await d._ask_items()   # the owner is here: the conversation takes it

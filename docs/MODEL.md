@@ -141,6 +141,14 @@ Assistant är det enda du möter, och skriver allt du läser.
 - **Directors slutsatser** är också uppfattningar: mönster, värden och hypoteser, med belägg. Tre markeringar gör bubblan synlig: *utesluter*, *kanske en begränsning* och *aldrig övervägt*.
 - **Sökningen** (`agent/search.py`) går över samtalet, posten, fynden och formerna, klarar böjningar och visar vem som sa vad och när. Före varje svar söker koden på det du skrev och lägger med det relevanta.
 
+## Trådar: när Audax hör av sig
+
+Audax hör av sig själv, men inte efter ett schema. Allt en roll bedömer viktigt för sitt arbete kan den följa: ett mål, en uppfattning om personen, en hypotes, ett experiment. Att följa något betyder att rollen själv har sagt när den vill se på det igen och varför, utifrån vad den vet (till exempel "inget att fråga förrän i december, när sommarjobben öppnar"). Saken kommer upp då, eller tidigare om något nytt händer i den: personen nämner den, en annan roll ändrar den, eller en deadline närmar sig.
+
+Tråden är vyn som koden bygger kring saken: dess historia, vad personen sagt om den, vad som hör ihop med den, varje gång kontoret tagit upp den och hur det landade, och det som väntar i världen. Med den avgör rollen själv om något är värt att fråga, vilken vinkel, och om det redan frågats. Svar gör bilden aktuell, tystnad låter trådarnas egna datum komma, och obesvarade kontakter syns, så balansen uppstår ur förståelsen i stället för ur en takt.
+
+Frågorna till personen går via Assistant. När personen skriver tar chatten upp den som passar; när det är tyst sprider Managers desk ut dem, en kontakt i taget och vid naturliga tillfällen. Manager ser varje kontakt och hur den landade, och avgör i ord hur ofta Audax ska höra av sig till just den här personen just nu.
+
 ## Director och Manager som utforskare
 
 Båda prövar saker över tid med samma former. Director gör det för innehållet, Manager för upplevelsen.

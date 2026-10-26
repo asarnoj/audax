@@ -24,6 +24,11 @@ async def link(db: Database, message_ids: list[int], refs: set[str]) -> None:
     for mid in message_ids:
         for r in refs:
             await db.execute("INSERT OR IGNORE INTO message_refs (message_id, ref) VALUES (?, ?)", (mid, r))
+    from datetime import datetime
+
+    from agent import threads
+
+    await threads.mentioned(db, message_ids, refs, datetime.now())   # the owner's words about a followed thing are news in it
 
 
 async def describe(db: Database, ref: str) -> str | None:

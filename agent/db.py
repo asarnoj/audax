@@ -562,6 +562,22 @@ MIGRATIONS: list[str] = [
     ALTER TABLE posts ADD COLUMN until TEXT;
     ALTER TABLE posts ADD COLUMN withdrawn_at TEXT;
     """,
+    # 26: threads (agent/threads.py, instance/granskning/2026-10-26-omgang-6-kontakt.md): what a role follows, when it
+    # means to look again and why, and what has happened in it since.
+    """
+    CREATE TABLE follows (
+        id INTEGER PRIMARY KEY,
+        role TEXT NOT NULL,
+        item_id INTEGER NOT NULL REFERENCES items(id),
+        why TEXT NOT NULL,
+        look_at TEXT NOT NULL,
+        news TEXT,
+        status TEXT NOT NULL DEFAULT 'active',
+        created_at TEXT NOT NULL DEFAULT (datetime('now')),
+        updated_at TEXT NOT NULL DEFAULT (datetime('now')),
+        UNIQUE (role, item_id)
+    );
+    """,
 ]
 
 # Tables whose rows carry the id of the run that wrote them (agent/trail.py).

@@ -187,7 +187,49 @@ def office_tools(db: Database, role: str, turn: TurnContext | None = None, memor
                 }.get(args["ask"], f"{args['ask'].capitalize()} sees it in its review.")
         return _text(f"[internal] {Items.line(q)}. {then}")
 
-    tools = [forms, find, read, create, update, link, find_out]
+    @tool(
+        "follow",
+        "Follow anything you judge important for your work (a goal, a belief about the owner, a hypothesis, an experiment, "
+        "another role's item too): say when you mean to look at it again and why, from what you know of it now. It comes "
+        "up then, or earlier if something new happens in it (the owner mentions it, it changes, a deadline comes close). "
+        "When it comes up, read its thread and follow again with your next date, or stop=true.",
+        {"type": "object", "properties": {
+            "id": {"type": "string"}, "when": {"type": "string", "description": "YYYY-MM-DD (or YYYY-MM-DD HH:MM)"},
+            "why": {"type": "string", "description": "Swedish: why you follow it, and what to look for next time"},
+            "stop": {"type": "boolean"}},
+         "required": ["id", "why"]},
+    )
+    async def follow(args: dict[str, Any]) -> dict[str, Any]:
+        from agent import threads
+
+        try:
+            n = item_id(args["id"])
+            item = await items.get(n)
+            if item is None:
+                raise FormError("no such item")
+            if args.get("stop"):
+                ok = await threads.unfollow(db, role, n, args["why"])
+                return _text(f"[internal] {'Stopped following' if ok else 'You did not follow'} {ref(item)}.")
+            if not args.get("when"):
+                raise FormError("give when you mean to look at it again")
+            await threads.follow(db, role, n, args["when"].strip(), args["why"])
+        except FormError as e:
+            return _text(f"[internal] Not followed: {e}")
+        return _text(f"[internal] Following {ref(item)} until {args['when']}.")
+
+    @tool("thread", "Everything about one thing: its history, what the owner said about it, what hangs together with it, every time "
+                    "it was brought up with the owner and how that landed, and what is coming. Read it before you decide what to ask.",
+          {"type": "object", "properties": {"id": {"type": "string"}}, "required": ["id"]})
+    async def thread(args: dict[str, Any]) -> dict[str, Any]:
+        from agent import threads
+
+        try:
+            text = await threads.thread(db, item_id(args["id"]))
+        except FormError as e:
+            return _text(f"[internal] {e}")
+        return _text(text or "[internal] No such item.")
+
+    tools = [forms, find, read, create, update, link, find_out, follow, thread]
     if memory is not None:
         from agent import texts
 

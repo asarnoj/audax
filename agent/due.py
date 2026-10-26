@@ -76,9 +76,12 @@ async def review(db: Database, role: str, now: datetime, memory=None) -> str:
         n_explore = sum(1 for e in recent if e["kind"] == "explore")
         parts.append(f"Balans senaste tre veckorna: {len(recent) - n_explore} förbättra, {n_explore} utforska.")
     from agent.questions import wondering
+    from agent.threads import for_review
 
     if wonder := await wondering(db, role):
         parts.append(wonder)
+    if threads_text := await for_review(db, role, now):
+        parts.append(threads_text)
     if role in ("assistant", "director", "manager"):
         old = await items.find("belief", status="current", owner=role, kind=("preference", "pattern", "hypothesis", "value"),
                                where="valid_until IS NULL AND updated_at < datetime('now', ?)", args=(f"-{BELIEF_FRESH.days} days",),
@@ -182,6 +185,16 @@ class Calendar:
                 roles.setdefault(item["owner"], []).append(ref(item))
             await self.db.kv_set(key, item["review_at"])
             done.append(f"{ref(item)} → {item['owner']}")
+        from agent import threads
+
+        await threads.deadlines(self.db, now)
+        for f in await threads.due(self.db, now):
+            key = f"due.woken.follow.{f['id']}"
+            if await self.db.kv_get(key) == f["look_at"]:
+                continue
+            await self.db.kv_set(key, f["look_at"])
+            roles.setdefault(f["role"], []).append(f"tråd #{f['item_id']}")
+            done.append(f"tråd {f['item_id']} → {f['role']}")
         for role, refs in roles.items():
             self.wake(role, "dags: " + ", ".join(refs))
         if done:
@@ -301,35 +314,32 @@ async def earlier_runs(db: Database, role: str, tz: str, n: int = 3) -> str:
 
 
 async def pulse(db: Database, now: datetime) -> str:
-    """How alive the conversation is, and what the office has that is worth bringing up: for Manager, who keeps the
-    loop of work going without letting it run away (26 Oct: a guest who only starts Audax and rarely writes gives the
-    night runs nothing to work on, and it dies out; neither silence nor filler is the answer)."""
+    """Manager's overview of how Audax and the owner are in touch: how alive the conversation is, every contact the
+    office made lately and how it landed, and what waits to be asked (instance/granskning/2026-10-26-omgang-6-kontakt.md).
+    Nothing here is a threshold: it is what Manager judges the rhythm by."""
+    from agent.threads import outcome
+
     def days_since(row) -> float | None:
         if not row or not row["t"]:
             return None
         return (datetime.now(ZoneInfo("UTC")) - datetime.fromisoformat(row["t"][:19] + "+00:00")).total_seconds() / 86400
 
+    def ago(d: float | None) -> str:
+        return "aldrig" if d is None else "i dag" if d < 1 else f"för {d:.0f} dagar sedan"
+
     wrote = days_since(await db.fetchone("SELECT max(created_at) AS t FROM messages WHERE direction = 'in'"))
-    spoke = days_since(await db.fetchone("SELECT max(created_at) AS t FROM messages WHERE direction = 'out' AND origin = 'proactive'"))
-    week = await db.fetchone(
-        "SELECT count(*) AS n, sum(EXISTS (SELECT 1 FROM messages r WHERE r.direction = 'in' AND r.created_at > m.created_at "
-        "AND r.created_at <= datetime(m.created_at, '+1 day'))) AS answered FROM messages m "
-        "WHERE m.direction = 'out' AND m.origin = 'proactive' AND m.created_at >= datetime('now', '-7 days')")
-    lines = ["Ägaren skrev senast: " + (f"för {wrote:.0f} dagar sedan" if wrote is not None and wrote >= 1 else "i dag" if wrote is not None else "aldrig"),
-             "Kontoret hörde av sig senast: " + (f"för {spoke:.0f} dagar sedan" if spoke is not None and spoke >= 1 else "i dag" if spoke is not None else "aldrig"),
-             f"Egna initiativ senaste veckan: {week['n'] or 0}, varav {week['answered'] or 0} fick svar inom ett dygn"]
-    worth = []
-    shelf = await db.fetchall("SELECT id, title FROM candidates WHERE status = 'shelved' AND (expires_at IS NULL OR expires_at > ?) "
-                              "ORDER BY json_extract(features, '$.relevance') = 'high' DESC, id DESC LIMIT 3", (f"{now.astimezone(ZoneInfo('UTC')):%Y-%m-%dT%H:%M}",))
-    worth += [f"- på hyllan: #F{r['id']} {r['title'][:90]}" for r in shelf]
+    lines = [f"Ägaren skrev senast: {ago(wrote)}"]
+    sent = await db.fetchall("SELECT id, created_at, text FROM messages WHERE direction = 'out' AND origin = 'proactive' "
+                             "AND created_at >= datetime('now', '-14 days') ORDER BY id")
+    if sent:
+        lines.append(f"Kontoret hörde av sig {len(sent)} gånger de senaste två veckorna:")
+        for m in sent[-10:]:
+            when = datetime.fromisoformat(m["created_at"][:19] + "+00:00").astimezone(now.tzinfo)
+            lines.append(f"  - {when:%d/%m %H:%M} \"{' '.join(m['text'].split())[:90]}\" → {await outcome(db, m['id'])}")
+    else:
+        lines.append("Kontoret har inte hört av sig de senaste två veckorna.")
     items = Items(db)
-    soon = f"{now + timedelta(days=14):%Y-%m-%d}"
-    for o in await items.find("opportunity", status=("open", "upcoming"), where="json_extract(data, '$.deadline') BETWEEN ? AND ?",
-                              args=(f"{now:%Y-%m-%d}", soon), limit=3):
-        worth.append(f"- sista dag snart: {ref(o)} {o['title'][:80]} ({o['deadline']})")
-    for i in await items.find("aim", kind="idea", status="exploring", limit=3):
-        worth.append(f"- Directors idé: {ref(i)} {i['title'][:90]}")
-    for q in await items.find("question", status="open", where="json_extract(data, '$.to') = 'owner'", limit=3):
-        worth.append(f"- fråga som väntar: {ref(q)} {q['title'][:90]}")
-    return "Puls:\n" + "\n".join(f"- {x}" for x in lines) + ("\nDet kontoret har som kan vara värt att ta upp:\n" + "\n".join(worth) if worth else
-                                                                "\nKontoret har inget färskt att ta upp just nu.")
+    waiting = await items.find("question", status="open", where="json_extract(data, '$.to') = 'owner'", limit=20)
+    asked = await items.find("question", status="asked", where="json_extract(data, '$.to') = 'owner'", limit=20)
+    lines.append(f"Rollernas frågor till ägaren: {len(waiting)} väntar på att ställas, {len(asked)} ställda utan svar än.")
+    return "Kontakten med ägaren:\n" + "\n".join(f"- {x}" if not x.startswith("  ") else x for x in lines)

@@ -11,7 +11,7 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 
 from agent import trail
 from agent.agenda import FOCUS_KEY, SILENCE_KEY, Agenda
@@ -28,7 +28,10 @@ log = logging.getLogger(__name__)
 MODULE = "dispatcher@2"
 DECISIONS = ["now", "at", "shelf", "drop"]
 RETRY_UNDECIDED = timedelta(minutes=10)  # mechanics: a finding nobody could decide on (quota, error) is retried
-ASK_EVERY = timedelta(minutes=15)  # mechanics: how often an idle moment is checked for an open question
+ASK_EVERY = timedelta(minutes=15)
+QUESTION_GAP = timedelta(hours=3)   # mechanics: the office's questions reach a quiet owner one contact at a time, spread out
+OWNER_ACTIVE = timedelta(minutes=45)   # the owner wrote this recently: the conversation brings questions up itself
+QUESTION_KEY = "questions.last_contact"  # mechanics: how often an idle moment is checked for an open question
 
 SCHEMA = {
     "type": "object",
@@ -335,7 +338,47 @@ class Dispatcher:
         if self.manager is not None and (q := await self.manager.next_question()) is not None:
             await self._ask_manager(q)
             return
+        if await self._ask_items():
+            return
         await self._ask_request()
+
+    async def _ask_items(self) -> bool:
+        """The roles' questions to the owner (#Q), when the conversation is quiet: one contact at a time, spread out, so
+        the night's questions don't arrive as a wave in the morning (instance/granskning/2026-10-26-omgang-6-kontakt.md).
+        When the owner is writing, the chat brings them up itself, where they fit."""
+        from agent.items import Items
+
+        if self.outbox.speak is None:
+            return False
+        if await self.db.fetchone("SELECT 1 FROM messages WHERE direction = 'in' AND created_at >= datetime('now', ?)",
+                                  (f"-{OWNER_ACTIVE.seconds // 60} minutes",)):
+            return False   # they are here: the conversation takes it
+        last = await self.db.kv_get(QUESTION_KEY)
+        if last and datetime.fromisoformat(last) > datetime.now(timezone.utc) - QUESTION_GAP:
+            return False
+        items = Items(self.db)
+        waiting = await items.find("question", status="open", where="json_extract(data, '$.to') = 'owner'", order="id", limit=10)
+        if not waiting:
+            return False
+        first = waiting[0]
+        together = [first] + [q for q in waiting[1:] if first["parent_id"] and q["parent_id"] == first["parent_id"]][:1]
+        lines = "\n".join(f"- #Q{q['id']} ({q['owner']}): {q['title']} · why it matters: {q.get('why') or '-'}"
+                          + (f" · their guess: {q['guess']}" if q.get("guess") else "") for q in together)
+        try:
+            ids = await self.outbox.speak(
+                "The office would like to understand something better. Ask the owner, in your own words, as a short natural "
+                "message that fits where the conversation is (one or two questions, never a form). Don't say who wonders or "
+                f"why unless it helps them answer.\n{lines}", about={f"#Q{q['id']}" for q in together})
+        except Exception as e:
+            log.warning("couldn't ask the office's questions: %s", e)
+            return False
+        if not ids:
+            return False
+        await self.db.kv_set(QUESTION_KEY, datetime.now(timezone.utc).isoformat())
+        for q in together:
+            await items.update(q["id"], "system", status="asked", data={"asked_at": datetime.now().isoformat(timespec="minutes")},
+                               note="ställd när det var tyst")
+        return True
 
     async def _ask_request(self) -> None:
         """Director's/Manager's free-text questions: the chat session asks them in its own words."""
