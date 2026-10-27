@@ -165,6 +165,7 @@ def office_tools(db: Database, role: str, turn: TurnContext | None = None, memor
             "why": {"type": "string", "description": "Swedish: what hangs on it"},
             "guess": {"type": "string", "description": "Swedish: your best guess now, and how sure"},
             "settles_it": {"type": "string", "description": "Swedish: what would settle it"},
+            "context": {"type": "string", "description": "Swedish, for the Assistant who asks: background that helps it ask well and follow up itself"},
             "ask": {"type": "string", "enum": ["owner", "world", "self", "director", "manager", "researcher"]},
             "kind": {"type": "string", "enum": ["clarify", "intent", "check", "followup", "challenge"]},
             "about": {"type": "string", "description": "the id of what it serves, e.g. #S5 or #U141"},
@@ -176,7 +177,8 @@ def office_tools(db: Database, role: str, turn: TurnContext | None = None, memor
             qid = await items.create(
                 "question", args["what"], role, kind=args.get("kind") or "clarify", owner=role,
                 parent=item_id(args["about"]) if args.get("about") else None, review_at=args.get("review_at"),
-                data={"to": args["ask"], "why": args["why"], "guess": args.get("guess"), "settles_it": args.get("settles_it")},
+                data={"to": args["ask"], "why": args["why"], "guess": args.get("guess"), "settles_it": args.get("settles_it"),
+                      "context": args.get("context")},
                 note="vill veta", check_rights=True)
         except FormError as e:
             return _text(f"[internal] Not registered: {e}")

@@ -362,8 +362,9 @@ class Dispatcher:
             return False
         first = waiting[0]
         together = [first] + [q for q in waiting[1:] if first["parent_id"] and q["parent_id"] == first["parent_id"]][:1]
-        lines = "\n".join(f"- #Q{q['id']} ({q['owner']}): {q['title']} · why it matters: {q.get('why') or '-'}"
-                          + (f" · their guess: {q['guess']}" if q.get("guess") else "") for q in together)
+        from agent.chat import question_brief
+
+        lines = "\n".join(f"- #Q{q['id']} ({q['owner']}): {question_brief(q)}" for q in together)
         try:
             ids = await self.outbox.speak(
                 "The office would like to understand something better. Ask the owner, in your own words, as a short natural "

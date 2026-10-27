@@ -442,3 +442,34 @@ def test_a_failed_turn_never_shows_the_owner_the_raw_error():
     assert failure_words(raw) == "Min Claude-kvot är slut just nu. Den återställs 00:30, skriv igen då."
     assert failure_words("You've hit your weekly limit · resets 2pm") == "Min Claude-kvot är slut just nu. Den återställs 14:00, skriv igen då."
     assert "Error" not in failure_words("ResultError: boom") and "Error" not in failure_words(None)
+
+
+async def test_a_question_in_progress_stays_in_view_with_its_brief_until_recorded(db, tmp_path):
+    from datetime import datetime
+
+    from agent.items import Items
+
+    prompts = []
+
+    async def runner(task, ws, on_rl):
+        prompts.append(task.prompt)
+        return RunResult(text="", structured={"message": "ok"}, session_id="s")
+
+    async def send(text, **kw):
+        return []
+
+    async def typing():
+        pass
+
+    q = await Items(db).create("question", "Vad återstår innan någon kan använda språkappen?", "director", kind="intent", owner="director",
+                               status="asked", data={"to": "owner", "why": "Avgör om nästa steg är en demo", "guess": "Lansering, inte bygge",
+                                                     "settles_it": "Vad som saknas, konkret", "context": "Sista commit 16 aug",
+                                                     "asked_at": datetime.now().isoformat(timespec="minutes")})
+    chat = ChatSession(load_settings(), db, ClaudeGate(db, tmp_path, runner=runner), FakeMemory(), send, typing)
+    chat.submit(Incoming(text="Mest att få ihop ordboken"))
+    await wait_idle(chat)
+    assert f"[finding out #Q{q}" in prompts[-1] and "Settled when: Vad som saknas, konkret" in prompts[-1] and "Sista commit 16 aug" in prompts[-1]
+    await Items(db).update(q, "assistant", status="answered", data={"answer": "Ordboken"})
+    chat.submit(Incoming(text="tack"))
+    await wait_idle(chat)
+    assert f"#Q{q}" not in prompts[-1]   # recorded: out of view

@@ -149,6 +149,7 @@ FORMS: dict[str, Form] = {f.name: f for f in (
             Field("why", required=True, help="Swedish: what hangs on it"),
             Field("guess", help="Swedish: your best guess now, and how sure"),
             Field("settles_it", help="Swedish: what would settle it"),
+            Field("context", help="Swedish: what the asker knows that helps ask it well and follow up: background, what was said before, what to leave alone"),
             Field("answer", help="Swedish: the answer, in the owner's words where possible"),
             Field("conclusion", help="Swedish: what the answer meant, and what changed because of it"),
             Field("asked_at", "datetime"),

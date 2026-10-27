@@ -28,6 +28,20 @@ from agent.schedule import Schedule
 from agent.search import search
 
 
+def question_brief(q: dict) -> str:
+    """What the Assistant needs to ask a role's question well and follow up itself: why, the guess, what would settle it."""
+    return (f"What: {q['title']} · Why it matters: {q.get('why') or '-'}" + (f" · Their guess: {q['guess']}" if q.get("guess") else "")
+            + (f" · Settled when: {q['settles_it']}" if q.get("settles_it") else "") + (f" · Context: {q['context']}" if q.get("context") else ""))
+
+
+async def in_progress(db) -> list[dict]:
+    """Questions to the owner that have been asked and not yet recorded: the Assistant is still finding out."""
+    from agent.items import Items
+
+    return await Items(db).find("question", status="asked", where="json_extract(data, '$.to') = 'owner' AND json_extract(data, '$.asked_at') >= ?",
+                                args=(f"{datetime.now() - timedelta(days=3):%Y-%m-%dT%H:%M}",), order="id", limit=3)
+
+
 async def open_item_question(db) -> dict | None:
     """The oldest question for the owner from a role (#Q), unless one is already waiting for an answer."""
     from agent.items import Items
@@ -276,9 +290,14 @@ class ChatSession:
         elif not batch[0].internal and (q := await open_item_question(self.db)):
             parts.append(
                 f"[open question #Q{q['id']} from {q['owner']}: ask only if it fits naturally now, in your own words; if you "
-                f"ask it, `question` asked. When the owner answers, `question` with their words. "
-                f"What: {q['title']} · Why: {q.get('why') or '-'}]"
+                f"ask it, `question` asked. {question_brief(q)}]"
             )
+        if not batch[0].internal:
+            for q in await in_progress(self.db):
+                parts.append(
+                    f"[finding out #Q{q['id']} for {q['owner']}: if the owner's words bear on it, follow up yourself until you have "
+                    f"what it needs to settle, no more; then `question` with the answer: what you learned, in their words where "
+                    f"they matter. {question_brief(q)}]")
         if recall := await self._recall(batch):
             parts.append(recall)
         for m in batch:

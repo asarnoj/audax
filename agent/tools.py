@@ -667,8 +667,9 @@ def _post_tools(posts: Posts, turn: TurnContext | None = None) -> list:
 
     @tool(
         "question",
-        "An open question from the office (#Q, or #P): asked=true once you have asked {owner} it; when they answer, "
-        "`answer` with their own words, and it goes back to the role that asked. If they clearly don't want to answer, "
+        "An open question from the office (#Q, or #P): asked=true once you have asked {owner} it. Follow up yourself until "
+        "you have what it needs to settle (its brief says what would settle it), no more; then `answer` with what you learned, "
+        "in their words where they matter, and it goes back to the role that asked. If they clearly don't want to answer, "
         "declined=true with what they said.",
         {"type": "object", "properties": {"id": {"type": "string"}, "asked": {"type": "boolean"}, "answer": {"type": "string"},
                                           "declined": {"type": "boolean"}}, "required": ["id"]},
