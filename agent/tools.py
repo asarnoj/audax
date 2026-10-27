@@ -672,7 +672,9 @@ def _post_tools(posts: Posts, turn: TurnContext | None = None) -> list:
         "in their words where they matter, and it goes back to the role that asked. If they clearly don't want to answer, "
         "declined=true with what they said.",
         {"type": "object", "properties": {"id": {"type": "string"}, "asked": {"type": "boolean"}, "answer": {"type": "string"},
-                                          "declined": {"type": "boolean"}}, "required": ["id"]},
+                                          "declined": {"type": "boolean"},
+                                          "reminded": {"type": "boolean", "description": "you brought it up once more after it was forgotten"}},
+         "required": ["id"]},
     )
     async def question(args: dict[str, Any]) -> dict[str, Any]:
         from datetime import datetime
@@ -702,6 +704,9 @@ def _post_tools(posts: Posts, turn: TurnContext | None = None) -> list:
         if not q or q["form"] != "question":
             return _text("[internal] No such question.")
         try:
+            if args.get("reminded") and not (args.get("answer") or args.get("declined")):
+                await items.update(n, "assistant", data={"reminded_at": datetime.now().isoformat(timespec="minutes")}, note="påmind en gång i samtalet")
+                return _text("[internal] Noted: brought up once more.")
             if args.get("answer") or args.get("declined"):
                 await items.update(n, "assistant", status="unanswered" if args.get("declined") else "answered",
                                    data={"answer": args.get("answer") or "ville inte svara"}, note="svar från ägaren")

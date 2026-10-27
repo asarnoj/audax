@@ -294,10 +294,13 @@ class ChatSession:
             )
         if not batch[0].internal:
             for q in await in_progress(self.db):
+                again = ("Already brought up again once: don't again." if q.get("reminded_at") else
+                         "If it got lost in the conversation and there is a natural pause, you may bring it up once more, lightly "
+                         "(\"Förresten, jag undrade…\"), then `question` with reminded=true. Only once.")
                 parts.append(
                     f"[finding out #Q{q['id']} for {q['owner']}: if the owner's words bear on it, follow up yourself until you have "
                     f"what it needs to settle, no more; then `question` with the answer: what you learned, in their words where "
-                    f"they matter. {question_brief(q)}]")
+                    f"they matter. {again} {question_brief(q)}]")
         if recall := await self._recall(batch):
             parts.append(recall)
         for m in batch:

@@ -153,6 +153,7 @@ FORMS: dict[str, Form] = {f.name: f for f in (
             Field("answer", help="Swedish: the answer, in the owner's words where possible"),
             Field("conclusion", help="Swedish: what the answer meant, and what changed because of it"),
             Field("asked_at", "datetime"),
+            Field("reminded_at", "datetime", help="when the Assistant brought it up once more, after it was forgotten in a conversation"),
         ),
     ),
     Form(

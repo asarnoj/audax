@@ -473,3 +473,19 @@ async def test_a_question_in_progress_stays_in_view_with_its_brief_until_recorde
     chat.submit(Incoming(text="tack"))
     await wait_idle(chat)
     assert f"#Q{q}" not in prompts[-1]   # recorded: out of view
+
+
+async def test_a_forgotten_question_may_be_brought_up_once_more(db):
+    from datetime import datetime
+
+    from agent.chat import in_progress
+    from agent.items import Items
+    from agent.tools import TurnContext, _post_tools
+    from agent.posts import Posts
+
+    q = await Items(db).create("question", "Går längre praktik bra?", "director", kind="clarify", owner="director", status="asked",
+                               data={"to": "owner", "why": "Sökningen", "asked_at": datetime.now().isoformat(timespec="minutes")})
+    tools = {t.name: t for t in _post_tools(Posts(db), TurnContext())}
+    await tools["question"].handler({"id": f"#Q{q}", "reminded": True})
+    [item] = await in_progress(db)
+    assert item["reminded_at"] and item["status"] == "asked"   # still waiting for the answer, but reminded once
