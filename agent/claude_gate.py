@@ -134,6 +134,9 @@ async def sdk_runner(task: ClaudeTask, workspace: Path, on_rate_limit: OnRateLim
         strict_mcp_config=True,
         max_turns=task.max_turns,
         effort=task.effort,
+        # The roles' longer runs get every tool they are given from the start: deferred until the model loads it, a
+        # tool was left unloaded and the work undone (27–28 Oct: "kontorsverktygen laddades inte").
+        env={"ENABLE_TOOL_SEARCH": "false"} if task.kind in TOOLS_UP_FRONT else {},
         mcp_servers=task.mcp_servers,
         system_prompt=(
             {"type": "preset", "preset": "claude_code", "append": task.system_prompt_append}
@@ -225,6 +228,7 @@ RUNNING: dict[int, tuple[ClaudeTask, float]] = {}
 WEEK_STOP = 0.9  # mechanical quota guard: above this share of the weekly window, all background work waits
 
 
+TOOLS_UP_FRONT = {"assistant_night", "director_understand", "director_reflect", "researcher_plan", "manager", "research", "research_deep"}
 TRANSCRIPT_PART = 3000   # characters kept of each tool call and each tool result in a run's transcript
 UNRECORDED = {"page_extract", "triage", "dispatcher", "chat_summary"}   # frequent, cheap, with nothing to read back
 

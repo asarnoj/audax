@@ -106,7 +106,17 @@ class Night:
             self.running = True
             try:
                 done = [n for n, _ in self.steps if only and n != only]
-                await self._sweep({"night": f"by hand {now:%Y-%m-%d %H:%M}", "done": done, "attempts": {}})
+                state = {"night": f"by hand {now:%Y-%m-%d %H:%M}", "done": done, "attempts": {}}
+                await self.db.kv_set(STATE_KEY, state)   # kept, so a sweep that has to wait goes on later
+                await self._sweep(state)
+            finally:
+                self.running = False
+            return
+        held = await self.db.kv_get(STATE_KEY) or {}
+        if str(held.get("night", "")).startswith("by hand") and len(held.get("done", [])) < len(self.steps):
+            self.running = True   # a sweep started by hand that waited (for the quota, say) goes on where it stopped
+            try:
+                await self._sweep(held)
             finally:
                 self.running = False
             return

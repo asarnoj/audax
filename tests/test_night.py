@@ -197,3 +197,26 @@ async def test_one_roles_night_step_can_be_run_by_hand(db):
     await db.kv_set(FORCE_KEY, "director")
     await night.tick(datetime(2026, 10, 28, 9, 0, tzinfo=ZoneInfo("Europe/Stockholm")))
     assert ran == ["director"]
+
+
+async def test_a_sweep_started_by_hand_that_had_to_wait_goes_on_later(db):
+    from datetime import datetime
+    from zoneinfo import ZoneInfo
+
+    from agent.config import load_settings
+    from agent.night import FORCE_KEY, Night
+
+    ran, paused = [], {"now": True}
+
+    async def director():
+        ran.append("director")
+        return True
+
+    night = Night(load_settings(), db, [("assistant", director), ("director", director)], paused=lambda: paused["now"])
+    await db.kv_set(FORCE_KEY, "director")
+    noon = datetime(2026, 10, 28, 9, 0, tzinfo=ZoneInfo("Europe/Stockholm"))
+    await night.tick(noon)
+    assert ran == []   # the quota is paused: it waits
+    paused["now"] = False
+    await night.tick(noon)
+    assert ran == ["director"]   # and goes on when it can
