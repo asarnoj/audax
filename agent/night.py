@@ -18,6 +18,7 @@ from __future__ import annotations
 import logging
 from collections.abc import Awaitable, Callable
 from datetime import datetime, timedelta
+from zoneinfo import ZoneInfo
 
 from agent.config import Settings
 from agent.db import Database
@@ -67,9 +68,8 @@ class Night:
     async def usual_bedtime(self, now: datetime) -> datetime:
         """When the owner usually writes their last message of the evening (the 80th percentile, last two weeks)."""
         start, end = self._window(now)
-        rows = await self.db.fetchall(
-            "SELECT created_at FROM messages WHERE direction = 'in' AND created_at >= datetime('now', '-15 days')"
-        )
+        since = (now - timedelta(days=15)).astimezone(ZoneInfo("UTC")).strftime("%Y-%m-%d %H:%M:%S")   # from `now`, not the clock
+        rows = await self.db.fetchall("SELECT created_at FROM messages WHERE direction = 'in' AND created_at >= ?", (since,))
         lasts: dict[str, timedelta] = {}
         for r in rows:
             t = datetime.fromisoformat(r["created_at"] + "+00:00").astimezone(now.tzinfo)

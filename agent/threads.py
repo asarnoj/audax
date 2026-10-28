@@ -20,7 +20,7 @@ from datetime import datetime, timedelta
 from zoneinfo import ZoneInfo
 
 from agent.db import Database
-from agent.forms import FORMS, LETTERS
+from agent.forms import LETTERS
 from agent.items import Items, ref
 
 log = logging.getLogger(__name__)
@@ -198,6 +198,10 @@ async def for_review(db: Database, role: str, now: datetime, tz: str = "Europe/S
         parts[0:0] = ["Trådar som kommit upp: read each, then decide. Ask (find_out, ask owner: which angle, detail or suggestion "
                       "is worth it now), act, or wait. Either way, `follow` again with the date you'll look next and why, or stop following."]
     if rest:
-        parts.append("Du följer också:\n" + "\n".join(f"- #{FORMS[(await Items(db).get(f['item_id']))['form']].letter}{f['item_id']}: {f['why'][:120]} · ses över {f['look_at']}"
-                                                         for f in rest[:20]))
+        lines = []
+        for f in rest[:20]:   # a loop, not a generator: an await can't sit in one (28 Oct: the night's review failed on it)
+            item = await Items(db).get(f["item_id"])
+            if item is not None:
+                lines.append(f"- {ref(item)} {item['title'][:70]}: {f['why'][:120]} · ses över {f['look_at']}")
+        parts.append("Du följer också:\n" + "\n".join(lines))
     return "\n\n".join(parts)

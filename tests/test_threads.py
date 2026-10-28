@@ -62,3 +62,11 @@ async def test_a_close_deadline_is_news_once(db):
     await threads.deadlines(db, datetime.now())
     [f] = await threads.followed(db)
     assert f["news"].count("sista dag") == 1 and f["look_at"] < "2030"
+
+
+async def test_the_review_lists_the_threads_that_are_not_up_yet(db):
+    belief = await Items(db).create("belief", "Lockas av att genomskåda system", "director", kind="hypothesis", owner="director",
+                                    source={"type": "inferred"})
+    await threads.follow(db, "director", belief, "2030-11-24", "Se hur CTF-förslaget landar")
+    text = await review(db, "director", datetime.now())
+    assert "Du följer också" in text and f"#U{belief}" in text and "2030-11-24" in text
