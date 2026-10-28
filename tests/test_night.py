@@ -176,3 +176,24 @@ async def test_a_replay_sets_every_role_back_to_the_evening_before_last_night(db
     await night.tick(datetime(2026, 10, 24, 17, 40, tzinfo=ZoneInfo("Europe/Stockholm")))
     assert ran == ["2026-10-23T18:00:00+02:00"] and await db.kv_get("night.force_researcher")
     assert all([await db.kv_get(k) == "2026-10-23T18:00:00+02:00" for k in SINCE_KEYS])
+
+
+async def test_one_roles_night_step_can_be_run_by_hand(db):
+    from datetime import datetime
+    from zoneinfo import ZoneInfo
+
+    from agent.config import load_settings
+    from agent.night import FORCE_KEY, Night
+
+    ran = []
+
+    def step(name):
+        async def run():
+            ran.append(name)
+            return True
+        return run
+
+    night = Night(load_settings(), db, [(n, step(n)) for n in ("assistant", "director", "researcher", "manager")])
+    await db.kv_set(FORCE_KEY, "director")
+    await night.tick(datetime(2026, 10, 28, 9, 0, tzinfo=ZoneInfo("Europe/Stockholm")))
+    assert ran == ["director"]

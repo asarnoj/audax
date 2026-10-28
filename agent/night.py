@@ -99,10 +99,14 @@ class Night:
             await self.db.kv_set(FORCE_KEY, None)
             if force == "replay":
                 await self.rewind(now)
-            log.info("night sweep started by hand%s", " (a replay of last night)" if force == "replay" else "")
+            only = force if force in dict(self.steps) else None   # one role's night step, e.g. one that failed
+            if only == "researcher":
+                await self.db.kv_set("night.force_researcher", True)
+            log.info("night sweep started by hand%s", " (a replay of last night)" if force == "replay" else f" ({only} only)" if only else "")
             self.running = True
             try:
-                await self._sweep({"night": f"by hand {now:%Y-%m-%d %H:%M}", "done": [], "attempts": {}})
+                done = [n for n, _ in self.steps if only and n != only]
+                await self._sweep({"night": f"by hand {now:%Y-%m-%d %H:%M}", "done": done, "attempts": {}})
             finally:
                 self.running = False
             return
