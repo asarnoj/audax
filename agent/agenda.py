@@ -31,10 +31,14 @@ class Agenda:
         self.db = db
         self.schedule = schedule
         self.tz = schedule.tz
-        self.quiet = schedule.settings.quiet_hours
 
     # --- time helpers -----------------------------------------------------
 
+
+    @property
+    def quiet(self):
+        """The quiet hours as they are now: a belief the owner or Manager can change (agent/assumptions.py)."""
+        return self.schedule.settings.quiet_hours
     def parse(self, when: str) -> datetime | None:
         """'2026-10-16 08:00' (local) -> aware datetime."""
         try:

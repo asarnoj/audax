@@ -20,7 +20,7 @@ ROLES = ("assistant", "director", "researcher", "manager")
 # The profile's sections, in order (agent/beliefs.py renders the profile from the current beliefs).
 AREAS = ("who", "compensate", "social", "limits", "school", "interests", "opportunities", "not_interested", "interrupt",
          "schedule", "communication", "name", "other")
-SOURCE_TYPES = ("owner", "observed", "inferred", "external")   # the owner said it · seen in what happened · a role's conclusion · a source outside
+SOURCE_TYPES = ("owner", "observed", "inferred", "external", "assumed")   # assumed: a starting assumption of the system, never confirmed   # the owner said it · seen in what happened · a role's conclusion · a source outside
 
 
 class FormError(ValueError):
@@ -133,6 +133,8 @@ FORMS: dict[str, Form] = {f.name: f for f in (
                   "excludes: the owner ruled it out · maybe_limit: may be uncertainty rather than what they want · "
                   "never_considered: nowhere in the picture of them"),
             Field("scope", help="Swedish: when it holds, if not always (\"under tentaperioden\")"),
+            Field("setting", "enum", False, ("quiet_hours",), "a belief the engine follows directly: quiet_hours (value HH:MM-HH:MM)"),
+            Field("value", help="the setting's value, e.g. 22:00-06:30"),
         ),
         needs_source=True,
     ),

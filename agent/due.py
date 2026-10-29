@@ -82,6 +82,10 @@ async def review(db: Database, role: str, now: datetime, memory=None) -> str:
         parts.append(wonder)
     if threads_text := await for_review(db, role, now):
         parts.append(threads_text)
+    from agent.assumptions import for_review as assumed
+
+    if assumed_text := await assumed(db, role, now):
+        parts.append(assumed_text)
     if role in ("assistant", "director", "manager"):
         old = await items.find("belief", status="current", owner=role, kind=("preference", "pattern", "hypothesis", "value"),
                                where="valid_until IS NULL AND updated_at < datetime('now', ?)", args=(f"-{BELIEF_FRESH.days} days",),
@@ -342,4 +346,27 @@ async def pulse(db: Database, now: datetime) -> str:
     waiting = await items.find("question", status="open", where="json_extract(data, '$.to') = 'owner'", limit=20)
     asked = await items.find("question", status="asked", where="json_extract(data, '$.to') = 'owner'", limit=20)
     lines.append(f"Rollernas frågor till ägaren: {len(waiting)} väntar på att ställas, {len(asked)} ställda utan svar än.")
+    lines += await signals(db)
     return "Kontakten med ägaren:\n" + "\n".join(f"- {x}" if not x.startswith("  ") else x for x in lines)
+
+
+async def signals(db: Database, days: int = 14) -> list[str]:
+    """What the owner's behaviour says, beside what they say: users rarely know or tell what they want from a system,
+    but it shows in what they do (omgång 7). Signals to interpret, not targets."""
+    since = f"-{days} days"
+    msgs = await db.fetchall("SELECT direction, created_at, length(text) AS n FROM messages WHERE created_at >= datetime('now', ?) ORDER BY created_at", (since,))
+    started, prev = 0, None
+    for m in msgs:
+        if m["direction"] == "in" and (prev is None or (datetime.fromisoformat(m["created_at"][:19]) - datetime.fromisoformat(prev[:19])).total_seconds() > 3 * 3600):
+            started += 1
+        prev = m["created_at"]
+    owner = [m for m in msgs if m["direction"] == "in"]
+    lengths = sorted(m["n"] for m in owner)
+    more = await db.fetchone("SELECT count(*) AS n FROM feedback WHERE signal = 'shelf_pull' AND created_at >= datetime('now', ?)", (since,))
+    reactions = await db.fetchall("SELECT value, count(*) AS n FROM feedback WHERE signal = 'reaction' AND created_at >= datetime('now', ?) GROUP BY value", (since,))
+    days_active = len({m["created_at"][:10] for m in owner})
+    return [f"Vad beteendet säger (senaste {days} dagarna; signals to interpret, not targets):",
+            f"  - ägaren startade själv {started} samtal, skrev {len(owner)} meddelanden på {days_active} dagar"
+            + (f", typiskt {lengths[len(lengths) // 2]} tecken långa" if lengths else ""),
+            f"  - bad om mer (hämtade från det sparade, \"något nytt?\"): {more['n']} gånger",
+            "  - reaktioner: " + (", ".join(f"{r['value']}×{r['n']}" for r in reactions) or "inga")]
