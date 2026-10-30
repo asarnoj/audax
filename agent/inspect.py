@@ -67,7 +67,10 @@ class Inspector:
         )
         problems += [f"Chatten rapporterade {self._t(r['created_at'])}: {r['description'][:160]}" for r in reported]
         last_any = await self.db.fetchone("SELECT max(created_at) AS t FROM claude_runs WHERE is_error = 0")
-        if last_any and last_any["t"] and datetime.fromisoformat(last_any["t"] + "+00:00") < datetime.now(ZoneInfo("UTC")) - timedelta(hours=8):
+        # Only when something tried since and failed: a quiet day with nothing to run is not a fault (29 Oct: a guest
+        # with no messages all afternoon was told something was broken).
+        if last_any and last_any["t"] and datetime.fromisoformat(last_any["t"] + "+00:00") < datetime.now(ZoneInfo("UTC")) - timedelta(hours=8) \
+                and await self.db.fetchone("SELECT 1 FROM claude_runs WHERE is_error = 1 AND created_at > ?", (last_any["t"],)):
             problems.append(f"Ingen lyckad Claude-körning sedan {self._t(last_any['t'])} (över 8 timmar)")
         return problems
 
