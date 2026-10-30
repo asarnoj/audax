@@ -119,3 +119,16 @@ async def test_bundles_and_the_days_contacts(db):
     assert await assumptions.contacts_today(db, datetime.now(tz)) == 2
     m = await assumptions.measure(db, datetime.now(tz) - timedelta(days=1), datetime.now(tz) + timedelta(minutes=1))
     assert m["egna kontakter/dag"] == 2.0 and m["kontakter som fick svar"] == "0/2"
+
+
+async def test_no_bundles_is_a_value_that_can_be_stored_and_tried(db):
+    from datetime import time
+    from zoneinfo import ZoneInfo
+
+    settings = load_settings()
+    await assumptions.ensure(db, settings)
+    b = await assumptions.current(db, "bundle_times")
+    assert b["value"] == "inga" and "när de kommer" in b["title"]
+    now = datetime(2026, 10, 30, 12, 0, tzinfo=ZoneInfo("Europe/Stockholm"))
+    await assumptions.planned(db, "manager", [{"id": f"#U{b['id']}", "plan": "test", "value": "09:30, 17:00", "why": "x"}], settings, now)
+    assert settings.bundle_times == [time(9, 30), time(17, 0)]

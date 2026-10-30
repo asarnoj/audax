@@ -48,8 +48,11 @@ def _count(v: str) -> int:
     return n
 
 
+NONE = "inga"   # an empty value is dropped when an item is stored, so "no bundles" is a word
+
+
 def _times(v: str) -> list[time]:
-    return sorted({time.fromisoformat(x.strip()) for x in str(v).split(",") if x.strip()})
+    return sorted({time.fromisoformat(x.strip()) for x in str(v).split(",") if x.strip() and x.strip() != NONE})
 
 
 def _length(v: str) -> int:
@@ -60,7 +63,7 @@ def _length(v: str) -> int:
 
 
 def _hhmm(ts: list[time]) -> str:
-    return ",".join(f"{t:%H:%M}" for t in ts)
+    return ",".join(f"{t:%H:%M}" for t in ts) or NONE
 
 
 @dataclass(frozen=True)
@@ -80,7 +83,7 @@ SETTINGS = {s.name: s for s in (
     Setting("daily_contacts", "egna kontakter per dag", _count, str,
             lambda v: f"Högst {v} egna kontakter från Audax om dagen (det som brådskar går ändå fram)", "interrupt", True),
     Setting("bundle_times", "buntar", _times, _hhmm,
-            lambda v: f"Fynd som kan vänta går ut samlat kl {v.replace(',', ' och ')}" if v else "Fynd går ut när de kommer, inte samlade",
+            lambda v: f"Fynd som kan vänta går ut samlat kl {v.replace(',', ' och ')}" if v != NONE else "Fynd går ut när de kommer, inte samlade",
             "interrupt", True),
     Setting("message_length", "meddelandelängd", _length, str,
             lambda v: f"Audax egna meddelanden hålls under ungefär {v} tecken", "communication", True),
@@ -376,7 +379,7 @@ async def _test(db: Database, role: str, b: dict, p: dict, why: str, settings, n
         new = spec.show(spec.parse(p.get("value") or ""))
     except (ValueError, TypeError):
         return f"{ref(b)}: kan inte läsa {spec.label} {p.get('value')!r}"
-    old = b.get("value") or ""
+    old = b.get("value") or NONE
     if new == old:
         return f"{ref(b)}: testvärdet är samma som det nuvarande"
     if running := await trial(db):
@@ -384,10 +387,10 @@ async def _test(db: Database, role: str, b: dict, p: dict, why: str, settings, n
     days = min(max(int(p.get("days") or 14), TRIAL_DAYS[0]), TRIAL_DAYS[1])
     end = (now + timedelta(days=days)).date()
     eid = await items.create(
-        "experiment", f"Prövar {spec.label}: {new or 'inga'} i stället för {old or 'inga'}", role, kind="improve", status="running",
+        "experiment", f"Prövar {spec.label}: {new} i stället för {old}", role, kind="improve", status="running",
         owner=role, parent=b.get("parent_id"), review_at=end.isoformat(),
         data={"area": spec.name, "hypothesis": why or f"{spec.label} {new} passar bättre än {old}",
-              "intervention": f"Motorn använder {spec.label} {new or 'inga'} i stället för {old or 'inga'} till {end}.",
+              "intervention": f"Motorn använder {spec.label} {new} i stället för {old} till {end}.",
               "measure": "Samma signaler före och under perioden, räknade av motorn; ägarens egna ord väger tyngst.",
               "setting": spec.name, "test_value": new, "starts": f"{now:%Y-%m-%d %H:%M}"})
     await items.link(eid, b["id"], "tests", role)
