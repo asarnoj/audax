@@ -161,6 +161,7 @@ class Manager:
                     prompt=prompt,
                     priority=Priority.MANAGER,
                     model=self.settings.models.manager,
+                    effort="medium",   # 30 Oct: without it, it answered at once without thinking, and copied its last judgements
                     allowed_tools=["Read(./memory/**)", *office_names],  # its texts change a section at a time (office text)
                     mcp_servers=office,
                     output_schema=SCHEMA,

@@ -182,7 +182,7 @@ class Director:
                     prompt=(prompt_template("director") + "\n\n" + prompt_template(f"director_{mode}")).format(**context),
                     priority=Priority.MANAGER,
                     model=self.settings.models.reflect if reflect else self.settings.models.director,
-                    effort="medium" if reflect else None,   # thorough, not the most expensive
+                    effort="medium",   # thorough, not the most expensive; without it the review answered without thinking (30 Oct)
                     allowed_tools=tools,
                     mcp_servers=mcp,
                     output_schema=SCHEMA,
