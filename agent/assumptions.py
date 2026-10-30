@@ -95,8 +95,10 @@ VERDICTS = {"supported": "stöds", "contradicted": "motsägs", "unclear": "kan i
 ANSWER = {
     "type": "array",
     "description": "One entry per unconfirmed assumption listed in your review (empty if none): what the signals say about it "
-                   "and what you do. Revising means changing the belief (and what rests on it) in this run with the tools; "
-                   "testing or asking means an experiment or find_out in this run.",
+                   "and what you do. Only what would look different were it wrong counts as evidence. Revising means changing the belief "
+                   "(and what rests on it) in this run "
+                   "with the tools; testing or asking means an experiment or find_out in this run; 'can't tell' is followed by "
+                   "testing or asking, not keeping.",
     "items": {
         "type": "object",
         "properties": {
