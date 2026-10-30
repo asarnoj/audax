@@ -23,7 +23,7 @@ from collections import defaultdict
 from datetime import datetime, timedelta
 from zoneinfo import ZoneInfo
 
-from agent import search_map, texts, trail
+from agent import assumptions, search_map, texts, trail
 from agent.due import answered_since, earlier_runs, review, write_now
 from agent.items import Items
 from agent.office_tools import build_office_tools, describe_forms
@@ -84,12 +84,13 @@ SCHEMA = {
                 "required": ["title", "brief", "why", "time_sensitivity"],
             },
         },
+        "assumptions": assumptions.ANSWER,
         "working_memory": texts.WORKING_MEMORY,
         "lessons": {"type": "array", "items": {"type": "string"},
                     "description": "Swedish: lessons about how the office works that every role should know; usually none"},
         "summary": {"type": "string", "description": "Swedish. What you did in this run and why, briefly: the run's own account"},
     },
-    "required": ["working_memory", "summary"],
+    "required": ["working_memory", "assumptions", "summary"],
 }
 
 
@@ -241,6 +242,7 @@ class Director:
                     until=p.get("until"),
                 )
                 changes.append(f"post #P{pid} till {p['to']}")
+        changes += await assumptions.judged(self.db, "director", out.get("assumptions"))
         texts.working_memory(self.memory.path, "director", out.get("working_memory"))
         await self.posts.handled(self._seen_posts, f"läst av Director ({mode} {now:%Y-%m-%d})")
         self._seen_posts = []

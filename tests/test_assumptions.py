@@ -46,3 +46,14 @@ async def test_managers_overview_shows_what_the_behaviour_says(db):
     await db.execute("INSERT INTO feedback (signal, value) VALUES ('shelf_pull', 'F12')")
     text = await pulse(db, datetime.now(ZoneInfo("Europe/Stockholm")))
     assert "startade själv 2 samtal" in text and "bad om mer" in text and "1 gånger" in text
+
+
+async def test_a_roles_judgement_of_an_assumption_is_kept_and_shown_next_run(db):
+    bid = await Items(db).create("belief", "Vill hellre ha färre men bättre saker", "system", kind="preference", owner="manager",
+                                 data={"area": "interrupt"}, source={"type": "assumed", "note": "startantagande"})
+    lines = await assumptions.judged(db, "manager", [
+        {"id": f"#U{bid}", "verdict": "contradicted", "evidence": "startade 10 samtal, bad om mer 3 gånger", "action": "revise", "how": "#U200"},
+        {"id": "#U99999", "verdict": "supported", "evidence": "x", "action": "keep"}])   # unknown ids are skipped
+    assert len(lines) == 1 and "motsägs, revideras" in lines[0]
+    text = await review(db, "manager", datetime.now())
+    assert "senast bedömt" in text and "bad om mer 3 gånger" in text

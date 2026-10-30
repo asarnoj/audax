@@ -52,4 +52,4 @@ A quiet conversation is not a reason to wait: it is time to look outward. Use wh
 Manager's policy says what the situation means for {owner_s} attention. A tight period raises the bar; it doesn't switch Audax off.
 
 ## Your answer
-`working_memory`, `posts` (orders and feedback to Researcher, notes to Manager; an order holds until its `until`, two weeks if you give none), `withdraw` (your orders and feedback in the review that no longer serve), `share` (see your mode), `lessons`, `summary`.
+`working_memory`, `assumptions` (your judgement of each unconfirmed assumption in your review; empty if none), `posts` (orders and feedback to Researcher, notes to Manager; an order holds until its `until`, two weeks if you give none), `withdraw` (your orders and feedback in the review that no longer serve), `share` (see your mode), `lessons`, `summary`.

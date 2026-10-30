@@ -13,6 +13,7 @@ belief is, by the owner's word or a role's judgement, and the engine follows the
 from __future__ import annotations
 
 import logging
+import re
 from datetime import datetime, time
 
 from agent.db import Database
@@ -67,12 +68,60 @@ def watcher(settings):
     return watch
 
 
-async def for_review(db: Database, role: str, now: datetime) -> str:
-    """For a role's review: the assumptions in its area that nobody has confirmed."""
-    mine = [b for b in await Items(db).find("belief", status="current", owner=role, order="updated_at", limit=60)
+async def unconfirmed(db: Database, role: str) -> list[dict]:
+    return [b for b in await Items(db).find("belief", status="current", owner=role, order="updated_at", limit=60)
             if (b.get("source") or {}).get("type") == "assumed"]
+
+
+async def for_review(db: Database, role: str, now: datetime) -> str:
+    """For a role's review: the assumptions in its area that nobody has confirmed, with the role's last judgement of each."""
+    mine = await unconfirmed(db, role)
     if not mine:
         return ""
-    return ("Antaganden ditt arbete vilar på som ingen bekräftat (starting assumptions about the owner, not facts: hold them "
-            "against what they do, revise, test or ask when the signals can't tell):\n"
-            + "\n".join(f"- {Items.line(b)} · antaget sedan {b['created_at'][:10]}" for b in mine))
+    lines = []
+    for b in mine:
+        last = await db.fetchone("SELECT created_at, note FROM item_log WHERE item_id = ? AND note LIKE ? ORDER BY id DESC LIMIT 1",
+                                 (b["id"], JUDGED + "%"))
+        lines.append(f"- {Items.line(b)} · antaget sedan {b['created_at'][:10]}"
+                     + (f"\n  senast bedömt {last['created_at'][:10]}: {last['note'][len(JUDGED):]}" if last else ""))
+    return ("Antaganden ditt arbete vilar på som ingen bekräftat (starting assumptions about the owner, not facts: hold each "
+            "against what they do and judge it in `assumptions`):\n" + "\n".join(lines))
+
+
+# --- the role's judgement --------------------------------------------------------------------
+
+JUDGED = "bedömning: "
+VERDICTS = {"supported": "stöds", "contradicted": "motsägs", "unclear": "kan inte avgöras"}
+ANSWER = {
+    "type": "array",
+    "description": "One entry per unconfirmed assumption listed in your review (empty if none): what the signals say about it "
+                   "and what you do. Revising means changing the belief (and what rests on it) in this run with the tools; "
+                   "testing or asking means an experiment or find_out in this run.",
+    "items": {
+        "type": "object",
+        "properties": {
+            "id": {"type": "string", "description": "#U…"},
+            "verdict": {"type": "string", "enum": list(VERDICTS)},
+            "evidence": {"type": "string", "description": "Swedish: what in the owner's behaviour or words says so"},
+            "action": {"type": "string", "enum": ["keep", "revise", "test", "ask"]},
+            "how": {"type": "string", "description": "Swedish: what you did about it, with ids"},
+        },
+        "required": ["id", "verdict", "evidence", "action"],
+    },
+}
+ACTIONS = {"keep": "behålls", "revise": "revideras", "test": "prövas", "ask": "frågas"}
+
+
+async def judged(db: Database, role: str, answer: list | None) -> list[str]:
+    """Keeps each judgement on its belief, so the next run starts from it; returns the lines for the run's account."""
+    out = []
+    for j in answer or []:
+        m = re.search(r"\d+", str(j.get("id", "")))
+        item = await Items(db).get(int(m.group())) if m else None
+        if item is None or item["form"] != "belief":
+            continue
+        line = (f"{VERDICTS.get(j.get('verdict'), j.get('verdict'))}, {ACTIONS.get(j.get('action'), j.get('action'))}: "
+                f"{j.get('evidence', '')}" + (f" ({j['how']})" if j.get("how") else ""))[:400]
+        await Items(db).update(item["id"], role, note=JUDGED + line)
+        out.append(f"antagande {ref(item)} {line}")
+    return out
