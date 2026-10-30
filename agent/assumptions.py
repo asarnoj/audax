@@ -172,9 +172,11 @@ async def standing(db: Database, belief: dict, today: str) -> tuple[str, str]:
         return "trying", f"prövas av {ref(t)}" + (f" till {t['review_at'][:10]}" if t.get("review_at") else "")
     before = "; ".join(f"{ref(t)} {t['status']}" + (f": {t['decision'][:80]}" if t.get("decision") else "")
                        + (f": {t['conclusion'][:80]}" if t.get("conclusion") else "") for t in tried[-3:])
+    put_off = (await db.fetchone("SELECT count(*) AS n FROM item_log WHERE item_id = ? AND note LIKE 'prövas senare:%'", (belief["id"],)))["n"]
+    history = (f" · prövat förut: {before}" if before else "") + (f" · uppskjutet {put_off} gånger" if put_off > 1 else "")
     if belief.get("review_at") and belief["review_at"][:10] > today:
-        return "later", f"väntar till {belief['review_at'][:10]}" + (f" · prövat förut: {before}" if before else "")
-    return "untested", "oprövat" + (f" · prövat förut: {before}" if before else "")
+        return "later", f"väntar till {belief['review_at'][:10]}{history}"
+    return "untested", f"oprövat sedan {belief['created_at'][:10]}{history}"
 
 
 async def for_review(db: Database, role: str, now: datetime) -> str:

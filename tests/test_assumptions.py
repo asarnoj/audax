@@ -99,6 +99,8 @@ async def test_an_assumption_can_be_asked_about_or_left_until_a_date(db):
     assert "#Q" in out[0] and "2026-11-10" in out[1]
     assert (await assumptions.standing(db, quiet, "2026-10-30"))[0] == "trying"
     assert (await assumptions.standing(db, await Items(db).get(bundles["id"]), "2026-10-30"))[0] == "later"
+    await Items(db).update(bundles["id"], "manager", review_at="2026-10-31", note="prövas senare: igen")
+    assert "uppskjutet 2 gånger" in (await assumptions.standing(db, await Items(db).get(bundles["id"]), "2026-11-01"))[1]
     q = (await Items(db).find("question"))[0]
     assert q["to"] == "owner" and "prövar antagandet" in q["why"]
 
