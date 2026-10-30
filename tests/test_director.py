@@ -100,7 +100,7 @@ async def test_reflect_thinks_longer_with_web_and_understand_does_not(env, tmp_p
     assert await d.run("understand") is not None
     assert await d.run("reflect") is not None
     u, r = calls
-    assert (u.model, u.effort) == ("sonnet", None) and "WebSearch" not in u.allowed_tools
+    assert (u.model, u.effort) == ("sonnet", "medium") and "WebSearch" not in u.allowed_tools
     assert (r.model, r.effort) == ("opus", "medium") and "WebSearch" in r.allowed_tools
     assert "hidden assets" in r.prompt.lower() and "Profil" in r.prompt
     assert await db.kv_get("director.last_reflect") is not None

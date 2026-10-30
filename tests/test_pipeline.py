@@ -398,3 +398,34 @@ async def test_the_offices_questions_reach_a_quiet_owner_one_contact_at_a_time(d
     await db.kv_set("questions.last_contact", None)
     await db.execute("INSERT INTO messages (telegram_message_id, direction, text) VALUES (2, 'in', 'hej')")
     assert not await d._ask_items()   # the owner is here: the conversation takes it
+
+
+async def test_the_engine_follows_the_days_contacts_and_the_bundles(db, tmp_path):
+    from datetime import time
+
+    a = await add_candidate(db, "event", "A", "kan vänta", {})
+    u = await add_candidate(db, "event", "U", "brådskar", {"time_sensitivity": "high"})
+    d, sent = await make_dispatcher(
+        db, tmp_path,
+        {"decisions": [{"candidate_id": a, "decision": "now", "reason": "x"}, {"candidate_id": u, "decision": "now", "reason": "y"}]})
+    d.settings.daily_contacts = 2
+    for minutes in (300, 200):   # two of the office's own contacts already today
+        await db.execute("INSERT INTO messages (telegram_message_id, direction, origin, text, created_at) "
+                         "VALUES (1, 'out', 'proactive', 'x', datetime('now', ?))", (f"-{minutes} minutes",))
+    await d.run()
+    assert sent == ["brådskar"]   # what is urgent goes through anyway
+    held = await db.fetchone("SELECT status, deliver_at FROM candidates WHERE id = ?", (a,))
+    assert held["status"] == "scheduled" and held["deliver_at"].startswith("2026-10-13")   # tomorrow morning
+
+    b = await add_candidate(db, "event", "B", "till bunten", {})
+    d2, sent2 = await make_dispatcher(db, tmp_path, {"decisions": [{"candidate_id": b, "decision": "now", "reason": "z"}]})
+    d2.settings.bundle_times = [time(17, 0)]
+    await d2.run()
+    assert sent2 == []
+    assert (await db.fetchone("SELECT deliver_at FROM candidates WHERE id = ?", (b,)))["deliver_at"].startswith("2026-10-12T15:00")  # 17:00 local (summer time)
+    Clock.at = NOW.replace(hour=17, minute=1)
+    try:
+        await d2.tick()
+    finally:
+        Clock.at = None
+    assert sent2 == ["till bunten"]

@@ -20,6 +20,8 @@ ROLES = ("assistant", "director", "researcher", "manager")
 # The profile's sections, in order (agent/beliefs.py renders the profile from the current beliefs).
 AREAS = ("who", "compensate", "social", "limits", "school", "interests", "opportunities", "not_interested", "interrupt",
          "schedule", "communication", "name", "other")
+# The experience settings the engine follows (agent/assumptions.py has what each means).
+SETTINGS = ("quiet_hours", "daily_contacts", "bundle_times", "message_length")
 SOURCE_TYPES = ("owner", "observed", "inferred", "external", "assumed")   # assumed: a starting assumption of the system, never confirmed   # the owner said it · seen in what happened · a role's conclusion · a source outside
 
 
@@ -116,6 +118,9 @@ FORMS: dict[str, Form] = {f.name: f for f in (
             Field("measure", required=True, help="Swedish: what will show whether it worked"),
             Field("outcome", help="Swedish: what happened"),
             Field("decision", help="Swedish: keep, adjust or drop, and why"),
+            Field("setting", "enum", False, SETTINGS, "set by the engine: the experience setting this tries (agent/assumptions.py)"),
+            Field("test_value", help="set by the engine: the value tried"),
+            Field("starts", help="set by the engine: when the trial began, YYYY-MM-DD HH:MM"),
         ),
         needs_review=True,
     ),
@@ -133,7 +138,9 @@ FORMS: dict[str, Form] = {f.name: f for f in (
                   "excludes: the owner ruled it out · maybe_limit: may be uncertainty rather than what they want · "
                   "never_considered: nowhere in the picture of them"),
             Field("scope", help="Swedish: when it holds, if not always (\"under tentaperioden\")"),
-            Field("setting", "enum", False, ("quiet_hours",), "a belief the engine follows directly: quiet_hours (value HH:MM-HH:MM)"),
+            Field("setting", "enum", False, SETTINGS,
+                  "a belief the engine follows directly (agent/assumptions.py): quiet_hours (HH:MM-HH:MM), daily_contacts "
+                  "(a number), bundle_times (HH:MM,HH:MM or empty), message_length (characters)"),
             Field("value", help="the setting's value, e.g. 22:00-06:30"),
         ),
         needs_source=True,

@@ -114,6 +114,21 @@ Allt kontoret planerar att höra av sig om ligger i ett gemensamt schema med tid
 - **Det sparade** är en hylla utan tid, med bäst-före-datum. Du kan be om det ("något nytt?"), och Manager kan ta fram något därifrån när det passar.
 - **Din kalender** (TimeEdit och Apple) är fakta om dig och läses men ägs inte.
 
+## Upplevelsens inställningar
+
+Det som går att räkna i upplevelsen är inställningar som motorn följer, inte meningar i policyn:
+- `quiet_hours`: nattron;
+- `daily_contacts`: högst så många egna kontakter om dagen; det som brådskar går ändå fram;
+- `bundle_times`: fynd som kan vänta går ut samlat vid de tiderna;
+- `message_length`: de egna meddelandenas längd.
+
+Varje inställning är en uppfattning om dig med källa (`agent/assumptions.py`). Ett startvärde är ett antagande som ingen bekräftat. Det går inte att avgöra genom att titta, eftersom ditt beteende bara svarar på det Audax redan gör. Därför prövas det:
+- **test:** ett annat värde under några dagar, och motorn använder det. Bara en prövning åt gången.
+- **fråga:** en fråga till dig. Nattron prövas aldrig genom att skriva på natten.
+- **senare:** ett datum och ett skäl.
+
+Koden räknar ut läget för varje antagande: oprövat, prövas eller avgjort. När en prövning är slut visar genomgången samma signaler före och under, och rollen väljer ett av tre utfall: anta, behåll eller inget avgjort. Dina egna ord avgör vilket värde som helst direkt. Se `instance/granskning/2026-10-30-omgang-8-installningar.md`.
+
 ## Från fynd till dig
 
 ```

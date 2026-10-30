@@ -34,6 +34,9 @@ Already planned (next three days):
 Recent activity:
 {activity}
 
+The settings the engine follows (Manager's, tried and changed by Manager):
+{settings}
+
 May always interrupt ({owner_s} list):
 {interrupt}
 

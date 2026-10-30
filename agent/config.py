@@ -124,6 +124,10 @@ class Settings(BaseModel):
     owner: str = ""  # the person the agent is for; fills {owner} in prompts
     timezone: str = "Europe/Stockholm"
     quiet_hours: QuietHours
+    # The experience's settings (agent/assumptions.py): starting values here; the engine follows the current belief.
+    daily_contacts: int = 3          # the most contacts of the office's own a day; what is urgent goes through anyway
+    bundle_times: list[time] = []    # findings that can wait go out together at these times; empty: as they come
+    message_length: int = 600        # the office's own messages stay under about this many characters
     models: Models = Models()
     paths: Paths = Paths()
     site: Site = Site()

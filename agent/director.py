@@ -85,6 +85,7 @@ SCHEMA = {
             },
         },
         "assumptions": assumptions.ANSWER,
+        "settle": assumptions.SETTLE,
         "working_memory": texts.WORKING_MEMORY,
         "lessons": {"type": "array", "items": {"type": "string"},
                     "description": "Swedish: lessons about how the office works that every role should know; usually none"},
@@ -242,7 +243,8 @@ class Director:
                     until=p.get("until"),
                 )
                 changes.append(f"post #P{pid} till {p['to']}")
-        changes += await assumptions.judged(self.db, "director", out.get("assumptions"))
+        changes += await assumptions.planned(self.db, "director", out.get("assumptions"), self.settings)
+        changes += await assumptions.settled(self.db, "director", out.get("settle"), self.settings)
         texts.working_memory(self.memory.path, "director", out.get("working_memory"))
         await self.posts.handled(self._seen_posts, f"läst av Director ({mode} {now:%Y-%m-%d})")
         self._seen_posts = []

@@ -81,6 +81,7 @@ SCHEMA = {
             },
         },
         "assumptions": assumptions.ANSWER,
+        "settle": assumptions.SETTLE,
         "working_memory": texts.WORKING_MEMORY,
         "summary": {"type": "string", "description": "Swedish. What you saw and what you changed, and why: the run's own account"},
         "note_to_owner": {"type": ["string", "null"], "description": "Swedish brief for the chat, or null"},
@@ -210,7 +211,8 @@ class Manager:
                 + ("följde policyn" if review.get("followed_policy") else "gled från policyn")
                 + (f": {review['notes']}" if review.get("notes") else "")
             )
-        changes += await assumptions.judged(self.db, "manager", out.get("assumptions"))
+        changes += await assumptions.planned(self.db, "manager", out.get("assumptions"), self.settings)
+        changes += await assumptions.settled(self.db, "manager", out.get("settle"), self.settings)
         texts.working_memory(self.memory.path, "manager", out.get("working_memory"))
         await self.posts.handled(self._seen_posts, f"läst av Manager {now:%Y-%m-%d}")
         self._seen_posts = []

@@ -232,6 +232,7 @@ async def run() -> None:
         fresh = load_settings()
         for name in type(settings).model_fields:  # update in place: every component holds this object
             setattr(settings, name, getattr(fresh, name))
+        await assumptions.apply(db, settings)   # the experience's settings are beliefs, not the file's starting values
 
     async def reload_sources() -> None:
         configs, _ = load_calendar_configs()
@@ -263,6 +264,12 @@ async def run() -> None:
             log.warning("health: %s", problem)
 
     scheduler.add_job(health_watch, "interval", minutes=30, id="health", max_instances=1)
+
+    async def follow_settings() -> None:
+        """A trial of a setting starts and ends with the clock, not only when an item changes (agent/assumptions.py)."""
+        await assumptions.apply(db, settings)
+
+    scheduler.add_job(follow_settings, "interval", minutes=10, id="settings", max_instances=1, coalesce=True)
 
     # The calendar (agent/due.py): wakes the owner of a step, an experiment or a question when its date comes.
     async def quiet_now() -> bool:

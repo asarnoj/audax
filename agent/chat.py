@@ -392,6 +392,7 @@ class ChatSession:
             output_schema=REPLY,
             max_turns=6,
             system_prompt_append=prompt_template("deliver")
+            + f"\n\n# Length\nKeep this message under about {self.settings.message_length} characters (a setting Manager tries and changes)."
             + "\n\n# Manager's policy: the situation, pacing and how you write (follow it)\n" + self.memory.read("policy.md")
             + "\n\n# The profile (what interests " + personalize("{owner}") + ", and what never to suggest)\n" + self.memory.read("profile.md"),
         ))
