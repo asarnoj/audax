@@ -95,21 +95,22 @@ JUDGED = "bedömning: "
 VERDICTS = {"supported": "stöds", "contradicted": "motsägs", "unclear": "kan inte avgöras"}
 ANSWER = {
     "type": "array",
-    "description": "One entry per unconfirmed assumption listed in your review (empty if none): what the signals say about it "
-                   "and what you do. Only what would look different were it wrong counts as evidence. Revising means changing the belief "
-                   "(and what rests on it) in this run "
-                   "with the tools; testing or asking means an experiment or find_out in this run; 'can't tell' is followed by "
-                   "testing or asking, not keeping.",
+    "description": "One entry per unconfirmed assumption listed in your review (empty if none), reasoned in this order. "
+                   "Revising means changing the belief (and what rests on it) in this run with the tools; testing or asking "
+                   "means an experiment or find_out in this run; 'can't tell' is followed by testing or asking, not keeping.",
     "items": {
         "type": "object",
         "properties": {
             "id": {"type": "string", "description": "#U…"},
+            "if_true": {"type": "string", "description": "Swedish: what the owner would do if it were true"},
+            "if_not": {"type": "string", "description": "Swedish: what they would do if the opposite were true"},
+            "seen": {"type": "string", "description": "Swedish: what you actually see, in all the behaviour and words you have, "
+                                                      "that fits one of the two better than the other (not what fits both)"},
             "verdict": {"type": "string", "enum": list(VERDICTS)},
-            "evidence": {"type": "string", "description": "Swedish: what in the owner's behaviour or words says so"},
             "action": {"type": "string", "enum": ["keep", "revise", "test", "ask"]},
             "how": {"type": "string", "description": "Swedish: what you did about it, with ids"},
         },
-        "required": ["id", "verdict", "evidence", "action"],
+        "required": ["id", "if_true", "if_not", "seen", "verdict", "action"],
     },
 }
 ACTIONS = {"keep": "behålls", "revise": "revideras", "test": "prövas", "ask": "frågas"}
@@ -123,8 +124,9 @@ async def judged(db: Database, role: str, answer: list | None) -> list[str]:
         item = await Items(db).get(int(m.group())) if m else None
         if item is None or item["form"] != "belief":
             continue
-        line = (f"{VERDICTS.get(j.get('verdict'), j.get('verdict'))}, {ACTIONS.get(j.get('action'), j.get('action'))}: "
-                f"{j.get('evidence', '')}" + (f" ({j['how']})" if j.get("how") else ""))[:400]
+        line = (f"om sant: {j.get('if_true', '')} / om inte: {j.get('if_not', '')} / sett: {j.get('seen', '')} → "
+                f"{VERDICTS.get(j.get('verdict'), j.get('verdict'))}, {ACTIONS.get(j.get('action'), j.get('action'))}"
+                + (f" ({j['how']})" if j.get("how") else ""))[:600]
         await Items(db).update(item["id"], role, note=JUDGED + line)
         out.append(f"antagande {ref(item)} {line}")
     return out

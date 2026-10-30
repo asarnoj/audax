@@ -52,8 +52,9 @@ async def test_a_roles_judgement_of_an_assumption_is_kept_and_shown_next_run(db)
     bid = await Items(db).create("belief", "Vill hellre ha färre men bättre saker", "system", kind="preference", owner="manager",
                                  data={"area": "interrupt"}, source={"type": "assumed", "note": "startantagande"})
     lines = await assumptions.judged(db, "manager", [
-        {"id": f"#U{bid}", "verdict": "contradicted", "evidence": "startade 10 samtal, bad om mer 3 gånger", "action": "revise", "how": "#U200"},
-        {"id": "#U99999", "verdict": "supported", "evidence": "x", "action": "keep"}])   # unknown ids are skipped
-    assert len(lines) == 1 and "motsägs, revideras" in lines[0]
+        {"id": f"#U{bid}", "if_true": "startar sällan samtal, ber inte om mer", "if_not": "startar samtal och ber om mer",
+         "seen": "startade 10 samtal, bad om mer 3 gånger", "verdict": "contradicted", "action": "revise", "how": "#U200"},
+        {"id": "#U99999", "if_true": "x", "if_not": "y", "seen": "z", "verdict": "supported", "action": "keep"}])   # unknown ids are skipped
+    assert len(lines) == 1 and "→ motsägs, revideras" in lines[0]
     text = await review(db, "manager", datetime.now())
     assert "senast bedömt" in text and "bad om mer 3 gånger" in text
