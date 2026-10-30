@@ -265,6 +265,7 @@ class ClaudeGate:
         self._waiting: list[tuple[int, int, asyncio.Future[None]]] = []
         self._seq = itertools.count()
         self.quota = quota or QuotaState()
+        self.last_hold = 0.0   # when the budget last held a run back
 
     # --- scheduling -------------------------------------------------------
 
@@ -333,6 +334,7 @@ class ClaudeGate:
         if (until := self.paused_until(task.priority)) is not None:
             raise QuotaPaused(until)
         if self.budget is not None and (wait := await self.budget.wait(task.kind)) is not None:
+            self.last_hold = time.time()   # the night sweep reads it: a held step waits, it hasn't failed
             raise QuotaPaused(*wait)   # the budget (agent/budget.py): this skill's share is used up for now
 
         async with self._slot(task.priority):

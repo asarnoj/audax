@@ -311,6 +311,7 @@ async def run() -> None:
         settings, db,
         [("assistant", assistant_step), ("director", director_step), ("researcher", researcher_step), ("manager", manager_step)],
         paused=lambda: gate.paused_until(Priority.MANAGER) is not None,
+        held_since=lambda t: gate.last_hold >= t,
     )
 
     async def night_tick() -> None:

@@ -1,4 +1,5 @@
 import subprocess
+import time
 from datetime import datetime, timedelta
 from zoneinfo import ZoneInfo
 
@@ -220,3 +221,25 @@ async def test_a_sweep_started_by_hand_that_had_to_wait_goes_on_later(db):
     paused["now"] = False
     await night.tick(noon)
     assert ran == ["director"]   # and goes on when it can
+
+
+async def test_a_step_the_budget_holds_back_waits_instead_of_using_up_its_attempts(db):
+    from agent.config import load_settings
+    from agent.night import FORCE_KEY, Night
+
+    held, ran = {"at": 0.0}, []
+
+    async def manager() -> bool:
+        if len(ran) < 3:
+            held["at"] = time.time()   # a guest's budget keeps heavy work for the night (30 Oct)
+            ran.append("held")
+            return False
+        ran.append("manager")
+        return True
+
+    night = Night(load_settings(), db, [("manager", manager)], held_since=lambda t: held["at"] >= t)
+    await db.kv_set(FORCE_KEY, "manager")
+    noon = datetime(2026, 10, 30, 10, 0, tzinfo=ZoneInfo("Europe/Stockholm"))
+    for _ in range(4):
+        await night.tick(noon)
+    assert ran == ["held", "held", "held", "manager"]

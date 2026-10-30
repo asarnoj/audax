@@ -16,6 +16,7 @@ sweep left off.
 from __future__ import annotations
 
 import logging
+import time
 from collections.abc import Awaitable, Callable
 from datetime import datetime, timedelta
 from zoneinfo import ZoneInfo
@@ -38,11 +39,13 @@ MAX_ATTEMPTS = 3
 
 
 class Night:
-    def __init__(self, settings: Settings, db: Database, steps: list[tuple[str, Step]], paused: Callable[[], bool] = lambda: False):
+    def __init__(self, settings: Settings, db: Database, steps: list[tuple[str, Step]], paused: Callable[[], bool] = lambda: False,
+                 held_since: Callable[[float], bool] = lambda t: False):
         self.settings = settings
         self.db = db
         self.steps = steps
         self.paused = paused  # the background quota is paused: wait, don't count it as an attempt
+        self.held_since = held_since  # the budget held a run started since then (agent/budget.py): likewise
         self.running = False
 
     async def rewind(self, now: datetime) -> None:
@@ -146,12 +149,13 @@ class Night:
             if self.paused():
                 log.info("night sweep waits at %s: the quota is paused", name)
                 return
+            began = time.time()
             try:
                 ok = await step()
             except Exception:
                 log.exception("night step %s failed", name)
                 ok = False
-            if not ok and self.paused():
+            if not ok and (self.paused() or self.held_since(began)):
                 log.info("night step %s hit a quota pause; it runs when the pause lifts", name)
                 return
             tries = state["attempts"].get(name, 0) + 1

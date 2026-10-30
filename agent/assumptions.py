@@ -84,8 +84,9 @@ async def for_review(db: Database, role: str, now: datetime) -> str:
                                  (b["id"], JUDGED + "%"))
         lines.append(f"- {Items.line(b)} · antaget sedan {b['created_at'][:10]}"
                      + (f"\n  senast bedömt {last['created_at'][:10]}: {last['note'][len(JUDGED):]}" if last else ""))
-    return ("Antaganden ditt arbete vilar på som ingen bekräftat (starting assumptions about the owner, not facts: hold each "
-            "against what they do and judge it in `assumptions`):\n" + "\n".join(lines))
+    return ("Antaganden ditt arbete vilar på som ingen bekräftat (starting assumptions about the owner, not facts: judge each "
+            "in `assumptions` against all the behaviour you can see, not only what is new since your last judgement; if that "
+            "judgement rested on what fits both ways, it was none):\n" + "\n".join(lines))
 
 
 # --- the role's judgement --------------------------------------------------------------------
