@@ -35,6 +35,7 @@ from claude_agent_sdk import (
 )
 
 from agent import trail
+from agent.budget import BY_HOST
 from agent.db import Database
 from agent.vocab import OUT_TOOLS, role_of
 
@@ -344,7 +345,8 @@ class ClaudeGate:
             started = time.monotonic()
             # The run's row exists from the start, so what it writes carries its id (agent/trail.py). The id stays
             # set after the run, for the caller applying what it returned.
-            run_id = await self.db.execute("INSERT INTO claude_runs (kind, model) VALUES (?, ?)", (task.kind, task.model))
+            run_id = await self.db.execute("INSERT INTO claude_runs (kind, model, by_host) VALUES (?, ?, ?)",
+                                           (task.kind, task.model, int(BY_HOST.get())))
             trail.current_run.set(run_id)
             await trail.emit("start", role_of(task.kind), task=task.kind)
             RUNNING[id(task)] = (task, time.time())

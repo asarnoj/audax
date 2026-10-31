@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import logging
 import time
+from contextvars import ContextVar
 from datetime import datetime, timedelta
 from zoneinfo import ZoneInfo
 
@@ -26,6 +27,10 @@ log = logging.getLogger(__name__)
 UTC = ZoneInfo("UTC")
 NIGHT = {"assistant_night", "director_understand", "director_reflect", "researcher_plan", "manager"}   # the night's work
 DAY_SLACK = 1.3   # a day may use a little more than a seventh of the week, the week never more than the cap
+# A run the host started by hand (deploy/audax night): the host's own testing, not the guest's use. It is not held by a
+# guest's cap and does not count toward it (31 Oct: the host's reruns of a guest's night used the guest's week, and the
+# guest's own night, findings and conversation stood still for a day).
+BY_HOST: ContextVar[bool] = ContextVar("by_host", default=False)
 
 
 class Budget:
@@ -47,8 +52,10 @@ class Budget:
     def daily(self) -> float:
         return self.weekly / 7
 
-    async def spent(self, since: datetime) -> float:
-        row = await self.db.fetchone("SELECT coalesce(sum(cost_usd), 0) FROM claude_runs WHERE created_at >= ?",
+    async def spent(self, since: datetime, guests: bool = False) -> float:
+        """What Audax has used since then; for a guest's cap (`guests`), without the runs the host started by hand."""
+        row = await self.db.fetchone("SELECT coalesce(sum(cost_usd), 0) FROM claude_runs WHERE created_at >= ?"
+                                     + (" AND by_host = 0" if guests else ""),
                                      (since.astimezone(UTC).strftime("%Y-%m-%d %H:%M:%S"),))
         return float(row[0] or 0)
 
@@ -79,17 +86,17 @@ class Budget:
         return text
 
     async def capped(self, kind: str, now: datetime) -> tuple[float, str] | None:
-        """A guest's budget: everything counts, the conversation too. A rolling week never passes the cap; each day may
+        """A guest's budget: everything counts, the conversation too, except what the host ran by hand (BY_HOST). A rolling week never passes the cap; each day may
         use its share (with a little slack for a lively day), and the day's work leaves a reserve for the night's."""
         cap = self.settings.budget.cap_usd_week
-        week = await self.spent(now - timedelta(days=7))
+        week = await self.spent(now - timedelta(days=7), guests=True)
         tomorrow = self._midnight(now) + timedelta(days=1)
         if week >= cap:
             return tomorrow.timestamp(), f"budget: veckans tak ({cap:.2f} $) är nått"
         if tier_of(kind) <= 3:
             return None   # what the guest notices (the conversation, a delivery, the cheap pipeline behind it) only meets the week's cap
-        day = min(cap / 7 * DAY_SLACK, cap - week + await self.spent(self._midnight(now)))
-        today = await self.spent(self._midnight(now))
+        day = min(cap / 7 * DAY_SLACK, cap - week + await self.spent(self._midnight(now), guests=True))
+        today = await self.spent(self._midnight(now), guests=True)
         # The roles' work is paced by the day; the heavy work of the day stops where the night's reserve begins (26 Oct:
         # a morning's searches used the day's share and held a finding with a deadline that same day).
         limit = day if kind in NIGHT else day * (1 - self.settings.budget.night_reserve)
@@ -100,7 +107,7 @@ class Budget:
     async def wait(self, kind: str, now: datetime | None = None) -> tuple[float, str] | None:
         """None if the skill may run now; else (until when, why) in words for the log and the office."""
         if self.settings.budget.cap_usd_week:
-            return await self.capped(kind, now or datetime.now(self.tz))
+            return None if BY_HOST.get() else await self.capped(kind, now or datetime.now(self.tz))
         tier = tier_of(kind)
         if tier <= 3:
             return None

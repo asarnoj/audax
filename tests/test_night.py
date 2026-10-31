@@ -138,6 +138,7 @@ async def test_a_sweep_asked_for_by_hand_runs_now_in_full(db):
     from datetime import datetime
     from zoneinfo import ZoneInfo
 
+    from agent.budget import BY_HOST
     from agent.config import load_settings
     from agent.night import FORCE_KEY, Night
 
@@ -146,6 +147,7 @@ async def test_a_sweep_asked_for_by_hand_runs_now_in_full(db):
     def step(name):
         async def run():
             ran.append(name)
+            assert BY_HOST.get()   # the host's run: not a guest's use (agent/budget.py)
             return True
         return run
 
@@ -156,6 +158,7 @@ async def test_a_sweep_asked_for_by_hand_runs_now_in_full(db):
     await db.kv_set(FORCE_KEY, True)
     await night.tick(noon)
     assert ran == ["assistant", "director", "researcher", "manager"] and not await db.kv_get(FORCE_KEY)
+    assert not BY_HOST.get()
 
 
 async def test_a_replay_sets_every_role_back_to_the_evening_before_last_night(db):

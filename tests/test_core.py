@@ -275,6 +275,29 @@ async def test_a_guests_cap_counts_the_conversation_and_holds_a_reserve_for_the_
     assert (await budget.wait("assistant_night")) is not None and "veckans tak" in (await budget.wait("chat"))[1]
 
 
+async def test_what_the_host_runs_by_hand_neither_waits_for_nor_counts_toward_a_guests_cap(db, tmp_path):
+    from agent.budget import BY_HOST, Budget
+    from agent.config import load_settings
+
+    settings = load_settings()
+    settings.budget.cap_usd_week = 7.0
+    budget = Budget(db, settings)
+
+    async def runner(t, ws, on_rl):
+        return RunResult(text="ok", cost_usd=8.0)
+
+    gate = ClaudeGate(db, tmp_path, runner=runner, budget=budget)
+    token = BY_HOST.set(True)
+    try:
+        assert (await gate.run(task("manager", Priority.MANAGER))).text == "ok"   # the host's rerun: over the cap alone
+    finally:
+        BY_HOST.reset(token)
+    assert (await budget.wait("chat")) is None   # and the guest's week is still untouched
+    await gate.run(task("chat", Priority.CHAT))
+    with pytest.raises(QuotaPaused):
+        await gate.run(task("chat", Priority.CHAT))   # the guest's own use still meets the cap
+
+
 def test_a_friends_home_reads_its_own_env_never_the_hosts(tmp_path, monkeypatch):
     import importlib
 

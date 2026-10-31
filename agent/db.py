@@ -578,6 +578,10 @@ MIGRATIONS: list[str] = [
         UNIQUE (role, item_id)
     );
     """,
+    # 27: a run the host started by hand (agent/budget.py, BY_HOST) doesn't count toward a guest's cap.
+    """
+    ALTER TABLE claude_runs ADD COLUMN by_host INTEGER NOT NULL DEFAULT 0;
+    """,
 ]
 
 # Tables whose rows carry the id of the run that wrote them (agent/trail.py).

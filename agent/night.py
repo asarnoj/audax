@@ -21,6 +21,7 @@ from collections.abc import Awaitable, Callable
 from datetime import datetime, timedelta
 from zoneinfo import ZoneInfo
 
+from agent.budget import BY_HOST
 from agent.config import Settings
 from agent.db import Database
 
@@ -143,6 +144,13 @@ class Night:
             self.running = False
 
     async def _sweep(self, state: dict) -> None:
+        token = BY_HOST.set(str(state["night"]).startswith("by hand"))   # the host's own run (agent/budget.py)
+        try:
+            await self._steps(state)
+        finally:
+            BY_HOST.reset(token)
+
+    async def _steps(self, state: dict) -> None:
         for name, step in self.steps:
             if name in state["done"]:
                 continue
