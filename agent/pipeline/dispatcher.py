@@ -307,10 +307,17 @@ class Dispatcher:
         await refs.link(self.db, ids, {f"#B{b['id']}"} | ({b["ref"]} if b["ref"] else set()))
 
     async def _activity(self) -> str:
+        # Only the office's own contacts, and an answer counts as much as a reaction: the conversation's replies listed
+        # as messages with "no reaction" read as being ignored, and the desk held everything back for days (1 Nov).
         sent = await self.db.fetchall(
             "SELECT m.id, m.created_at, "
-            "(SELECT group_concat(f.signal || ':' || f.value, ', ') FROM feedback f WHERE f.message_id = m.id) AS reactions "
-            "FROM messages m WHERE m.direction = 'out' AND m.created_at >= datetime('now', '-1 day') ORDER BY m.id"
+            "(SELECT group_concat(f.signal || ':' || f.value, ', ') FROM feedback f WHERE f.message_id = m.id) AS reactions, "
+            "(SELECT 1 FROM messages a WHERE a.direction = 'in' AND a.id > m.id "
+            " AND a.created_at <= datetime(m.created_at, '+12 hours')) AS answered "
+            "FROM messages m WHERE m.direction = 'out' AND m.origin = 'proactive' AND m.created_at >= datetime('now', '-1 day') ORDER BY m.id"
+        )
+        replies = await self.db.fetchone(
+            "SELECT count(*) AS n FROM messages WHERE direction = 'out' AND origin = 'chat' AND created_at >= datetime('now', '-1 day')"
         )
         last_in = await self.db.fetchone("SELECT created_at FROM messages WHERE direction = 'in' ORDER BY id DESC LIMIT 1")
         fb = await self.db.fetchall(
@@ -319,8 +326,10 @@ class Dispatcher:
         )
         shelf = await self.db.fetchone("SELECT count(*) AS n FROM candidates WHERE status = 'shelved'")
         lines = [
-            f"Messages from Audax in the last 24 h: {len(sent)}"
-            + (" (" + "; ".join(f"{self._local(r['created_at'])} {r['reactions'] or 'no reaction'}" for r in sent[-8:]) + ")" if sent else ""),
+            f"Audax's own messages in the last 24 h: {len(sent)}"
+            + (" (" + "; ".join(f"{self._local(r['created_at'])} {r['reactions'] or ('answered' if r['answered'] else 'no answer yet')}"
+                                for r in sent[-8:]) + ")" if sent else ""),
+            f"Replies in conversations the owner started, last 24 h: {replies['n']} (answers, not contacts)",
             f"Owner last wrote: {self._local(last_in['created_at']) if last_in else 'never'}",
             "Feedback in the last week: " + (", ".join(f"{r['signal']}:{r['value']}×{r['n']}" for r in fb) or "none"),
             f"On the shelf: {shelf['n']}",

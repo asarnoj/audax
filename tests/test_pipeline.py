@@ -429,3 +429,14 @@ async def test_the_engine_follows_the_days_contacts_and_the_bundles(db, tmp_path
     finally:
         Clock.at = None
     assert sent2 == ["till bunten"]
+
+
+async def test_the_desk_sees_its_own_contacts_and_whether_they_were_answered_not_the_conversations_replies(db, tmp_path):
+    d, _ = await make_dispatcher(db, tmp_path, {"decisions": []})
+    rows = [("out", "proactive", 300), ("in", None, 280), ("in", None, 60), ("out", "chat", 59), ("out", "chat", 58)]
+    for direction, origin, minutes in rows:
+        await db.execute("INSERT INTO messages (telegram_message_id, direction, origin, text, created_at) "
+                         "VALUES (1, ?, ?, 'x', datetime('now', ?))", (direction, origin, f"-{minutes} minutes"))
+    activity = await d._activity()
+    assert "own messages in the last 24 h: 1" in activity and "answered" in activity   # the owner wrote back
+    assert "no answer" not in activity and "Replies in conversations the owner started, last 24 h: 2" in activity

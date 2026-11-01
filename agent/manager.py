@@ -351,7 +351,9 @@ class Manager:
         sent = await self.db.fetchall(
             "SELECT m.id, m.created_at, m.text, "
             "(SELECT group_concat(DISTINCT c.kind) FROM message_candidates mc JOIN candidates c ON c.id = mc.candidate_id WHERE mc.message_id = m.id) AS kinds, "
-            "(SELECT group_concat(f.signal || ':' || f.value, ', ') FROM feedback f WHERE f.message_id = m.id) AS fb "
+            "(SELECT group_concat(f.signal || ':' || f.value, ', ') FROM feedback f WHERE f.message_id = m.id) AS fb, "
+            "(SELECT 1 FROM messages a WHERE a.direction = 'in' AND a.id > m.id "
+            " AND a.created_at <= datetime(m.created_at, '+12 hours')) AS answered "
             "FROM messages m WHERE m.direction = 'out' AND m.origin = 'proactive' AND m.created_at >= ? ORDER BY m.id",
             (since,),
         )
@@ -369,7 +371,7 @@ class Manager:
         )
         lines = [f"Proactive messages: {len(sent)}"]
         for r in sent:
-            lines.append(f"- {self._local(r['created_at'])} [{r['kinds'] or '?'}] {r['fb'] or 'no reaction'} :: {r['text'][:140]!r}")
+            lines.append(f"- {self._local(r['created_at'])} [{r['kinds'] or '?'}] {r['fb'] or ('answered' if r['answered'] else 'no answer')} :: {r['text'][:140]!r}")
         lines.append("Candidates (kind/status): " + (", ".join(f"{r['kind']}/{r['status']}×{r['n']}" for r in outcomes) or "none"))
         lines.append("Search missions in the last week: " + (", ".join(f"{r['research_id']}: {r['runs']} runs, {r['f']} findings, {r['errors']} errors" for r in research) or "none"))
         lines.append("Outcome per source (14 days): " + (", ".join(f"{r['source']}/{r['status']}×{r['n']}" for r in by_source) or "none"))
