@@ -128,6 +128,8 @@ async def review(db: Database, role: str, now: datetime, memory=None) -> str:
 LOW_YIELD_AFTER = 20   # findings read before a source's yield says anything
 NOISY_SHARE = 1 / 3    # a source keeping less than this part of what the whole intake keeps is noisy (relative, so it holds
                        # for an owner with much passing and one with little)
+EXPECTED = 2           # what reached the owner is only compared where the intake's rate expects at least this many,
+                       # so a small source isn't flagged by chance
 SAMPLE = 8             # recent findings shown per flagged source
 
 
@@ -138,11 +140,12 @@ async def source_yields(db: Database, days: int = 30) -> list[dict]:
 
     rows = {r["source"]: r for r in await db.fetchall(
         "SELECT e.source, count(DISTINCT e.id) AS n, count(c.id) AS judged, "
-        "sum(c.status NOT IN ('dropped', 'expired')) AS kept, sum(c.status = 'sent') AS sent "
+        "sum(c.status NOT IN ('dropped', 'expired')) AS kept, sum(c.status IN ('sent', 'pulled')) AS sent "
         "FROM events e LEFT JOIN candidates c ON c.event_id = e.id "
         "WHERE e.source LIKE 'stream:%' AND e.created_at >= datetime('now', ?) GROUP BY e.source", (f"-{days} days",))}
     total_n = sum(r["n"] for r in rows.values())
     overall = sum(r["kept"] or 0 for r in rows.values()) / total_n if total_n else 0.0
+    reached = sum(r["sent"] or 0 for r in rows.values()) / total_n if total_n else 0.0
     out = []
     for r in await routines.all_routines(db, "stream"):
         sid = r["_config"]["stream"]["id"]
@@ -153,8 +156,9 @@ async def source_yields(db: Database, days: int = 30) -> list[dict]:
             flag = r["status"] + (f" ({r['health']})" if r.get("health") else "")
         elif n >= LOW_YIELD_AFTER and kept == 0:
             flag = "low yield"
-        elif n >= LOW_YIELD_AFTER and kept / n < overall * NOISY_SHARE:
-            flag = "noisy"
+        elif n >= LOW_YIELD_AFTER and (kept / n < overall * NOISY_SHARE
+                                       or (n * reached >= EXPECTED and sent / n < reached * NOISY_SHARE)):
+            flag = "noisy"   # little kept, or little of it ever reaches the owner where the intake's rate says it should
         elif n == 0:
             flag = "nothing in a month"
         out.append({"routine": r, "id": sid, "n": n, "kept": kept, "sent": sent, "flag": flag})
@@ -177,10 +181,10 @@ async def source_yield(db: Database, days: int = 30) -> str:
         return "Källor: inga bevakningar ännu."
     total_n = sum(y["n"] for y in yields) or 1
     lines = [f"- {ref(y['routine'])} {y['id']}: {y['n']} in, {y['kept']} kept"
-             + (f" ({100 * y['kept'] / y['n']:.0f} %)" if y["n"] else "") + f", {y['sent']} sent"
+             + (f" ({100 * y['kept'] / y['n']:.0f} %)" if y["n"] else "") + f", {y['sent']} reached the owner"
              + (f" · {y['flag']}" if y["flag"] else "") for y in yields]
-    text = f"Källor senaste {days} dagarna (in · kept · sent; the whole intake keeps " \
-           f"{100 * sum(y['kept'] for y in yields) / total_n:.0f} %):\n" + "\n".join(lines)
+    text = f"Källor senaste {days} dagarna (in · kept · sent or fetched by the owner; the whole intake keeps " \
+           f"{100 * sum(y['kept'] for y in yields) / total_n:.0f} %, and {100 * sum(y['sent'] for y in yields) / total_n:.1f} % reaches the owner):\n" + "\n".join(lines)
     weak = [y for y in yields if y["flag"] in ("noisy", "low yield")]
     for y in weak[:4]:
         if rows := await sample(db, y["id"]):

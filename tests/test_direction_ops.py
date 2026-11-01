@@ -100,15 +100,17 @@ async def test_add_company_detects_ats(db, monkeypatch):
 async def test_a_noisy_source_is_flagged_beside_the_whole_intake_shown_and_narrowed_with_its_history(db, monkeypatch):
     from agent.due import source_yield, source_yields
 
-    await routines.put_stream(db, {"id": "quiet", "type": "rss", "url": "https://q"}, "researcher")
-    for source, n, kept in (("hn", 40, 1), ("quiet", 20, 10)):   # the intake keeps 11 of 60; hn keeps 1 of 40
+    for sid in ("quiet", "shelfy"):
+        await routines.put_stream(db, {"id": sid, "type": "rss", "url": f"https://{sid}"}, "researcher")
+    # the intake keeps 26 of 120 and 5 reach the owner; hn keeps little, shelfy keeps a lot that never reaches the owner
+    for source, n, kept, sent in (("hn", 40, 1, 0), ("quiet", 20, 10, 5), ("shelfy", 60, 15, 0)):
         for i in range(n):
             e = await db.execute("INSERT INTO events (source, kind, dedupe_key, payload) VALUES (?, 'news', ?, '{}')", (f"stream:{source}", f"{source}{i}"))
             c = await db.execute("INSERT INTO candidates (event_id, kind, title, body, status) VALUES (?, 'news', ?, '', ?)",
-                                 (e, f"{source} {i}", "shelved" if i < kept else "dropped"))
+                                 (e, f"{source} {i}", "sent" if i < sent else "shelved" if i < kept else "dropped"))
             await db.execute("INSERT INTO decisions (candidate_id, module, tier, reason) VALUES (?, 'dispatcher@1', 'drop', 'bara brus')", (c,))
     flags = {y["id"]: y["flag"] for y in await source_yields(db)}
-    assert flags["hn"] == "noisy" and flags["quiet"] == ""
+    assert flags["hn"] == "noisy" and flags["shelfy"] == "noisy" and flags["quiet"] == ""
     text = await source_yield(db)
     assert "Senast från hn (noisy)" in text and "dropped: hn 39 (bara brus)" in text
 
