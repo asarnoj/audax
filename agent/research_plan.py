@@ -27,7 +27,7 @@ from agent.memory import MemoryRepo
 from agent.pipeline.outbox import add_candidate
 from agent.posts import ROLES, Posts
 from agent.prompts import prompt as prompt_template
-from agent.due import due_items, earlier_runs, review
+from agent.due import due_items, earlier_runs, review, source_yields
 from agent.forms import FormError
 from agent.items import Items, parse_ref, ref
 from agent.office_tools import build_office_tools
@@ -41,6 +41,7 @@ LAST_KEY = "researcher.last_plan"
 WORKING_MEMORY = "arbetsminne/researcher.md"
 DEEP_KEY = "research.deep_requested.{id}"
 PLAN_EVERY = timedelta(days=7)
+LOOKED_AT = timedelta(days=7)   # a noisy source its owner changed this recently is being worked on
 QUIET_AFTER = timedelta(days=14)  # a mission with nothing kept this long is looked at (mechanics; the judgement is Researcher's)
 
 SCHEMA = {
@@ -91,11 +92,12 @@ SCHEMA = {
             "items": {
                 "type": "object",
                 "properties": {
-                    "op": {"type": "string", "enum": ["add_page", "add_feed", "add_company", "add_topic", "tune", "disable"]},
+                    "op": {"type": "string", "enum": ["add_page", "add_feed", "add_company", "add_topic", "tune", "narrow", "disable"]},
                     "name": {"type": "string", "description": "Id of the page/feed, company name, or the topic's name"},
-                    "url": {"type": "string", "description": "URL of the page/feed or the company's careers page; add_topic: the search query; tune/disable: empty"},
+                    "url": {"type": "string", "description": "URL of the page/feed or the company's careers page; add_topic: the search query; "
+                                                          "narrow: a narrower address for the same source (or empty to keep it); tune/disable: empty"},
                     "poll_minutes": {"type": ["number", "null"], "description": "tune: how often the sense is checked"},
-                    "note": {"type": ["string", "null"], "description": "Swedish. What is worth something from this source (triage follows it)"},
+                    "note": {"type": ["string", "null"], "description": "Swedish. What is worth something from this source (triage follows it); narrow: the new note, or null to keep it"},
                     "kind": {"type": ["string", "null"]},
                     "reason": {"type": "string"},
                 },
@@ -189,6 +191,10 @@ class ResearchPlanner:
             last_kept = datetime.fromisoformat(st["last_kept"] + "+00:00") if st["last_kept"] else None
             if st["runs_30d"] >= 3 and (last_kept is None or now - last_kept >= QUIET_AFTER) and now - datetime.fromisoformat(last) >= timedelta(days=3):
                 return f"quiet mission: {t.id}"
+        if now - datetime.fromisoformat(last) >= timedelta(days=3):
+            for y in await source_yields(self.db):
+                if y["flag"] in ("noisy", "low yield") and y["routine"]["updated_at"] < f"{now - LOOKED_AT:%Y-%m-%d}":
+                    return f"{y['flag']} source: {y['id']}"   # not looked at in a week (instance/granskning/2026-11-01-omgang-9-kallor.md)
         return None
 
     async def run_if_due(self) -> dict | None:
@@ -272,6 +278,8 @@ class ResearchPlanner:
                 changes.append(await ops.tune_sense(self.db, s["name"], s["poll_minutes"], s["reason"]))
             elif s["op"] == "disable":
                 changes.append(await ops.disable_sense(self.db, s["name"], s["reason"]))
+            elif s["op"] == "narrow":
+                changes.append(await ops.narrow_sense(self.db, s["name"], s.get("url") or None, s.get("note"), s["reason"]))
             elif not s.get("url"):
                 continue
             elif s["op"] == "add_company":

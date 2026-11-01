@@ -125,12 +125,15 @@ async def review(db: Database, role: str, now: datetime, memory=None) -> str:
     return "\n\n".join(parts) or "Inget att städa just nu."
 
 
-LOW_YIELD_AFTER = 20   # findings read before a source that has kept nothing is worth questioning
+LOW_YIELD_AFTER = 20   # findings read before a source's yield says anything
+NOISY_SHARE = 1 / 3    # a source keeping less than this part of what the whole intake keeps is noisy (relative, so it holds
+                       # for an owner with much passing and one with little)
+SAMPLE = 8             # recent findings shown per flagged source
 
 
-async def source_yield(db: Database, days: int = 30) -> str:
-    """Each watched source's last month: what it brought, what was kept, what reached the owner; the weak and the
-    paused ones flagged, so Researcher can tune, pause or replace them (the LessWrong lesson, 20 Oct)."""
+async def source_yields(db: Database, days: int = 30) -> list[dict]:
+    """Each watched source's last month: in, kept, sent, and a flag when it is weak (instance/granskning/
+    2026-11-01-omgang-9-kallor.md: a source bringing 257 and keeping 7 was never flagged, only one keeping nothing)."""
     from agent import routines
 
     rows = {r["source"]: r for r in await db.fetchall(
@@ -138,22 +141,51 @@ async def source_yield(db: Database, days: int = 30) -> str:
         "sum(c.status NOT IN ('dropped', 'expired')) AS kept, sum(c.status = 'sent') AS sent "
         "FROM events e LEFT JOIN candidates c ON c.event_id = e.id "
         "WHERE e.source LIKE 'stream:%' AND e.created_at >= datetime('now', ?) GROUP BY e.source", (f"-{days} days",))}
-    lines = []
+    total_n = sum(r["n"] for r in rows.values())
+    overall = sum(r["kept"] or 0 for r in rows.values()) / total_n if total_n else 0.0
+    out = []
     for r in await routines.all_routines(db, "stream"):
         sid = r["_config"]["stream"]["id"]
         y = rows.get(f"stream:{sid}")
         n, kept, sent = (y["n"], y["kept"] or 0, y["sent"] or 0) if y else (0, 0, 0)
         flag = ""
         if r["status"] != "active":
-            flag = f" · {r['status']}" + (f" ({r['health']})" if r.get("health") else "")
+            flag = r["status"] + (f" ({r['health']})" if r.get("health") else "")
         elif n >= LOW_YIELD_AFTER and kept == 0:
-            flag = " · low yield"
+            flag = "low yield"
+        elif n >= LOW_YIELD_AFTER and kept / n < overall * NOISY_SHARE:
+            flag = "noisy"
         elif n == 0:
-            flag = " · nothing in a month"
-        lines.append(f"- {ref(r)} {sid}: {n} in, {kept} kept, {sent} sent{flag}")
-    if not lines:
+            flag = "nothing in a month"
+        out.append({"routine": r, "id": sid, "n": n, "kept": kept, "sent": sent, "flag": flag})
+    return out
+
+
+async def sample(db: Database, source_id: str, n: int = SAMPLE) -> list[str]:
+    """What a source brought lately, with what became of each and why: what the kept differ from the noise by."""
+    rows = await db.fetchall(
+        "SELECT c.title, c.status, (SELECT d.reason FROM decisions d WHERE d.candidate_id = c.id ORDER BY d.id DESC LIMIT 1) AS why "
+        "FROM candidates c JOIN events e ON e.id = c.event_id WHERE e.source = ? ORDER BY c.id DESC LIMIT ?",
+        (f"stream:{source_id}", n))
+    return [f"{r['status']}: {r['title'][:90]}" + (f" ({r['why'][:140]})" if r["why"] else "") for r in rows]
+
+
+async def source_yield(db: Database, days: int = 30) -> str:
+    """The sources for Researcher's review: the yield of each, and for the weak ones what they brought."""
+    yields = await source_yields(db, days)
+    if not yields:
         return "Källor: inga bevakningar ännu."
-    return f"Källor senaste {days} dagarna (in · kept · sent):\n" + "\n".join(lines)
+    total_n = sum(y["n"] for y in yields) or 1
+    lines = [f"- {ref(y['routine'])} {y['id']}: {y['n']} in, {y['kept']} kept"
+             + (f" ({100 * y['kept'] / y['n']:.0f} %)" if y["n"] else "") + f", {y['sent']} sent"
+             + (f" · {y['flag']}" if y["flag"] else "") for y in yields]
+    text = f"Källor senaste {days} dagarna (in · kept · sent; the whole intake keeps " \
+           f"{100 * sum(y['kept'] for y in yields) / total_n:.0f} %):\n" + "\n".join(lines)
+    weak = [y for y in yields if y["flag"] in ("noisy", "low yield")]
+    for y in weak[:4]:
+        if rows := await sample(db, y["id"]):
+            text += f"\n\nSenast från {y['id']} ({y['flag']}):\n" + "\n".join(f"  - {r}" for r in rows)
+    return text
 
 
 class Calendar:

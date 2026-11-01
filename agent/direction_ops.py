@@ -138,6 +138,31 @@ async def disable_sense(db: Database, stream_id: str, reason: str = "", by: str 
     return f"{stream_id}: avstängt"
 
 
+async def narrow_sense(db: Database, stream_id: str, url: str | None, note: str | None, reason: str = "",
+                       by: str = "researcher") -> str:
+    """The same source, narrower: a new address (a curated feed, a category, a threshold) and/or a new note for triage,
+    with its history kept (instance/granskning/2026-11-01-omgang-9-kallor.md). A new address is fetched first."""
+    existing = await routines.find(db, "stream", stream_id)
+    if existing is None:
+        return f"Hittar inget sinne {stream_id}."
+    stream = existing["_config"]["stream"]
+    fields: dict = {}
+    if note:
+        fields["note"] = note
+    if url and url != stream.get("url"):
+        if stream.get("type") not in ("rss", "page"):
+            return f"{stream_id}: adressen går bara att byta på ett flöde eller en sida."
+        checked = await verify_source(stream["type"], url)
+        if not checked.startswith("Kontrollerat"):
+            return f"{stream_id}: den nya adressen användes inte. {checked}"
+        fields["url"] = url
+        await db.kv_set(f"stream.started.{stream_id}", False)   # a news feed's first poll at the new address only records
+    if not fields:
+        return f"{stream_id}: inget att ändra."
+    await routines.put_stream(db, {**stream, **fields}, by, note=reason or "smalnad")   # the stream's own `note` is a field here
+    return f"{stream_id}: smalnad" + (f", ny adress {fields['url']}" if "url" in fields else "") + (", ny anteckning" if note else "")
+
+
 async def verify_source(type_: str, url_or_query: str, lang: str = "en") -> str:
     """Fetches a new source once so the owner hears whether it works, not 'I haven't tested it'."""
     from agent.sources.connectors import poll_topic

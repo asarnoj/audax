@@ -126,3 +126,23 @@ async def test_every_open_step_gets_an_outcome_written_on_it(env, tmp_path):
     changes = await p.apply({"steps": [{"id": f"#T{improv}", "outcome": "done", "result": "Drop-in varannan tisdag, https://x"}]}, NOW)
     assert (await items.get(improv))["status"] == "done" and "Drop-in" in (await items.get(improv))["result"]
     assert f"steg utan åtgärd: #T{armada}" in changes   # left out: named in the run's account
+
+
+async def test_a_noisy_source_not_looked_at_in_a_week_wakes_researcher(env, tmp_path, monkeypatch):
+    from datetime import timedelta
+
+    import agent.research_plan as rp
+
+    db, memory, research, sources = env
+    p = planner(db, memory, tmp_path)
+    await db.kv_set("researcher.last_plan", (datetime.now(ZoneInfo("Europe/Stockholm")) - timedelta(days=4)).isoformat())
+    monkeypatch.setattr(rp, "load_research", lambda: [])   # no mission asks for a run
+    seen = {"updated_at": "2026-01-01 00:00:00"}
+
+    async def yields(db_, days=30):
+        return [{"routine": seen, "id": "hn", "n": 40, "kept": 1, "sent": 0, "flag": "noisy"}]
+
+    monkeypatch.setattr(rp, "source_yields", yields)
+    assert await p.due() == "noisy source: hn"
+    seen["updated_at"] = datetime.now(ZoneInfo("UTC")).strftime("%Y-%m-%d %H:%M:%S")   # just narrowed: being worked on
+    assert await p.due() is None

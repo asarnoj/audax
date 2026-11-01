@@ -32,7 +32,13 @@ Some of Director's plans have steps that are yours (below): a specific question 
 ## The net
 A good system has a wide, cheap net and a smart filter. The filter is triage and the dispatcher; your job is the net.
 - **Breadth:** prefer many feeds and news topics over single pages; they cost almost nothing until something passes the prefilter. Use the source catalogue below or find and check your own with `web_read`. Each goal should have several independent sources.
-- **Each source is a routine** (#N) you own, with a purpose and a health. The review shows each one's last month (in, kept, sent) and flags the paused and the low-yield ones. Look at those: tune it, narrow it with a note, pause it, or replace it. A source {owner} asked for is marked urgent and stays unless {owner} says otherwise.
+- **Each source is a routine** (#N) you own, with a purpose and a health: a guess that this place brings what {owner} wants. The review shows each one's last month (in, kept, sent, and the share kept beside the whole intake's), flags the paused, the low-yield and the noisy ones (many in, few kept), and shows what a flagged one brought lately with what became of each and why. Read that sample for what the kept differ from the rest by, then, roughly in this order:
+  1. **narrow it at the source** (`narrow`): an address that brings less noise, like a curated or top-rated feed, a category or tag, a threshold, or a search instead of everything, and a note that tells triage what is worth something. The source and its history stay;
+  2. **filter** with a rule when the noise is recognisable by words;
+  3. **slow it** (`tune`);
+  4. **replace it** with a search mission aimed at what {owner} actually wants;
+  5. **pause it** (`disable`).
+  A source {owner} pointed you to stands for what they wanted from it, not for the address: narrowing or replacing it serves that. Pausing one {owner} gave tells them (an `owner_updates` item).
 - **Broken sources** pause themselves after five failures in a row; the health says why. Find the right address, add it, and `disable` the broken one.
 - **Rules** (`create` a `rule`, #G) throw away what code can recognise, before triage spends a call on it: `applies_to` a source id, a kind of finding, or `all`; `condition` JSON `{{"any": [words], "all": [words], "none": [words]}}`; action `drop`; and the reason. Use one when a source keeps bringing the same kind of thing that is never kept, or that {owner} said no to. The review shows each rule's hits.
 - **Pace** (`tune`): check lively, valuable sources more often, and dead or noisy ones less often.

@@ -71,8 +71,8 @@ async def test_researchers_review_shows_each_sources_yield_and_its_rules(db):
     await Items(db).create("rule", "LessWrong: inga AI-nyheter", "researcher",
                            data={"applies_to": "lesswrong", "condition": json.dumps({"any": ["Hugging Face"]}), "action": "drop", "reason": "Ägaren ville inte"})
     text = await review(db, "researcher", datetime(2026, 10, 21, 12, tzinfo=ZoneInfo("Europe/Stockholm")))
-    assert "lesswrong: 25 in, 0 kept, 0 sent · low yield" in text
-    assert "amanita: 1 in, 1 kept, 0 sent" in text
+    assert "lesswrong: 25 in, 0 kept (0 %), 0 sent · low yield" in text
+    assert "amanita: 1 in, 1 kept (100 %), 0 sent" in text
     assert "dead-careers: 0 in, 0 kept, 0 sent · paused (404)" in text
     assert "LessWrong: inga AI-nyheter" in text and "hits 0" in text
 

@@ -95,3 +95,29 @@ async def test_add_company_detects_ats(db, monkeypatch):
     assert "redan" in await ops.add_company(db, "acme", "https://acme/careers")
     assert yaml.safe_load(instance_config("watchlist.yaml").read_text())["companies"][-1] == {
         "name": "Acme", "careers_url": "https://acme/careers", "ats": "ashby", "slug": "acme"}
+
+
+async def test_a_noisy_source_is_flagged_beside_the_whole_intake_shown_and_narrowed_with_its_history(db, monkeypatch):
+    from agent.due import source_yield, source_yields
+
+    await routines.put_stream(db, {"id": "quiet", "type": "rss", "url": "https://q"}, "researcher")
+    for source, n, kept in (("hn", 40, 1), ("quiet", 20, 10)):   # the intake keeps 11 of 60; hn keeps 1 of 40
+        for i in range(n):
+            e = await db.execute("INSERT INTO events (source, kind, dedupe_key, payload) VALUES (?, 'news', ?, '{}')", (f"stream:{source}", f"{source}{i}"))
+            c = await db.execute("INSERT INTO candidates (event_id, kind, title, body, status) VALUES (?, 'news', ?, '', ?)",
+                                 (e, f"{source} {i}", "shelved" if i < kept else "dropped"))
+            await db.execute("INSERT INTO decisions (candidate_id, module, tier, reason) VALUES (?, 'dispatcher@1', 'drop', 'bara brus')", (c,))
+    flags = {y["id"]: y["flag"] for y in await source_yields(db)}
+    assert flags["hn"] == "noisy" and flags["quiet"] == ""
+    text = await source_yield(db)
+    assert "Senast från hn (noisy)" in text and "dropped: hn 39 (bara brus)" in text
+
+    async def fetched(type_, url, lang="en"):
+        return "Kontrollerat: flödet fungerar, 10 inlägg." if "top" in url else "Varning: källan svarade 404."
+
+    monkeypatch.setattr(ops, "verify_source", fetched)
+    assert "användes inte" in await ops.narrow_sense(db, "hn", "https://hn/missing", None, "smalare")
+    assert "ny adress" in await ops.narrow_sense(db, "hn", "https://hn/top", "Bara det högt röstade", "smalare")
+    hn = await routines.find(db, "stream", "hn")
+    assert hn["_config"]["stream"]["url"] == "https://hn/top" and hn["_config"]["stream"]["note"] == "Bara det högt röstade"
+    assert [c.url for c in load_stream_configs() if c.id == "hn"] == ["https://hn/top"]   # what runs follows
