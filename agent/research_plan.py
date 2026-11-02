@@ -191,6 +191,11 @@ class ResearchPlanner:
             last_kept = datetime.fromisoformat(st["last_kept"] + "+00:00") if st["last_kept"] else None
             if st["runs_30d"] >= 3 and (last_kept is None or now - last_kept >= QUIET_AFTER) and now - datetime.fromisoformat(last) >= timedelta(days=3):
                 return f"quiet mission: {t.id}"
+        from agent import cases
+
+        await cases.collect(self.db)
+        if (new := await cases.unreviewed(self.db)) and now - datetime.fromisoformat(last) >= timedelta(days=1):
+            return f"{len(new)} new test case(s) the search didn't bring"
         if now - datetime.fromisoformat(last) >= timedelta(days=3):
             for y in await source_yields(self.db):
                 if y["flag"] in ("noisy", "low yield") and y["routine"]["updated_at"] < f"{now - LOOKED_AT:%Y-%m-%d}":
@@ -252,6 +257,9 @@ class ResearchPlanner:
             return None
         await self.apply(result.structured, now)
         await self.db.kv_set(LAST_KEY, now.isoformat())
+        from agent import cases
+
+        await cases.mark_reviewed(self.db)   # the test cases it was shown
         return result.structured
 
     async def _steps(self, now: datetime) -> str:

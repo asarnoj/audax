@@ -209,6 +209,23 @@ Att inget hittas är en fråga och inget svar. En efterlysning väcks igen:
 
 Ägaren kan fråga vad Audax letar efter. Chatten säger aldrig "finns inget" efter en sökning.
 
+## Testfallen: hur bra sökningen är
+
+Det som visat sig spela roll samlas av koden som testfall:
+- tidigare omgångar som efterlysningarna hittat;
+- missar ägaren hittat själv;
+- det ägaren gått vidare med;
+- det ägaren hämtat från hyllan;
+- det ägaren gillat.
+
+För varje fall räknar koden ut hur Audax fick det:
+- **hittat:** en källa hittade det och det sparades;
+- **sett men släppt:** en fråga om bedömning, som Director äger;
+- **aldrig sett:** en blind fläck i sökningen;
+- **före:** det hände innan Audax bevakade något.
+
+Researcher ser andelen som sökningen hittade, vilken sorts metod som hittade det, och de fall den inte hittade. Ett nytt fall den inte hittat väcker Researcher. Sökningen är ett pågående projekt: ett metodförsök i taget, riktat mot den svagaste punkten, med testfallen som mått. Arbetsminnet är labbjournalen.
+
 ## Budgeten
 
 Audax andel av din veckokvot sätts löst, i början 10 % (`agent/budget.py`). Varje förmåga har en nivå. Samtalet, det du bett om och det billiga flödet väntar aldrig. Rollernas vanliga arbete väntar när veckans andel är använd, det tunga och utforskande när dagens. Det som väntar syns i läget och på webbsidan.

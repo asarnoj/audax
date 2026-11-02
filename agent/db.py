@@ -582,6 +582,25 @@ MIGRATIONS: list[str] = [
     """
     ALTER TABLE claude_runs ADD COLUMN by_host INTEGER NOT NULL DEFAULT 0;
     """,
+    # 28: the search's test cases (agent/cases.py): what turned out to matter, and whether the search brought it.
+    """
+    CREATE TABLE search_cases (
+        id INTEGER PRIMARY KEY,
+        key TEXT NOT NULL UNIQUE,          -- the normalised address, or the title's words
+        origin TEXT NOT NULL,              -- past_round|miss|pursued|pulled|liked
+        title TEXT NOT NULL,
+        url TEXT,
+        happened TEXT,                     -- YYYY-MM-DD
+        ref TEXT,                          -- the #J, #S or #F it comes from
+        status TEXT NOT NULL,              -- caught|dropped|missed|before
+        source TEXT,                       -- the event source that brought it
+        method TEXT,                       -- the kind of method that source is
+        event_id INTEGER,
+        reviewed_at TEXT,                  -- Researcher has seen it since its status was set
+        created_at TEXT NOT NULL DEFAULT (datetime('now')),
+        updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+    );
+    """,
 ]
 
 # Tables whose rows carry the id of the run that wrote them (agent/trail.py).

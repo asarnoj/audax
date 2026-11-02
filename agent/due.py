@@ -120,6 +120,15 @@ async def review(db: Database, role: str, now: datetime, memory=None) -> str:
 
         if wanted_text := await wanted_review(db):
             parts.append(wanted_text)
+        from agent import cases
+
+        await cases.collect(db)
+        if cases_text := await cases.report(db):
+            parts.append(cases_text)
+        if not await items.find("experiment", status=("planned", "running", "evaluating"), owner="researcher", limit=1):
+            parts.append("Metodförsök: none running. The search is a standing project: start one experiment (#E) aimed at "
+                         "its weakest spot in the test cases above (a blind spot, a kind of method that brings nothing of "
+                         "what mattered), with the test cases as its measure.")
     if role == "manager":
         parts.append(await pulse(db, now))
     rules = await items.find("rule", status="active", owner=role)
