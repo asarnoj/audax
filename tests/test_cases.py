@@ -47,7 +47,8 @@ async def test_what_mattered_is_caught_dropped_missed_or_before_and_shown_per_me
     assert status["https://p/2024"][0] == "before"               # before anything was watched
     assert status["https://open.example/call"][0] == "missed"
     text = await cases.report(db)
-    assert "4 cases, 1 caught, 1 seen but dropped, 2 never seen" in text and "Caught by: feed 1" in text
+    assert "Of 4 that exist whether or not the search saw them" in text and "1 caught, 1 seen but dropped, 2 never seen" in text
+    assert "Caught by: feed 1" in text
     assert "dropped: ingen koppling" in text and f"#J{w}" not in text   # a round before Audax isn't counted
     assert len(await cases.unreviewed(db)) == 3
     await cases.mark_reviewed(db)

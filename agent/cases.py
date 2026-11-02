@@ -66,7 +66,11 @@ async def _method(db: Database, source: str) -> str:
     return source.split(":")[0] or "other"
 
 
-async def _classify(db: Database, url: str | None, title: str, happened: str | None, start: str) -> dict:
+INDEPENDENT = ("past_round", "miss", "pursued")   # cases that exist whether or not the search saw them: the measure
+                                                  # (what was pulled or liked was brought by the search by definition)
+
+
+async def _classify(db: Database, url: str | None, title: str, happened: str | None, start: str, origin: str = "") -> dict:
     """How Audax got it: the event that brought it (if any) and what became of it."""
     when = None
     try:
@@ -81,6 +85,8 @@ async def _classify(db: Database, url: str | None, title: str, happened: str | N
     target = _norm(url)
     best = None
     for r in await db.fetchall(sql, args):
+        if origin == "past_round" and r["source"].startswith("wanted:"):
+            continue   # the investigation that found the earlier round isn't a source that saw it
         try:
             p = json.loads(r["payload"] or "{}")
         except ValueError:
@@ -135,7 +141,7 @@ async def collect(db: Database) -> int:
         old = await db.fetchone("SELECT id, status, updated_at FROM search_cases WHERE key = ?", (key,))
         if old is not None and (old["status"] in ("caught", "before") or old["updated_at"] >= recheck):
             continue   # settled, or looked at today
-        got = await _classify(db, c["url"], c["title"], c["happened"], start)
+        got = await _classify(db, c["url"], c["title"], c["happened"], start, c["origin"])
         method = await _method(db, got["source"]) if got.get("source") else None
         if old is None:
             await db.execute(
@@ -170,10 +176,13 @@ async def report(db: Database) -> str:
     counted = [r for r in rows if r["status"] != "before"]
     if not counted:
         return ""
-    n = {s: sum(1 for r in counted if r["status"] == s) for s in ("caught", "dropped", "missed")}
-    lines = [f"Testfall (what turned out to matter, and whether the search brought it): {len(counted)} cases, "
-             f"{n['caught']} caught, {n['dropped']} seen but dropped, {n['missed']} never seen "
-             f"(the search brought {100 * n['caught'] / len(counted):.0f} %)."]
+    measure = [r for r in counted if r["origin"] in INDEPENDENT]
+    n = {s: sum(1 for r in measure if r["status"] == s) for s in ("caught", "dropped", "missed")}
+    lines = [f"Testfall (what turned out to matter, and whether the search brought it). Of {len(measure)} that exist whether "
+             f"or not the search saw them (earlier rounds, misses, what the owner went for): {n['caught']} caught, "
+             f"{n['dropped']} seen but dropped, {n['missed']} never seen"
+             + (f" (the search brought {100 * n['caught'] / len(measure):.0f} %)." if measure else ".")
+             + f" Besides, {len(counted) - len(measure)} the owner fetched or liked, all brought by the search."]
     by_method: dict[str, int] = {}
     for r in counted:
         if r["status"] == "caught":
