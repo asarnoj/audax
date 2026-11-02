@@ -147,9 +147,19 @@ def next_look(cycle: dict, today: date) -> tuple[date, bool]:
     return start - BEFORE_WINDOW, False
 
 
+def _words(text: str) -> set[str]:
+    return set(re.findall(r"\w+", (text or "").casefold()))
+
+
 def mentions(text: str, names: list[str]) -> str | None:
-    low = (text or "").casefold()
-    return next((n for n in names if n.strip() and n.casefold() in low), None)
+    """The name whose words all appear in the text, whatever the hyphens, case and asides: a headline says "årets
+    Swish-vykort" for "Årets vykort (Swish)" (2 Nov: the literal match failed every check)."""
+    have = _words(text)
+    for n in names:
+        need = {w for w in _words(re.sub(r"\([^)]*\)", " ", n)) if len(w) > 2}
+        if need and need <= have:
+            return n
+    return None
 
 
 async def backtest(watch: dict, names: list[str], past: list[dict], client=None) -> dict:
@@ -168,7 +178,10 @@ async def backtest(watch: dict, names: list[str], past: list[dict], client=None)
             r = await client.get(watch["target"])
             if r.status_code != 200:
                 return {**result, "result": "fail", "note": f"sidan svarade {r.status_code}"}
-            hit = mentions(" ".join(page_text(r.text, str(r.url))), names)
+            text = " ".join(page_text(r.text, str(r.url)))
+            if not text.strip():
+                return {**result, "result": "fail", "note": "sidan har ingen läsbar text (byggs troligen med JavaScript): en sidbevakning ser inget där"}
+            hit = mentions(text, names)
             return {**result, "result": "pass" if hit else "fail",
                     "note": f"sidan nämner {hit!r}" if hit else "sidan nämner inget av namnen"}
         if watch["type"] == "feed":
@@ -347,7 +360,8 @@ class Wanted:
                 chosen.append({**x, "id": sid})
         for sid in before - {c["id"] for c in chosen}:   # its own watches no longer chosen, and a request's old news search
             await ops.disable_sense(self.db, sid, f"inte längre vald för {ref(w)}")
-        checks = [await backtest(c, names, past) for c in chosen]
+        known_as = names + ([out["organizer"]] if out.get("organizer") else [])   # a headline may name only the organiser
+        checks = [await backtest(c, known_as, past) for c in chosen]
         start_of = next_look(cycle, today)
         if start_of[1]:   # inside the window: its watches are checked often
             for c in chosen:

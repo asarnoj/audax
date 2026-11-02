@@ -96,6 +96,10 @@ async def test_a_watch_is_checked_against_the_earlier_rounds():
     news = await wanted.backtest({"id": "t", "type": "topic", "target": "Swish \"Årets kort\"", "lang": "sv"}, names, past, client)
     assert news["result"] == "pass" and "2025-11-04" in news["note"]
     assert "after%3A2025-09-20" in client.asked[-1] and "when" not in client.asked[-1]   # around last year's round, not the past week
+    assert wanted.mentions("Vinnarna av årets Swish-vykort korade", ["Årets vykort (Swish)"]) == "Årets vykort (Swish)"
+    empty = await wanted.backtest({"id": "js", "type": "page", "target": "https://js.example"}, names, past,
+                                  Client({"js.example": Page(text="<html><body><script>app()</script></body></html>")}))
+    assert empty["result"] == "fail" and "JavaScript" in empty["note"]
     feed = await wanted.backtest({"id": "f", "type": "feed", "target": "https://feed.example"}, names, past, client)
     assert feed["result"] == "unverifiable"   # a feed only shows the latest
     words = await wanted.backtest({"id": "w", "type": "topic", "target": "Swish illustrationstävling", "lang": "sv"}, names, past,
