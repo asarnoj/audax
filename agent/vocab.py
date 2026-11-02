@@ -23,6 +23,7 @@ KINDS = {
     "researcher_plan": ("researcher", "Planning"),
     "research": ("researcher", "Search mission"),
     "research_deep": ("researcher", "Wide search"),
+    "investigate": ("researcher", "Investigating a request"),
     "page_extract": ("researcher", "Reading a watched page"),
     "scout_queries": ("researcher", "Search queries"),
     "manager": ("manager", "Daily review"),
@@ -35,7 +36,7 @@ KINDS = {
 # 1 the conversation · 2 what the owner asked for · 3 the cheap pipeline that keeps the senses working ·
 # 4 the roles' regular work · 5 the heavy and exploratory work. Tiers 1–3 never wait for the budget.
 TIERS = {
-    "chat": 1, "builder": 2,
+    "chat": 1, "builder": 2, "investigate": 2,
     "deliver": 3, "chat_summary": 3, "triage": 3, "dispatcher": 3, "page_extract": 3, "scout_queries": 3,
     "assistant_night": 4, "director_understand": 4, "manager": 4,
     "researcher_plan": 5, "research": 5, "research_deep": 5, "director_reflect": 5,

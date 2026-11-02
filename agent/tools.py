@@ -461,9 +461,10 @@ def _control_tools(controls: Controls, turn: TurnContext, memory_path=None) -> l
         "steps with dates and who does them, what waits for the budget and why, what is booked and what was sent today. "
         "today: today's activity and health. agenda: what is planned to reach {owner} (`days`). sources: what you watch "
         "and what it yielded (`name` = one source or search mission: its latest items and what became of each). searches: "
-        "how a search is done (`name` = a mission: its map, yield, coverage and gaps). how: how the office works.",
+        "how a search is done (`name` = a mission: its map, yield, coverage and gaps). wanted: what {owner} asked Audax "
+        "to look out for and how each stands. how: how the office works.",
         {"type": "object", "properties": {
-            "about": {"type": "string", "enum": ["now", "today", "agenda", "sources", "searches", "how"]},
+            "about": {"type": "string", "enum": ["now", "today", "agenda", "sources", "searches", "wanted", "how"]},
             "name": {"type": "string"}, "days": {"type": "integer"}}},
     )
     async def situation(args: dict[str, Any]) -> dict[str, Any]:
@@ -481,6 +482,10 @@ def _control_tools(controls: Controls, turn: TurnContext, memory_path=None) -> l
             return _text("[internal] " + (await controls.recent_items(name) if name else await controls.sources()))
         if about == "searches":
             return _text("[internal] " + await _searches(controls.db, memory_path, name))
+        if about == "wanted":
+            from agent import wanted
+
+            return _text("[internal] " + await wanted.overview(controls.db, str(agenda.tz)))
         if about == "how":
             from agent.self_description import describe
 
@@ -725,13 +730,14 @@ def _post_tools(posts: Posts, turn: TurnContext | None = None) -> list:
 
     @tool(
         "watch_source",
-        "Start watching a source permanently when {owner} asks: a page (e.g. an event calendar), an RSS feed, all of a "
-        "company's job ads (give its careers page), or a topic or event to follow in the news (type=topic, url=the "
-        "search query, e.g. 'KTH Innovation' or 'Claude Code'). The source is checked at once; tell {owner} the result.",
+        "Start watching a source permanently when {owner} gives one: a page (e.g. an event calendar), an RSS feed, or all "
+        "of a company's job ads (give its careers page). The source is checked at once; tell {owner} the result. "
+        "Something to look out for that they name but don't give an address for (a competition, an event, news about "
+        "something): `look_for` instead.",
         {
             "type": "object",
             "properties": {
-                "type": {"type": "string", "enum": ["page", "feed", "company", "topic"]},
+                "type": {"type": "string", "enum": ["page", "feed", "company"]},
                 "name": {"type": "string", "description": "short name, or the company name"},
                 "url": {"type": "string", "description": "URL, or for topic: the search query"},
                 "lang": {"type": "string", "enum": ["sv", "en"], "description": "topic: news in Swedish or English"},
@@ -748,9 +754,8 @@ def _post_tools(posts: Posts, turn: TurnContext | None = None) -> list:
 
         if args["type"] == "company":
             result = await ops.add_company(posts.db, args["name"], args["url"])
-        elif args["type"] == "topic":   # the owner asked for it: what comes is told at once (urgent)
-            result = await ops.add_topic(posts.db, args["name"], args["url"], args.get("lang", "en"), args.get("note", ""), urgent=True, by="assistant")
-            result += " " + await ops.verify_source("topic", args["url"], args.get("lang", "en"))
+        elif args["type"] == "topic":   # a name without an address is investigated first (agent/wanted.py)
+            return await look_for.handler({"asked": args.get("note") or args["url"], "interpretation": args["url"]})
         else:
             kind = "rss" if args["type"] == "feed" else "page"
             result = await ops.add_page(posts.db, args["name"], args["url"], args.get("note", ""), "event", kind, urgent=True, by="assistant")
@@ -792,7 +797,44 @@ def _post_tools(posts: Posts, turn: TurnContext | None = None) -> list:
                          verbatim=args.get("why") or f"[bad om ändring] {sid}: {args['action']}", from_owner=True)
         return _text(result.replace("avstängt", "avstängd, inget mer därifrån").replace(": var", " kollas nu var"))
 
-    return [send_post, question, watch_source, change_watch]
+    @tool(
+        "look_for",
+        "{owner} wants Audax to look out for something without giving its address: a competition, a call, an event, a "
+        "programme, news about something ('håll koll på om Swish har en illustrationstävling'). Or they found one "
+        "themselves that Audax should have caught (kind=miss, with its url). It becomes an efterlysning: Researcher "
+        "first works out what it is actually called, when it happened before, whether it recurs and where it is "
+        "announced, then watches the right places, and asks {owner} if what they mean is unclear. Tell {owner} it is "
+        "being looked into, not that nothing exists: one search that finds nothing says little.",
+        {
+            "type": "object",
+            "properties": {
+                "asked": {"type": "string", "description": "{owner_s} own words"},
+                "interpretation": {"type": "string", "description": "Swedish: what you understand they want looked for"},
+                "kind": {"type": "string", "enum": ["request", "miss"]},
+                "url": {"type": "string", "description": "a miss: where they found it"},
+            },
+            "required": ["asked", "interpretation"],
+        },
+    )
+    async def look_for(args: dict[str, Any]) -> dict[str, Any]:
+        from agent import wanted
+        from agent.forms import FormError
+
+        kind = args.get("kind") or "request"
+        try:
+            wid = await wanted.create(posts.db, args["asked"], "assistant", kind=kind,
+                                      interpretation=args.get("interpretation", ""), missed_url=args.get("url", "") if kind == "miss" else "")
+        except FormError as e:
+            return _text(f"[internal] {e}")
+        if turn is not None:
+            turn.refs.add(f"#J{wid}")
+        if wanted.starter is not None:
+            wanted.starter()
+        return _text("[internal] Researcher investigates it now: what it is called, when it happened before, where it is "
+                     "announced. A question comes back to you if what they mean is unclear; what is found goes the usual way."
+                     + (" The miss is looked into too: how it could have been caught." if kind == "miss" else ""))
+
+    return [send_post, question, watch_source, change_watch, look_for]
 
 
 def build_github_tools(reader) -> tuple[dict[str, Any], list[str]]:

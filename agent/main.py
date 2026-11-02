@@ -204,6 +204,28 @@ async def run() -> None:
 
     planner.start_mission = start_mission
 
+    # Efterlysningar (agent/wanted.py): what the owner asked to have looked for, investigated before it is watched.
+    from agent import wanted as wanted_mod
+
+    seeker = wanted_mod.Wanted(settings, db, gate, memory)
+    seeker.web = web
+
+    async def found_wanted() -> None:
+        if await triage.run():
+            await dispatcher.run(force=True)
+
+    seeker.on_found = found_wanted
+
+    async def wanted_tick() -> None:
+        await seeker.tick()
+
+    def start_wanted() -> None:
+        scheduler.add_job(wanted_tick, "date", run_date=datetime.now() + timedelta(seconds=10), id="wanted_now", replace_existing=True)
+
+    wanted_mod.starter = start_wanted
+    for made in await wanted_mod.migrate(db):
+        log.info("efterlysning: %s", made)
+
     # The internal mail wakes a role when a post from a chain that began with the owner asks for it (agent/posts.py).
     # Coalesced (one queued run per role) and spaced (at most every 30 min), so a chatty day can't flood them.
     last_wake: dict[str, datetime] = {}
@@ -328,6 +350,8 @@ async def run() -> None:
     scheduler.add_job(db.backup, "cron", hour=3, minute=15, args=[settings.database.parent / "backups"], id="backup")
     scheduler.add_job(research_tick, "interval", minutes=30, next_run_time=datetime.now() + timedelta(minutes=2),
                       id="research", max_instances=1, coalesce=True)
+    scheduler.add_job(wanted_tick, "interval", minutes=15, next_run_time=datetime.now() + timedelta(minutes=3),
+                      id="wanted", max_instances=1, coalesce=True)
 
     stop = asyncio.Event()
     loop = asyncio.get_running_loop()

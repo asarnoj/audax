@@ -116,6 +116,10 @@ async def review(db: Database, role: str, now: datetime, memory=None) -> str:
             parts.append("Texter som vuxit förbi sin storlek (tighten: refer by id instead of copying):\n" + "\n".join(f"- {b}" for b in big))
     if role == "researcher":
         parts.append(await source_yield(db))
+        from agent.wanted import for_review as wanted_review
+
+        if wanted_text := await wanted_review(db):
+            parts.append(wanted_text)
     if role == "manager":
         parts.append(await pulse(db, now))
     rules = await items.find("rule", status="active", owner=role)

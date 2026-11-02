@@ -188,6 +188,27 @@ Varje bevakad källa och varje sökuppdrag är en rutin (#N) med en ägare (Rese
 - **Platser sökningarna stöter på** blir anteckningar som Researcher kan göra till källor, steg eller kartanteckningar.
 - **Täckning** prövas som ett experiment när Researcher misstänker en blind fläck: ett oberoende riktmärke jämförs med det som bevakas.
 
+## Efterlysningar: utred innan du bevakar
+
+När ägaren ber Audax hålla utkik efter något utan att ge en adress, till exempel en tävling, en utlysning, ett evenemang eller nyheter om något, blir det en efterlysning (#J). Samma sak gäller när ägaren hittat något själv som Audax borde ha fångat. Det är en miss.
+
+Researcher utreder den först i en egen körning:
+- vad saken heter, eftersom ägarens ord sällan är världens;
+- vem som står bakom den;
+- tidigare omgångar, med datum och adress;
+- om den återkommer, och i så fall när;
+- var den annonseras.
+
+Utifrån det väljs bevakningar. Koden prövar varje bevakning mot de tidigare omgångarna: en sida som inte nämner saken, eller en nyhetssökning som inte hade hittat förra omgången, underkänns.
+
+Att inget hittas är en fråga och inget svar. En efterlysning väcks igen:
+- när dess fönster närmar sig;
+- när bevakningarna länge varit tysta;
+- efter en miss;
+- när ägaren svarat på en följdfråga.
+
+Ägaren kan fråga vad Audax letar efter. Chatten säger aldrig "finns inget" efter en sökning.
+
 ## Budgeten
 
 Audax andel av din veckokvot sätts löst, i början 10 % (`agent/budget.py`). Varje förmåga har en nivå. Samtalet, det du bett om och det billiga flödet väntar aldrig. Rollernas vanliga arbete väntar när veckans andel är använd, det tunga och utforskande när dagens. Det som väntar syns i läget och på webbsidan.
@@ -210,7 +231,7 @@ Tar kvoten slut stannar kedjan och fortsätter där den slutade.
 
 ## ID:n och uppslag
 
-Allt som ska gå att följa upp har ett id: formerna (#S, #T, #E, #U, #Q, #G, #N), poster (#P), fynd (#F), bokningar (#B) och körningar (#R). Meddelanden i samtalet kopplas till de id:n de handlar om, och allt en körning skriver bär dess id. Assistant slår upp i stället för att minnas. Id:n är kökets verktyg och syns på webbsidan, inte i chatten. Rådatan finns under `/data/`.
+Allt som ska gå att följa upp har ett id: formerna (#S, #T, #E, #U, #Q, #G, #N, #J), poster (#P), fynd (#F), bokningar (#B) och körningar (#R). Meddelanden i samtalet kopplas till de id:n de handlar om, och allt en körning skriver bär dess id. Assistant slår upp i stället för att minnas. Id:n är kökets verktyg och syns på webbsidan, inte i chatten. Rådatan finns under `/data/`.
 
 ## Återkoppling: hur kontoret blir bättre
 

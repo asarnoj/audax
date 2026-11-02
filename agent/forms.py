@@ -200,6 +200,33 @@ FORMS: dict[str, Form] = {f.name: f for f in (
         ),
     ),
     Form(
+        "wanted", "J", "Efterlysning",
+        "Something the owner asked Audax to look for (instance/granskning/2026-11-02-omgang-10-sokningen.md), or found "
+        "themselves (a miss). It is investigated before it is watched: what it is called, who is behind it, when it "
+        "happened before, whether and when it recurs, where it is announced. The code checks the chosen watches against "
+        "the earlier rounds and wakes it again near its window, when its watches stay quiet, or after a miss.",
+        {k: ("investigating", "waiting", "watching", "found", "ended") for k in ("request", "miss")},
+        closed=("ended",),
+        fields=(
+            Field("asked", required=True, help="the owner's own words"),
+            Field("interpretation", help="Swedish: what is looked for, as understood"),
+            Field("missed_url", "url", help="a miss: where the owner found it"),
+            Field("names", help="JSON list: what it is called"),
+            Field("organizer"),
+            Field("past", help="JSON list of {date, title, url}: earlier rounds"),
+            Field("cycle", help="JSON {kind, window_start MM-DD, window_end MM-DD, note}"),
+            Field("channels", help="JSON list of {kind, name, url, why}: where it is announced"),
+            Field("watches", help="JSON list of the watched sources' ids"),
+            Field("checks", help="JSON list of {watch, result pass|fail|unverifiable, note}: the watches against the past"),
+            Field("finding", help="the last one found: title (url)"),
+            Field("question", help="the #Q put to the owner, while it waits"),
+            Field("post_mortem", help="a miss: Swedish, why it was missed and what changed"),
+            Field("why_now", help="why it is investigated now"),
+            Field("investigated_at", help="when it was last investigated, local time"),
+            Field("tries", "int", help="investigations in a row whose watches all failed the check"),
+        ),
+    ),
+    Form(
         "routine", "N", "Rutin",
         "Work that recurs: watching a source, a search, a check-in. It serves something (its parent) or was asked for by "
         "the owner, and ends when that is done.",
@@ -222,9 +249,9 @@ CORE = ("id", "form", "kind", "title", "status", "owner", "parent_id", "source",
 # Who may create which forms. Every role may update and close what it owns; the exceptions below are the owner's
 # words (the Assistant records them wherever they land) and Director's oversight of goals and beliefs.
 CREATE = {
-    "assistant": {"aim", "belief", "question", "step"},
+    "assistant": {"aim", "belief", "question", "step", "wanted"},
     "director": {"aim", "belief", "question", "step", "experiment", "rule"},
-    "researcher": {"step", "question", "rule", "routine", "opportunity", "experiment"},
+    "researcher": {"step", "question", "rule", "routine", "opportunity", "experiment", "wanted"},
     "manager": {"belief", "question", "step", "experiment", "rule", "routine"},
 }
 UPDATE_ANY = {
