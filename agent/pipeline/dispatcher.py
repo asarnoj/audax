@@ -29,6 +29,8 @@ MODULE = "dispatcher@2"
 DECISIONS = ["now", "at", "shelf", "drop"]
 RETRY_UNDECIDED = timedelta(minutes=10)  # mechanics: a finding nobody could decide on (quota, error) is retried
 ASK_EVERY = timedelta(minutes=15)
+HELD_KEY = "dispatcher.questions_held"   # #Q id -> when the writer last chose not to ask it
+HELD_FOR = timedelta(days=1)
 QUESTION_GAP = timedelta(hours=3)   # mechanics: the office's questions reach a quiet owner one contact at a time, spread out
 OWNER_ACTIVE = timedelta(minutes=45)   # the owner wrote this recently: the conversation brings questions up itself
 QUESTION_KEY = "questions.last_contact"  # mechanics: how often an idle moment is checked for an open question
@@ -384,6 +386,11 @@ class Dispatcher:
             return False   # today's own contacts are used; the conversation still brings them up when the owner writes
         items = Items(self.db)
         waiting = await items.find("question", status="open", where="json_extract(data, '$.to') = 'owner'", order="id", limit=10)
+        # A question the writer chose not to ask (its context said "not yet", or it didn't fit) waits a day: it was asked
+        # again at every tick, 22 times in an evening (2 Nov).
+        held = await self.db.kv_get(HELD_KEY) or {}
+        day_ago = (datetime.now(timezone.utc) - HELD_FOR).isoformat()
+        waiting = [q for q in waiting if held.get(str(q["id"]), "") < day_ago]
         if not waiting:
             return False
         first = waiting[0]
@@ -398,8 +405,12 @@ class Dispatcher:
                 f"why unless it helps them answer.\n{lines}", about={f"#Q{q['id']}" for q in together})
         except Exception as e:
             log.warning("couldn't ask the office's questions: %s", e)
-            return False
+            ids = None
         if not ids:
+            now_iso = datetime.now(timezone.utc).isoformat()
+            await self.db.kv_set(HELD_KEY, {**{k: v for k, v in held.items() if v >= day_ago}, **{str(q["id"]): now_iso for q in together}})
+            for q in together:
+                await items.update(q["id"], "system", note="inte ställd nu: skrivaren valde att vänta; försöker igen om ett dygn")
             return False
         await self.db.kv_set(QUESTION_KEY, datetime.now(timezone.utc).isoformat())
         for q in together:

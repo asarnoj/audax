@@ -400,6 +400,25 @@ async def test_the_offices_questions_reach_a_quiet_owner_one_contact_at_a_time(d
     assert not await d._ask_items()   # the owner is here: the conversation takes it
 
 
+async def test_a_question_the_writer_chose_not_to_ask_waits_a_day(db, tmp_path):
+    from agent.items import Items
+
+    d, _ = await make_dispatcher(db, tmp_path, {"decisions": []})
+    calls = []
+
+    async def speak(instruction, about=frozenset()):
+        calls.append(set(about))
+        return []   # "not yet": the context says after Armada
+
+    d.outbox.speak = speak
+    items = Items(db)
+    q = await items.create("question", "Hur ser du på Audax?", "director", kind="intent", owner="director",
+                           data={"to": "owner", "why": "R&D", "context": "Fråga tidigast efter Armada"})
+    assert not await d._ask_items() and not await d._ask_items()
+    assert calls == [{f"#Q{q}"}]   # once, not at every tick
+    assert (await items.get(q))["status"] == "open"
+
+
 async def test_the_engine_follows_the_days_contacts_and_the_bundles(db, tmp_path):
     from datetime import time
 

@@ -282,8 +282,9 @@ async def run() -> None:
             if last and datetime.fromisoformat(last) > datetime.now() - timedelta(hours=12):
                 continue
             await db.kv_set(key, datetime.now().isoformat())
-            await bot.send(f"Något fungerar inte som det ska: {problem}.", origin="command")
-            log.warning("health: %s", problem)
+            if settings.builder:   # the host's own instance: the owner maintains it
+                await bot.send(f"Något fungerar inte som det ska: {problem}.", origin="command")
+            log.warning("health: %s", problem)   # a guest's is for the host (deploy/audax friends), not for the guest (3 Nov)
 
     scheduler.add_job(health_watch, "interval", minutes=30, id="health", max_instances=1)
 

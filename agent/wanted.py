@@ -156,9 +156,10 @@ def mentions(text: str, names: list[str]) -> str | None:
     Swish-vykort" for "Årets vykort (Swish)" (2 Nov: the literal match failed every check)."""
     have = _words(text)
     for n in names:
-        need = {w for w in _words(re.sub(r"\([^)]*\)", " ", n)) if len(w) > 2}
-        if need and need <= have:
-            return n
+        for variant in (re.sub(r"\([^)]*\)", " ", n), *re.findall(r"\(([^)]*)\)", n)):   # "Getswish AB (Swish)": either
+            need = {w for w in _words(variant) if len(w) > 2}
+            if need and need <= have:
+                return n
     return None
 
 

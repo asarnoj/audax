@@ -41,7 +41,7 @@ case "${1:-today}" in
   onboarding) shift; exec ssh -t "$PI_HOST" "cd $DIR && ~/.local/bin/uv run --no-dev python -m agent.try_onboarding $(printf '%q ' "$@")" ;;
   friend) shift; exec ssh -t "$PI_HOST" "cd $DIR && ./deploy/add-friend.sh $(printf '%q ' "$@")" ;;
   friends)
-    exec ssh "$PI_HOST" 'for d in ~/audax-friends/*/; do n=$(basename "$d"); s=$(systemctl is-active "agent@$n"); w=$(sqlite3 "$d/data/agent.db" "SELECT round(coalesce(sum(cost_usd),0),2) FROM claude_runs WHERE created_at >= datetime(\"now\",\"-7 days\")" 2>/dev/null || echo "?"); echo "$n: $s, $w \$ senaste 7 dagarna"; done' ;;
+    exec ssh "$PI_HOST" 'for d in ~/audax-friends/*/; do n=$(basename "$d"); s=$(systemctl is-active "agent@$n"); w=$(sqlite3 "$d/data/agent.db" "SELECT round(coalesce(sum(cost_usd),0),2) FROM claude_runs WHERE created_at >= datetime(\"now\",\"-7 days\")" 2>/dev/null || echo "?"); echo "$n: $s, $w \$ senaste 7 dagarna"; journalctl -u "agent@$n" --since "-24 hours" -o cat 2>/dev/null | grep "WARNING agent: health:" | sed "s/^.*health: /  hälsa: /" | sort -u; done' ;;
   memory) exec ssh "$PI_HOST" "cd $DIR && echo '== minne' && git -C workspace/memory log --since='3 days ago' --format='%ad %s' --date=format:'%d/%m %H:%M' | head -25 && echo && echo '== instans' && git -C instance log --since='7 days ago' --format='%ad %s' --date=format:'%d/%m %H:%M' | head -15" ;;
   *)      exec ssh "$PI_HOST" "cd $DIR && .venv/bin/python -m agent.inspect $*" ;;
 esac
