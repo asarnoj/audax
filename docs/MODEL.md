@@ -127,6 +127,14 @@ Desken och Manager bedömer utifrån det. Det är underlag och inga mål.
 
 **Inställningarna** (`agent/assumptions.py`) är `quiet_hours`, `daily_contacts`, `bundle_times` och `message_length`. Var och en är en uppfattning om dig med källa. Bara det du själv sagt binder. Nattron binder också, eftersom den skyddar din natt, tills du säger något annat. Allt annat är kontorets förståelse, som vägleder desken utan att vara en gräns. Manager flyttar förståelsen när liggaren pekar dit, eller när den vill lära sig något som aldrig prövats, och frågar dig rakt ut när ett svar säger mer. Se `instance/granskning/2026-11-04-omgang-11-kontakten.md`.
 
+## Kontorets tankar
+
+Director, Researcher och Manager kan var och en lägga en tanke till dig (`agent/thoughts.py`). Det kan vara något de märkt, en idé, en plan som tagit form, vad de håller på med eller en gissning om vad du vill. Ibland bär tanken en direkt fråga för att lära sig något. Den formuleras aldrig som "säg till om …".
+
+Kravet är detsamma som för fynd: du ska bli glad att höra det, även om inget följer av det. Desken bedömer en tanke som allt annat, och Assistant säger den med kontorets enda röst ("Jag har märkt att …"). Varje roll ser hur dess egna tankar landade.
+
+Ett fynd som triagen är osäker på bär med sig vad osäkerheten gäller, och då kan meddelandet sluta med en direkt fråga.
+
 ## Från fynd till dig
 
 ```

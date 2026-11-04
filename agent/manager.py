@@ -18,7 +18,7 @@ from datetime import datetime, timedelta
 from zoneinfo import ZoneInfo
 
 
-from agent import assumptions, texts, trail
+from agent import assumptions, texts, thoughts, trail
 from agent.due import answered_since, earlier_runs, review
 from agent.items import Items
 from agent.office_tools import build_office_tools, describe_forms
@@ -28,7 +28,6 @@ from agent.config import Settings
 from agent.db import Database
 from agent.posts import ROLES, Posts
 from agent.memory import MemoryRepo
-from agent.pipeline.outbox import add_candidate
 from agent.prompts import prompt as prompt_template
 
 log = logging.getLogger(__name__)
@@ -83,7 +82,7 @@ SCHEMA = {
         "understanding": assumptions.UNDERSTANDING,
         "working_memory": texts.WORKING_MEMORY,
         "summary": {"type": "string", "description": "Swedish. What you saw and what you changed, and why: the run's own account"},
-        "note_to_owner": {"type": ["string", "null"], "description": "Swedish brief for the chat, or null"},
+        "thoughts": thoughts.SCHEMA,
         "desk_review": {
             "type": "object",
             "description": "Your spot check of the desk's (the dispatcher's) decisions since the last run",
@@ -227,14 +226,10 @@ class Manager:
 
         if out.get("checkin"):
             await self.db.kv_set("manager.checkin_pending", True)
+        changes += await thoughts.add(self.db, "manager", out.get("thoughts"), self.settings.timezone)
 
         await trail.account("\n".join([(out.get("summary") or "").strip(), *(f"- {c}" for c in changes)]))
 
-        if note := (out.get("note_to_owner") or "").strip():
-            await add_candidate(
-                self.db, kind="manager_note", title="Från Manager", body=note,
-                features={"time_sensitivity": "low", "relevance": "medium", "actionability": "low"},
-            )
 
         await self.memory.commit_if_changed(f"manager {now:%Y-%m-%d %H:%M}", by="manager")
         log.info("manager applied: %s", "; ".join(changes) or "inga ändringar")

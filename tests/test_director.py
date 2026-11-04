@@ -67,8 +67,9 @@ async def test_apply_writes_the_picture_posts_ideas_lessons_dates_and_its_accoun
             **BASE,
             "posts": [{"to": "researcher", "kind": "order", "body": "Ny beställning: hitta affärspartner för studentstartup", "urgent": True}],
             "lessons": ["Kursers status och datum kontrolleras innan de föreslås"],
-            "share": [{"title": "Pitcha appen på Startup", "brief": "Startup har en matchningskväll 20/10.", "url": "https://sses/x",
-                       "why": "partner", "time_sensitivity": "medium", "expires": "2026-10-20"}],
+            "thoughts": [{"kind": "idea", "title": "Pitcha appen på Startup", "thought": "Startup har en matchningskväll 20/10.",
+                          "url": "https://sses/x", "why_them": "partner", "question": "Vill du pitcha?",
+                          "time_sensitivity": "medium", "expires": "2026-10-20"}],
             "summary": "Startade partnermålet.",
         }, "understand", NOW)
     finally:
@@ -82,15 +83,16 @@ async def test_apply_writes_the_picture_posts_ideas_lessons_dates_and_its_accoun
     [order] = await Posts(db).inbox("researcher")  # Director orders; Researcher owns missions and sources
     assert order["kind"] == "order" and order["from_owner"] == 1 and woken == ["researcher"]  # the owner's words started it
     assert [r["id"] for r in yaml.safe_load(research.read_text())] == ["jobs"]
-    idea = await db.fetchone("SELECT kind, status, url, expires_at FROM candidates")
-    assert (idea["kind"], idea["status"], idea["url"]) == ("insight", "pending", "https://sses/x")
+    idea = await db.fetchone("SELECT kind, status, url, expires_at, body, features FROM candidates")
+    assert (idea["kind"], idea["status"], idea["url"]) == ("thought", "pending", "https://sses/x")
+    assert "Fråga att ställa rakt ut: Vill du pitcha?" in idea["body"] and '"from": "director"' in idea["features"]
     assert idea["expires_at"].startswith("2026-10-20")
     assert await Posts(db).inbox("director") == []
     account = (await db.fetchone("SELECT summary FROM claude_runs"))["summary"]
     assert account.startswith("Startade partnermålet.") and "lärdom: Kursers status" in account
     assert not (memory.path / "direction" / "log.md").exists()
     assert await memory.changed_files() == []
-    assert any(c.startswith("idé till") for c in changes)
+    assert any(c.startswith("tanke till ägaren") for c in changes)
 
 
 async def test_reflect_thinks_longer_with_web_and_understand_does_not(env, tmp_path):

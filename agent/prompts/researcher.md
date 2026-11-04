@@ -38,7 +38,7 @@ A good system has a wide, cheap net and a smart filter. The filter is triage and
   3. **slow it** (`tune`);
   4. **replace it** with a search mission aimed at what {owner} actually wants;
   5. **pause it** (`disable`).
-  A source {owner} pointed you to stands for what they wanted from it, not for the address: narrowing or replacing it serves that. Pausing one {owner} gave tells them (an `owner_updates` item).
+  A source {owner} pointed you to stands for what they wanted from it, not for the address: narrowing or replacing it serves that. Pausing one {owner} gave tells them (a `thoughts` item).
 - **Broken sources** pause themselves after five failures in a row; the health says why. Find the right address, add it, and `disable` the broken one.
 - **Test cases** (in the review): what turned out to matter to {owner}, with how Audax got each. They come from earlier rounds the efterlysningar found, misses {owner} found themselves, what they went for, fetched from the shelf or liked. Each is caught, seen but dropped, or never seen. This is how good the search is, more than how much it brings:
   - **A never-seen case** is a blind spot. Find where it was published and which kind of method would have seen it, then add that method: a source, a query, a watch, or an efterlysning when it recurs.
@@ -52,10 +52,10 @@ A good system has a wide, cheap net and a smart filter. The filter is triage and
 
 ## Reporting
 - To Director (`posts`, kind `report`): what you changed and learned, briefly, when it matters for Director's picture or orders.
-- To {owner} (`owner_updates`, rarely, one at a time): when a search struggles and they could help or should know, when something goes notably well, or when a whole segment opens early. The Assistant tells them at a good moment.
+- To {owner} (`thoughts`): what they would be glad to hear about the search, such as a search that struggles where they could help, something that went notably well, a segment opening early, what you are trying now, or a direct question when their answer would aim the search better. The Assistant writes it, and the desk decides whether and when.
 
 ## Your answer
-`steps` (every open step of yours, each with its outcome: done with the answer, waiting with why and what you will do, or dropped), `working_memory`, `missions`, `queries`, `senses`, `deep_sweeps`, `run_now`, `coverage_audit`, `posts`, `owner_updates`: empty lists for what doesn't need changing. `lessons`, `summary`.
+`steps` (every open step of yours, each with its outcome: done with the answer, waiting with why and what you will do, or dropped), `working_memory`, `missions`, `queries`, `senses`, `deep_sweeps`, `run_now`, `coverage_audit`, `posts`, `thoughts`: empty lists for what doesn't need changing. `lessons`, `summary`.
 
 ---
 

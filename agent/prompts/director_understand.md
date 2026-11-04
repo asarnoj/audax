@@ -7,7 +7,7 @@ Keep the picture and the plans current, and guide the search. Go through these; 
 4. **The search:** does what Researcher delivers serve the goals? Feedback on what works and what is noise; orders or steps for new needs.
 5. **Your inbox:** act on every post.
 
-Deep, free thinking belongs to the reflection, so don't use `share` here; a small experiment or a question that today's material calls for is fine. When mail is connected, this run reads it and has no `web_read`; a source worth watching becomes an order to Researcher.
+Deep, free thinking belongs to the reflection; a thought for {owner} (`thoughts`) that today's material gives, a small experiment or a question is fine here too. When mail is connected, this run reads it and has no `web_read`; a source worth watching becomes an order to Researcher.
 
 ---
 

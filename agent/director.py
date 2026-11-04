@@ -23,7 +23,7 @@ from collections import defaultdict
 from datetime import datetime, timedelta
 from zoneinfo import ZoneInfo
 
-from agent import assumptions, search_map, texts, trail
+from agent import assumptions, search_map, texts, thoughts, trail
 from agent.due import answered_since, earlier_runs, review, write_now
 from agent.items import Items
 from agent.office_tools import build_office_tools, describe_forms
@@ -33,7 +33,6 @@ from agent.config import Settings
 from agent.db import Database
 from agent.posts import ROLES, Posts
 from agent.memory import MemoryRepo
-from agent.pipeline.outbox import add_candidate
 from agent.prompts import prompt as prompt_template
 from agent.research import load_research
 from agent.schedule import Schedule, utc_iso
@@ -68,22 +67,7 @@ SCHEMA = {
             "items": {"type": "object", "properties": {"id": {"type": "string"}, "why": {"type": "string", "description": "Swedish"}},
                       "required": ["id", "why"]},
         },
-        "share": {
-            "type": "array",
-            "description": "Reflection only: checked, truly valuable ideas for the owner. Usually empty.",
-            "items": {
-                "type": "object",
-                "properties": {
-                    "title": {"type": "string"},
-                    "brief": {"type": "string", "description": "Swedish. What it is and why it fits the owner; the chat writes the message"},
-                    "url": {"type": ["string", "null"]},
-                    "why": {"type": "string", "description": "Swedish, one sentence; shown if the owner asks why"},
-                    "time_sensitivity": LEVEL,
-                    "expires": {"type": ["string", "null"], "description": "YYYY-MM-DD if the idea has a best-before date"},
-                },
-                "required": ["title", "brief", "why", "time_sensitivity"],
-            },
-        },
+        "thoughts": thoughts.SCHEMA,
         "working_memory": texts.WORKING_MEMORY,
         "lessons": {"type": "array", "items": {"type": "string"},
                     "description": "Swedish: lessons about how the office works that every role should know; usually none"},
@@ -204,31 +188,7 @@ class Director:
         await write_now(self.db, self.dir / "now.md", now)   # its own sections as Director left them, the dates fresh
         if lessons := self.memory.add_lessons("director", out.get("lessons") or [], now):
             changes += [f"lärdom: {x}" for x in lessons]
-        for idea in (out.get("share") or [])[:2]:
-            expires = None
-            if idea.get("expires"):
-                try:
-                    expires = utc_iso(datetime.fromisoformat(idea["expires"][:10]).replace(hour=23, minute=59, tzinfo=self.tz))
-                except ValueError:
-                    pass
-            await add_candidate(
-                self.db,
-                kind="insight",
-                title=idea["title"],
-                body=idea.get("brief") or idea.get("message", ""),
-                url=idea.get("url"),
-                features={
-                    "relevance": "high",
-                    "actionability": "medium",
-                    "time_sensitivity": idea.get("time_sensitivity", "low"),
-                    "novelty": "high",
-                    "confidence": "high",
-                    "complement": "high",
-                    "reason": f"Director ({mode}): {idea['why']}",
-                },
-                expires_at=expires,
-            )
-            changes.append(f"idé till ägaren: {idea['title']}")
+        changes += await thoughts.add(self.db, "director", out.get("thoughts"), self.settings.timezone)
 
         for w in out.get("withdraw") or []:
             m = re.search(r"\d+", str(w.get("id", "")))
@@ -339,9 +299,4 @@ class Director:
         return "\n\n".join(lines) or "No missions yet."
 
     async def _idea_feedback(self) -> str:
-        rows = await self.db.fetchall(
-            "SELECT c.title, c.status, (SELECT group_concat(f.signal || ':' || f.value, ', ') FROM feedback f "
-            "WHERE f.candidate_id = c.id OR f.message_id IN (SELECT message_id FROM message_candidates WHERE candidate_id = c.id)) AS fb "
-            "FROM candidates c WHERE c.kind = 'insight' ORDER BY c.id DESC LIMIT 15"
-        )
-        return "\n".join(f"- {r['title']}: {r['status']}, {r['fb'] or 'no reaction'}" for r in rows) or "No shared ideas yet."
+        return await thoughts.outcomes(self.db, "director") or "No thoughts shared yet."

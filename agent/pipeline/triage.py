@@ -48,6 +48,8 @@ SCHEMA = {
                     "complement": LEVEL,
                     "brief": {"type": "string", "description": "Swedish, 1-3 sentences: what it is, why it fits, key facts"},
                     "reason": {"type": "string", "description": "Swedish, one sentence on the judgement"},
+                    "unsure": {"type": ["string", "null"], "description": "Swedish, only when you keep it but are unsure this "
+                               "kind of thing is what the owner wants: what you are unsure about (the message may ask them). Usually null"},
                 },
                 "required": ["event_id", "keep", "relevance", "actionability", "time_sensitivity", "novelty", "confidence", "complement", "brief", "reason"],
             },
@@ -139,6 +141,8 @@ class Triage:
             payload = json.loads(row["payload"])
             features = {k: item[k] for k in FEATURES if k in item}
             features["reason"] = item.get("reason", "")
+            if item.get("unsure"):   # a direct question may settle it (agent/thoughts.py)
+                features["unsure"] = item["unsure"]
             if payload.get("unconfirmed"):   # what the search couldn't confirm travels with the finding, all the way to the owner
                 features["unconfirmed"] = payload["unconfirmed"]
             oid = payload.get("opportunity")

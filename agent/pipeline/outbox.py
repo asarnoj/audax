@@ -14,7 +14,7 @@ from agent.schedule import Schedule, utc_iso
 
 log = logging.getLogger(__name__)
 # How long something stays on the shelf when it has no date of its own (an event's or a deadline's comes first).
-SHELF_DAYS = {"news": 14, "tech": 14, "ai": 14, "security": 7, "startups": 21, "insight": 30, "opportunity": 30, "event": 30}
+SHELF_DAYS = {"news": 14, "tech": 14, "ai": 14, "security": 7, "startups": 21, "insight": 30, "thought": 21, "opportunity": 30, "event": 30}
 SHELF_DAYS_DEFAULT = 21
 
 SendText = Callable[..., Awaitable[list[int]]]  # (text) -> messages.id rows
@@ -127,7 +127,10 @@ class Outbox:
         if self.speak is not None:
             items = "\n".join(f"- #F{r['id']} {r['title']}: {r['body'].strip()} {r['url'] or ''}".strip()
                               + (f"\n  why it was kept (for you): {why}" if (why := _why(r)) else "")
-                              + (f"\n  NOT confirmed (say so): {doubt}" if (doubt := _feature(r, "unconfirmed")) else "") for r in rows)
+                              + (f"\n  NOT confirmed (say so): {doubt}" if (doubt := _feature(r, "unconfirmed")) else "")
+                              + ("\n  a thought of the office's (say it as yourself)" if r["kind"] == "thought" else "")
+                              + (f"\n  unsure (a direct question may settle it): {unsure}" if (unsure := _feature(r, "unsure")) else "")
+                              for r in rows)
             try:
                 ids = await self.speak(
                     "Findings for the owner: one message, one line per item, links kept, each with what it is and why it is "

@@ -53,7 +53,7 @@ LABEL = {
 # When it actually goes out is the dispatcher's judgement under Manager's policy.
 DEFAULT_LEAD = timedelta(days=3)
 POSITIVE_REACTIONS = {"👍", "❤", "❤️", "🔥", "🤩", "👏", "💯", "😍", "🥰", "🎉", "⚡", "🙏", "❤‍🔥"}
-PURSUABLE = ("opportunity", "event", "insight", "search_update")
+PURSUABLE = ("opportunity", "event", "insight", "search_update", "thought")
 DATA = ("organization", "url", "deadline", "remind_at", "next_step", "why", "about", "candidate_id", "opportunity")   # the aim's own fields
 
 

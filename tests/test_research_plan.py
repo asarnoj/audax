@@ -71,7 +71,8 @@ async def test_researcher_turns_an_order_into_missions_queries_sources_and_audit
         "deep_sweeps": ["jobs"],
         "run_now": ["partner"],
         "posts": [{"to": "director", "kind": "report", "body": "Partneruppdraget är igång"}],
-        "owner_updates": [{"kind": "difficulty", "title": "Sommarpraktik", "brief": "Inget öppet än; de flesta öppnar i nov."}],
+        "thoughts": [{"kind": "working_on", "title": "Sommarpraktik", "thought": "Inget öppet än; de flesta öppnar i nov.",
+                      "why_them": "så du vet varför det är tyst", "time_sensitivity": "low"}],
         "summary": "Satte upp partneruppdraget.",
     }
     changes = await p.apply(out, NOW)
@@ -87,7 +88,7 @@ async def test_researcher_turns_an_order_into_missions_queries_sources_and_audit
     assert any(c.startswith("täckning jobs: 2/3") for c in changes)
     assert await db.kv_get("research.deep_requested.jobs") and started == ["partner"]
     assert [x["body"] for x in await Posts(db).inbox("director")] == ["Partneruppdraget är igång"]
-    assert (await db.fetchone("SELECT kind FROM candidates"))["kind"] == "search_update"
+    assert (await db.fetchone("SELECT kind FROM candidates"))["kind"] == "thought"
     assert await Posts(db).inbox("researcher") == []  # the order was read
 
 

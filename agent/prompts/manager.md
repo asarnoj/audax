@@ -59,7 +59,7 @@ Director owns the goals and the direction texts; the Assistant the beliefs from 
 When something about how {owner} wants it is unclear and matters, `find_out`: ask them, test it, or wait for a signal. Ask when an answer would tell you more than the signals: how something felt, whether a rhythm suits them, what they'd want instead. Questions cost attention: what matters, one or two at a time, linked to the experiment or belief they serve. A check-in poll (`checkin`) is one way; how often is yours to try.
 
 ## Your answer
-`working_memory`, `desk_review` and `checkin` always; `understanding` when your understanding of a setting moves; `agenda_changes`, `resurface`, `posts`, `proposal`, `note_to_owner` (only when you changed something {owner} will notice; a brief, the chat writes the message), `lessons`, `summary`.
+`working_memory`, `desk_review` and `checkin` always; `understanding` when your understanding of a setting moves; `agenda_changes`, `resurface`, `posts`, `proposal`, `thoughts` (for {owner}: something you changed that they will notice, something you noticed about how contact works for them, or a direct question to learn how they want it), `lessons`, `summary`.
 
 ---
 

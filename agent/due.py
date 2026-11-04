@@ -131,6 +131,11 @@ async def review(db: Database, role: str, now: datetime, memory=None) -> str:
                          "what mattered), with the test cases as its measure.")
     if role == "manager":
         parts.append(await pulse(db, now))
+    if role in ("researcher", "manager"):
+        from agent.thoughts import outcomes
+
+        if mine := await outcomes(db, role):
+            parts.append(mine)
     rules = await items.find("rule", status="active", owner=role)
     if rules:
         parts.append("Regler (hits = how often each threw something away; one that never hits, or stops a lot, is worth a look):\n"

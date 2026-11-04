@@ -87,10 +87,11 @@ async def test_note_goes_through_the_desk_and_the_spot_check_is_logged(env, tmp_
     db, memory, _ = env
     await begin(db)
     m = manager(db, memory, tmp_path)
-    await m.apply({**BASE, "note_to_owner": "Jag skickar lite färre jobbtips nu.",
+    await m.apply({**BASE, "thoughts": [{"kind": "working_on", "title": "Färre jobbtips", "thought": "Jag skickar lite färre jobbtips nu.",
+                                         "why_them": "du svarar sällan på dem", "time_sensitivity": "low"}],
                    "desk_review": {"sampled": 5, "followed_policy": False, "notes": "skickade sent på kvällen trots policyn"}}, NOW)
     row = await db.fetchone("SELECT kind, status, body FROM candidates")
-    assert (row["kind"], row["status"]) == ("manager_note", "pending")  # the dispatcher decides when
+    assert (row["kind"], row["status"]) == ("thought", "pending")  # the dispatcher decides when
     assert "gled från policyn: skickade sent på kvällen" in await account(db)
 
 

@@ -19,12 +19,11 @@ from datetime import datetime, timedelta
 from zoneinfo import ZoneInfo
 
 from agent import direction_ops as ops, texts
-from agent import search_map, trail
+from agent import search_map, thoughts, trail
 from agent.claude_gate import ClaudeGate, ClaudeTask, Priority, QuotaPaused
 from agent.config import Settings
 from agent.db import Database
 from agent.memory import MemoryRepo
-from agent.pipeline.outbox import add_candidate
 from agent.posts import ROLES, Posts
 from agent.prompts import prompt as prompt_template
 from agent.due import due_items, earlier_runs, review, source_yields
@@ -132,19 +131,7 @@ SCHEMA = {
                 "required": ["to", "kind", "body"],
             },
         },
-        "owner_updates": {
-            "type": "array",
-            "description": "Rarely: something about the search the owner should know",
-            "items": {
-                "type": "object",
-                "properties": {
-                    "kind": {"type": "string", "enum": ["difficulty", "success", "discovery"]},
-                    "title": {"type": "string"},
-                    "brief": {"type": "string", "description": "Swedish: what the owner should know, and what it means for them"},
-                },
-                "required": ["kind", "title", "brief"],
-            },
-        },
+        "thoughts": thoughts.SCHEMA,
         "working_memory": texts.WORKING_MEMORY,
         "lessons": {"type": "array", "items": {"type": "string"},
                     "description": "Swedish: lessons about how the office works that every role should know; usually none"},
@@ -314,13 +301,7 @@ class ResearchPlanner:
             if p.get("to") in ROLES and p["to"] != "researcher":
                 pid = await self.posts.send("researcher", p["to"], p.get("kind", "note"), p["body"])
                 changes.append(f"post #P{pid} till {p['to']}")
-        for u in (out.get("owner_updates") or [])[:1]:
-            await add_candidate(
-                self.db, kind="search_update", title=u["title"], body=u["brief"],
-                features={"relevance": "high", "actionability": "medium" if u["kind"] == "difficulty" else "low", "time_sensitivity": "low",
-                          "novelty": "high", "confidence": "high", "complement": "high", "reason": f"Researcher, sökningen: {u['kind']}"},
-            )
-            changes.append(f"läge om sökningen till ägaren: {u['title']}")
+        changes += await thoughts.add(self.db, "researcher", out.get("thoughts"), self.settings.timezone)
         if lessons := self.memory.add_lessons("researcher", out.get("lessons") or [], now):
             changes += [f"lärdom: {x}" for x in lessons]
         texts.working_memory(self.memory.path, "researcher", out.get("working_memory"))
