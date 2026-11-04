@@ -419,16 +419,24 @@ async def test_a_question_the_writer_chose_not_to_ask_waits_a_day(db, tmp_path):
     assert (await items.get(q))["status"] == "open"
 
 
-async def test_the_engine_follows_the_days_contacts_and_the_bundles(db, tmp_path):
+async def test_a_guess_guides_the_desk_but_what_the_owner_said_binds(db, tmp_path):
     from datetime import time
+
+    g = await add_candidate(db, "event", "G", "den fjärde", {})
+    d0, sent0 = await make_dispatcher(db, tmp_path, {"decisions": [{"candidate_id": g, "decision": "now", "reason": "bäst i veckan"}]})
+    d0.settings.daily_contacts, d0.settings.binding = 1, {"quiet_hours"}   # "one a day" is only the office's guess
+    await db.execute("INSERT INTO messages (telegram_message_id, direction, origin, text, created_at) "
+                     "VALUES (1, 'out', 'proactive', 'x', datetime('now', '-400 minutes'))")
+    await d0.run()
+    assert sent0 == ["den fjärde"]   # the desk judged it worth it, and a guess doesn't stop it
 
     a = await add_candidate(db, "event", "A", "kan vänta", {})
     u = await add_candidate(db, "event", "U", "brådskar", {"time_sensitivity": "high"})
     d, sent = await make_dispatcher(
         db, tmp_path,
         {"decisions": [{"candidate_id": a, "decision": "now", "reason": "x"}, {"candidate_id": u, "decision": "now", "reason": "y"}]})
-    d.settings.daily_contacts = 2
-    for minutes in (300, 200):   # two of the office's own contacts already today
+    d.settings.daily_contacts, d.settings.binding = 3, {"quiet_hours", "daily_contacts", "bundle_times"}   # the owner said so
+    for minutes in (300, 200):   # with the one above, three of the office's own contacts already today
         await db.execute("INSERT INTO messages (telegram_message_id, direction, origin, text, created_at) "
                          "VALUES (1, 'out', 'proactive', 'x', datetime('now', ?))", (f"-{minutes} minutes",))
     await d.run()
@@ -438,7 +446,7 @@ async def test_the_engine_follows_the_days_contacts_and_the_bundles(db, tmp_path
 
     b = await add_candidate(db, "event", "B", "till bunten", {})
     d2, sent2 = await make_dispatcher(db, tmp_path, {"decisions": [{"candidate_id": b, "decision": "now", "reason": "z"}]})
-    d2.settings.bundle_times = [time(17, 0)]
+    d2.settings.bundle_times, d2.settings.binding = [time(17, 0)], {"quiet_hours", "bundle_times"}
     await d2.run()
     assert sent2 == []
     assert (await db.fetchone("SELECT deliver_at FROM candidates WHERE id = ?", (b,)))["deliver_at"].startswith("2026-10-12T15:00")  # 17:00 local (summer time)
@@ -459,3 +467,18 @@ async def test_the_desk_sees_its_own_contacts_and_whether_they_were_answered_not
     activity = await d._activity()
     assert "own messages in the last 24 h: 1" in activity and "answered" in activity   # the owner wrote back
     assert "no answer" not in activity and "Replies in conversations the owner started, last 24 h: 2" in activity
+
+
+async def test_something_saved_can_join_a_message_that_goes_out(db, tmp_path):
+    calls = []
+    saved = await add_candidate(db, "event", "Sparad", "från hyllan", {})
+    await db.execute("UPDATE candidates SET status = 'shelved', tier = 'shelf' WHERE id = ?", (saved,))
+    new = await add_candidate(db, "event", "Ny", "nytt fynd", {})
+    d, sent = await make_dispatcher(db, tmp_path, {"decisions": [
+        {"candidate_id": new, "decision": "now", "reason": "bra"},
+        {"candidate_id": saved, "decision": "now", "reason": "passar ihop med det nya"}]}, calls)
+    await d.run()
+    assert "Saved for later" in calls[0].prompt and f"[id {saved}]" in calls[0].prompt
+    assert "Silence is the default" not in calls[0].prompt and "Both mistakes cost" in calls[0].prompt
+    assert len(sent) == 1 and "från hyllan" in sent[0] and "nytt fynd" in sent[0]   # one message carrying both
+    assert (await db.fetchone("SELECT status FROM candidates WHERE id = ?", (saved,)))["status"] == "sent"

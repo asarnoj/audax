@@ -14,7 +14,7 @@ quiet_hours:
 models:
   chat: sonnet
   triage: haiku
-  dispatcher: haiku
+  dispatcher: sonnet
   research: sonnet
   manager: sonnet
   builder: sonnet

@@ -114,20 +114,18 @@ Allt kontoret planerar att höra av sig om ligger i ett gemensamt schema med tid
 - **Det sparade** är en hylla utan tid, med bäst-före-datum. Du kan be om det ("något nytt?"), och Manager kan ta fram något därifrån när det passar.
 - **Din kalender** (TimeEdit och Apple) är fakta om dig och läses men ägs inte.
 
-## Upplevelsens inställningar
+## Kontakten: underlag och omdöme
 
-Det som går att räkna i upplevelsen är inställningar som motorn följer, inte meningar i policyn:
-- `quiet_hours`: nattron;
-- `daily_contacts`: högst så många egna kontakter om dagen; det som brådskar går ändå fram;
-- `bundle_times`: fynd som kan vänta går ut samlat vid de tiderna;
-- `message_length`: de egna meddelandenas längd.
+Desken avgör om och när något når dig, genom att bedöma i sammanhanget. Den har inget förval mot tystnad och inget mot att skicka. Båda misstagen kostar: något onödigt tar din uppmärksamhet, och något bra som hålls tillbaka hör du aldrig om. När något ändå går ut kan något från hyllan följa med, och det är hyllans väg till dig.
 
-Varje inställning är en uppfattning om dig med källa (`agent/assumptions.py`). Ett startvärde är ett antagande som ingen bekräftat. Det går inte att avgöra genom att titta, eftersom ditt beteende bara svarar på det Audax redan gör. Därför prövas det:
-- **test:** ett annat värde under några dagar, och motorn använder det. Bara en prövning åt gången.
-- **fråga:** en fråga till dig. Nattron prövas aldrig genom att skriva på natten.
-- **senare:** ett datum och ett skäl.
+**Kontaktliggaren** (`agent/ledger.py`) sparar varje egen kontakt med sitt sammanhang: vilken sort, tid, längd, hur många saker den samlade och vilken i ordningen den dagen den var. Den sparar också hur kontakten landade: svar, reaktioner och "för mycket". Ur det räknar koden fram tre saker:
+- hur olika sorters kontakter landar;
+- deskens fel åt båda hållen: det som hölls tillbaka men som du sedan hämtade eller frågade efter, och det som skickades men som du inte ville ha;
+- vad som aldrig prövats.
 
-Koden räknar ut läget för varje antagande: oprövat, prövas eller avgjort. När en prövning är slut visar genomgången samma signaler före och under, och rollen väljer ett av tre utfall: anta, behåll eller inget avgjort. Dina egna ord avgör vilket värde som helst direkt. Se `instance/granskning/2026-10-30-omgang-8-installningar.md`.
+Desken och Manager bedömer utifrån det. Det är underlag och inga mål.
+
+**Inställningarna** (`agent/assumptions.py`) är `quiet_hours`, `daily_contacts`, `bundle_times` och `message_length`. Var och en är en uppfattning om dig med källa. Bara det du själv sagt binder. Nattron binder också, eftersom den skyddar din natt, tills du säger något annat. Allt annat är kontorets förståelse, som vägleder desken utan att vara en gräns. Manager flyttar förståelsen när liggaren pekar dit, eller när den vill lära sig något som aldrig prövats, och frågar dig rakt ut när ett svar säger mer. Se `instance/granskning/2026-11-04-omgang-11-kontakten.md`.
 
 ## Från fynd till dig
 

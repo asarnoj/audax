@@ -84,14 +84,12 @@ SCHEMA = {
                 "required": ["title", "brief", "why", "time_sensitivity"],
             },
         },
-        "assumptions": assumptions.ANSWER,
-        "settle": assumptions.SETTLE,
         "working_memory": texts.WORKING_MEMORY,
         "lessons": {"type": "array", "items": {"type": "string"},
                     "description": "Swedish: lessons about how the office works that every role should know; usually none"},
         "summary": {"type": "string", "description": "Swedish. What you did in this run and why, briefly: the run's own account"},
     },
-    "required": ["working_memory", "assumptions", "summary"],
+    "required": ["working_memory", "summary"],
 }
 
 
@@ -243,8 +241,6 @@ class Director:
                     until=p.get("until"),
                 )
                 changes.append(f"post #P{pid} till {p['to']}")
-        changes += await assumptions.planned(self.db, "director", out.get("assumptions"), self.settings)
-        changes += await assumptions.settled(self.db, "director", out.get("settle"), self.settings)
         texts.working_memory(self.memory.path, "director", out.get("working_memory"))
         await self.posts.handled(self._seen_posts, f"läst av Director ({mode} {now:%Y-%m-%d})")
         self._seen_posts = []

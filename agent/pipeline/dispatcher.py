@@ -13,7 +13,7 @@ import json
 import logging
 from datetime import datetime, timedelta, timezone
 
-from agent import assumptions, trail
+from agent import assumptions, ledger, trail
 from agent.agenda import FOCUS_KEY, SILENCE_KEY, Agenda
 from agent.claude_gate import ClaudeGate, ClaudeTask, Priority, QuotaPaused
 from agent.config import Settings
@@ -33,6 +33,7 @@ HELD_KEY = "dispatcher.questions_held"   # #Q id -> when the writer last chose n
 HELD_FOR = timedelta(days=1)
 QUESTION_GAP = timedelta(hours=3)   # mechanics: the office's questions reach a quiet owner one contact at a time, spread out
 OWNER_ACTIVE = timedelta(minutes=45)   # the owner wrote this recently: the conversation brings questions up itself
+SHELF_SHOWN = 8   # the newest of what is saved, shown to the desk beside new findings
 QUESTION_KEY = "questions.last_contact"  # mechanics: how often an idle moment is checked for an open question
 
 SCHEMA = {
@@ -145,13 +146,19 @@ class Dispatcher:
             return
 
         by_id = {r["id"]: r for r in pending}
+        shelf = {r["id"]: r for r in context.pop("_shelf")}
         trace = {"availability": context["availability"], "gaps": context["gaps"]}
         now_rows = []
         for d in result.structured.get("decisions", []):
-            row = by_id.get(d.get("candidate_id"))
+            row = by_id.get(d.get("candidate_id")) or shelf.get(d.get("candidate_id"))
             if row is None or d.get("decision") not in DECISIONS:
                 continue
             decision, label = d["decision"], d["decision"]
+            if row["id"] in shelf:   # something saved joins this moment, or has gone stale; "shelf" changes nothing
+                if decision == "shelf":
+                    continue
+                if decision in ("now", "at"):
+                    await self.outbox.set_tier(row["id"], decision, "pending")
             if decision == "at":
                 at = self.agenda.parse(d.get("at") or "")
                 if at is None or at <= self.schedule.now():
@@ -188,6 +195,7 @@ class Dispatcher:
                 f"waiting: {int(age.total_seconds() // 3600)} h · expires: {r['expires_at'] or '-'}\n"
                 f"brief: {r['body']}"
             )
+        shelf = await self._shelf()
         modes = []
         if until := await self.silenced_until():
             modes.append(f"the owner asked for quiet until {self.agenda.show(until)}")
@@ -198,21 +206,22 @@ class Dispatcher:
             "availability": avail.status_line() + ("; " + "; ".join(modes) if modes else ""),
             "gaps": ", ".join(f"{a:%H:%M}–{b:%H:%M}" for a, b in gaps) or "none left today",
             "activity": await self._activity(),
-            "settings": await self._settings_line(now),
+            "settings": await assumptions.lines(self.db, self.settings),
+            "ledger": await ledger.for_desk(self.db, self.settings.timezone),
+            "shelf": "\n".join(f"[id {r['id']}] {r['kind']} · {r['title']} · saved {r['updated_at'][:10]} · {r['body'][:160]}"
+                               for r in shelf) or "(empty)",
+            "_shelf": shelf,
             "interrupt": self.memory.section("profile.md", "får alltid störa") or "(empty)",
             "policy": self.memory.read("policy.md"),
             "planned": await self.agenda.upcoming(days=3),
             "candidates": "\n\n".join(candidates),
         }
 
-    async def _settings_line(self, now: datetime) -> str:
-        s = self.settings
-        return "\n".join([
-            f"- own contacts today: {await assumptions.contacts_today(self.db, now)} of at most {s.daily_contacts}; past that the "
-            "engine holds what isn't urgent (time_sensitivity high) until tomorrow, so spend them on what matters most",
-            "- findings that can wait go out together at " + ", ".join(f"{t:%H:%M}" for t in s.bundle_times) + " (the engine holds them for it)"
-            if s.bundle_times else "- findings go out as they come, one contact each, not bundled",
-        ])
+    async def _shelf(self) -> list:
+        """The best of what is saved, still current: it may join a message that goes out anyway (omgång 11)."""
+        return await self.db.fetchall(
+            "SELECT * FROM candidates WHERE status = 'shelved' AND (expires_at IS NULL OR expires_at > ?) "
+            "ORDER BY updated_at DESC LIMIT ?", (utc_iso(self.schedule.now()), SHELF_SHOWN))
 
     # --- delivering: Python, every minute ---------------------------------------
 
@@ -244,11 +253,14 @@ class Dispatcher:
             return until
         if not urgent and (until := await self.focus_until()):
             return until
-        if not urgent and await assumptions.contacts_today(self.db, now) >= self.settings.daily_contacts:
-            q = self.settings.quiet_hours.end   # today's own contacts are used: tomorrow morning (agent/assumptions.py)
+        # Only what the owner said binds (agent/assumptions.py); the office's understanding was weighed by the desk.
+        if (not urgent and assumptions.binds(self.settings, "daily_contacts")
+                and await assumptions.contacts_today(self.db, now) >= self.settings.daily_contacts):
+            q = self.settings.quiet_hours.end   # the owner's own limit for today is reached: tomorrow morning
             return (now + timedelta(days=1)).replace(hour=q.hour, minute=q.minute, second=0, microsecond=0)
-        if not urgent and (until := assumptions.next_bundle(self.settings.bundle_times, now)) is not None:
-            return until   # it goes out with the next bundle
+        if (not urgent and assumptions.binds(self.settings, "bundle_times")
+                and (until := assumptions.next_bundle(self.settings.bundle_times, now)) is not None):
+            return until   # the owner wants them together
         if not (urgent or decided_now) and (busy := (await self.schedule.availability(now)).current) is not None:
             return busy.end + timedelta(minutes=2)
         return None
@@ -262,7 +274,7 @@ class Dispatcher:
         for r, until in hold:
             await self.outbox.set_tier(r["id"], "at")
             await self.agenda.schedule_findings([r["id"]], until)
-            await self.outbox.record(r["id"], MODULE, f"väntar till {self.agenda.show(until)}", "Tiden kom, men det var nattro, paus, ett pass, dagens kontakter var använda eller den väntar på bunten.", {})
+            await self.outbox.record(r["id"], MODULE, f"väntar till {self.agenda.show(until)}", "Tiden kom, men det var nattro, paus, ett pass, eller något du själv bett om (dagens antal, samlat).", {})
             await trail.emit("place", "manager", to="calendar", ref=f"#F{r['id']}")
         if go:
             await self.outbox.deliver([r for r, _ in go])  # the Assistant writes the message
@@ -382,8 +394,9 @@ class Dispatcher:
         last = await self.db.kv_get(QUESTION_KEY)
         if last and datetime.fromisoformat(last) > datetime.now(timezone.utc) - QUESTION_GAP:
             return False
-        if await assumptions.contacts_today(self.db, self.schedule.now()) >= self.settings.daily_contacts:
-            return False   # today's own contacts are used; the conversation still brings them up when the owner writes
+        if (assumptions.binds(self.settings, "daily_contacts")
+                and await assumptions.contacts_today(self.db, self.schedule.now()) >= self.settings.daily_contacts):
+            return False   # the owner's own limit for today; the conversation still brings them up when they write
         items = Items(self.db)
         waiting = await items.find("question", status="open", where="json_extract(data, '$.to') = 'owner'", order="id", limit=10)
         # A question the writer chose not to ask (its context said "not yet", or it didn't fit) waits a day: it was asked

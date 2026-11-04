@@ -119,6 +119,8 @@ async def run() -> None:
     Items.watchers.append(routines.watch)
     Items.watchers.append(follower(settings.timezone))   # a promise that waited for something is due when it is done
     await assumptions.ensure(db, settings)   # what the system takes for granted is a belief too (quiet hours …)
+    for ended in await assumptions.end_trials(db):   # omgång 11: the evidence is kept per contact instead
+        log.info("trial ended: %s", ended)
     await assumptions.apply(db, settings)
     Items.watchers.append(assumptions.watcher(settings))
     Items.watchers.append(questions.route)
@@ -289,7 +291,7 @@ async def run() -> None:
     scheduler.add_job(health_watch, "interval", minutes=30, id="health", max_instances=1)
 
     async def follow_settings() -> None:
-        """A trial of a setting starts and ends with the clock, not only when an item changes (agent/assumptions.py)."""
+        """The settings and what binds, read again now and then besides when an item changes (agent/assumptions.py)."""
         await assumptions.apply(db, settings)
 
     scheduler.add_job(follow_settings, "interval", minutes=10, id="settings", max_instances=1, coalesce=True)

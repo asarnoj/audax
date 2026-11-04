@@ -88,7 +88,7 @@ class QuietHours(BaseModel):
 class Models(BaseModel):
     chat: str = "sonnet"
     triage: str = "haiku"
-    dispatcher: str = "haiku"
+    dispatcher: str = "sonnet"   # the desk judges in context (omgång 11), not by numbers
     research: str = "sonnet"
     manager: str = "sonnet"
     builder: str = "sonnet"
@@ -124,10 +124,12 @@ class Settings(BaseModel):
     owner: str = ""  # the person the agent is for; fills {owner} in prompts
     timezone: str = "Europe/Stockholm"
     quiet_hours: QuietHours
-    # The experience's settings (agent/assumptions.py): starting values here; the engine follows the current belief.
-    daily_contacts: int = 3          # the most contacts of the office's own a day; what is urgent goes through anyway
-    bundle_times: list[time] = []    # findings that can wait go out together at these times; empty: as they come
-    message_length: int = 600        # the office's own messages stay under about this many characters
+    # The experience's settings (agent/assumptions.py): starting values here, then the current belief. Only those in
+    # `binding` are rules (the owner said them, or they protect); the rest guide the desk's judgement.
+    daily_contacts: int = 3          # how many contacts of the office's own a day usually suit
+    bundle_times: list[time] = []    # when findings that can wait are best gathered; empty: as they come
+    message_length: int = 600        # about how long the office's own messages land best
+    binding: set[str] = {"quiet_hours"}
     models: Models = Models()
     paths: Paths = Paths()
     site: Site = Site()

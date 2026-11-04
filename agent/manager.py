@@ -80,8 +80,7 @@ SCHEMA = {
                 "required": ["id", "action", "reason"],
             },
         },
-        "assumptions": assumptions.ANSWER,
-        "settle": assumptions.SETTLE,
+        "understanding": assumptions.UNDERSTANDING,
         "working_memory": texts.WORKING_MEMORY,
         "summary": {"type": "string", "description": "Swedish. What you saw and what you changed, and why: the run's own account"},
         "note_to_owner": {"type": ["string", "null"], "description": "Swedish brief for the chat, or null"},
@@ -96,7 +95,7 @@ SCHEMA = {
             "required": ["sampled", "followed_policy", "notes"],
         },
     },
-    "required": ["working_memory", "desk_review", "assumptions", "summary", "checkin"],
+    "required": ["working_memory", "desk_review", "summary", "checkin"],
 }
 
 CHECKIN_QUESTION = "Avstämning: hur har mängden meddelanden från mig känts senaste tiden?"
@@ -211,8 +210,7 @@ class Manager:
                 + ("följde policyn" if review.get("followed_policy") else "gled från policyn")
                 + (f": {review['notes']}" if review.get("notes") else "")
             )
-        changes += await assumptions.planned(self.db, "manager", out.get("assumptions"), self.settings)
-        changes += await assumptions.settled(self.db, "manager", out.get("settle"), self.settings)
+        changes += await assumptions.understood(self.db, "manager", out.get("understanding"), self.settings)
         texts.working_memory(self.memory.path, "manager", out.get("working_memory"))
         await self.posts.handled(self._seen_posts, f"läst av Manager {now:%Y-%m-%d}")
         self._seen_posts = []
@@ -300,35 +298,13 @@ class Manager:
         return "\n".join(lines) if rows or misses else "No decisions since the last run."
 
     async def _measures(self) -> str:
-        """Measures of the experience, computed here and interpreted by Manager: signals, not targets."""
-        sent = await self.db.fetchall(
-            "SELECT id, created_at FROM messages WHERE direction = 'out' AND origin = 'proactive' AND created_at >= datetime('now', '-7 days')"
-        )
-        delays = []
-        for m in sent:
-            reply = await self.db.fetchone(
-                "SELECT created_at FROM messages WHERE direction = 'in' AND id > ? AND created_at <= datetime(?, '+6 hours') ORDER BY id LIMIT 1",
-                (m["id"], m["created_at"]),
-            )
-            if reply:
-                delays.append((datetime.fromisoformat(reply["created_at"]) - datetime.fromisoformat(m["created_at"])).total_seconds() / 60)
-        delays.sort()
-        reactions = await self.db.fetchall(
-            "SELECT c.kind, f.value, count(*) AS n FROM feedback f JOIN candidates c ON c.id = f.candidate_id "
-            "WHERE f.signal = 'reaction' AND f.created_at >= datetime('now', '-7 days') GROUP BY c.kind, f.value ORDER BY n DESC LIMIT 10"
-        )
-        by_hour = await self.db.fetchall(
-            "SELECT strftime('%H', created_at, 'localtime') AS h, count(*) AS n FROM messages WHERE direction = 'out' AND origin = 'proactive' "
-            "AND created_at >= datetime('now', '-7 days') GROUP BY h ORDER BY h"
-        )
-        pauses = await self.db.fetchone("SELECT count(*) AS n FROM feedback WHERE signal = 'command' AND created_at >= datetime('now', '-7 days')")
-        pulls = await self.db.fetchone("SELECT count(*) AS n FROM feedback WHERE signal = 'shelf_pull' AND created_at >= datetime('now', '-7 days')")
+        """How contact lands, counted per contact (agent/ledger.py), the settings and what binds, and the pursuits:
+        evidence to judge from, not targets."""
+        from agent import ledger
+
         return "\n".join([
-            f"Proactive messages, last 7 days: {len(sent)} ({len(sent) / 7:.1f} per day); by hour: "
-            + (", ".join(f"{r['h']}:{r['n']}" for r in by_hour) or "none"),
-            f"Replied to within 6 h: {len(delays)} of {len(sent)}" + (f"; median after {delays[len(delays) // 2]:.0f} min" if delays else ""),
-            "Reactions by kind: " + (", ".join(f"{r['kind']} {r['value']}×{r['n']}" for r in reactions) or "none"),
-            f"Pause or focus requests: {pauses['n']}. Things pulled from what was saved: {pulls['n']}.",
+            await ledger.summary(self.db, self.settings.timezone),
+            "The settings (your understanding unless it binds):\n" + await assumptions.lines(self.db, self.settings),
             await Pursuits(self.db, self.settings.timezone).stats(7),
         ])
 

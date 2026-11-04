@@ -139,7 +139,7 @@ FORMS: dict[str, Form] = {f.name: f for f in (
                   "never_considered: nowhere in the picture of them"),
             Field("scope", help="Swedish: when it holds, if not always (\"under tentaperioden\")"),
             Field("setting", "enum", False, SETTINGS,
-                  "a belief the engine follows directly (agent/assumptions.py): quiet_hours (HH:MM-HH:MM), daily_contacts "
+                  "a belief the desk reads, binding only when the owner said it (agent/assumptions.py): quiet_hours (HH:MM-HH:MM), daily_contacts "
                   "(a number), bundle_times (HH:MM,HH:MM or inga), message_length (characters)"),
             Field("value", help="the setting's value, e.g. 22:00-06:30"),
         ),
