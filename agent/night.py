@@ -48,6 +48,23 @@ class Night:
         self.paused = paused  # the background quota is paused: wait, don't count it as an attempt
         self.held_since = held_since  # the budget held a run started since then (agent/budget.py): likewise
         self.running = False
+        self.state: dict | None = None   # tonight's progress as last read or written, for coming()
+
+    def coming(self, role: str, now: datetime) -> bool:
+        """Whether the role's step in tonight's sweep is still to come. A wake for it then waits for the sweep, which
+        reads the same: a date falling due at midnight or a step made by Director during the sweep ran the role twice
+        within minutes (5 and 6 Nov)."""
+        state = self.state
+        if state is None or role not in dict(self.steps):
+            return False   # not known yet (just started): wake as usual
+        if self.running and str(state.get("night", "")).startswith("by hand"):
+            return role not in state["done"]
+        start, end = self._window(now)
+        if not (start <= now < end):
+            return False
+        if state.get("night") != self.night_of(now):
+            return True   # tonight's sweep hasn't begun
+        return role not in state["done"]
 
     async def rewind(self, now: datetime) -> None:
         """Last night again: every role reads from the evening before last night's sweep, and the steps that only run
@@ -111,6 +128,7 @@ class Night:
             try:
                 done = [n for n, _ in self.steps if only and n != only]
                 state = {"night": f"by hand {now:%Y-%m-%d %H:%M}", "done": done, "attempts": {}}
+                self.state = state
                 await self.db.kv_set(STATE_KEY, state)   # kept, so a sweep that has to wait goes on later
                 await self._sweep(state)
             finally:
@@ -119,6 +137,7 @@ class Night:
         held = await self.db.kv_get(STATE_KEY) or {}
         if str(held.get("night", "")).startswith("by hand") and len(held.get("done", [])) < len(self.steps):
             self.running = True   # a sweep started by hand that waited (for the quota, say) goes on where it stopped
+            self.state = held
             try:
                 await self._sweep(held)
             finally:
@@ -128,6 +147,7 @@ class Night:
         if not (start <= now < end):
             return
         state = await self._state(self.night_of(now))
+        self.state = state
         if len(state["done"]) == len(self.steps):
             return
         planned = await self.planned_start(now)

@@ -121,6 +121,8 @@ async def run() -> None:
     await assumptions.ensure(db, settings)   # what the system takes for granted is a belief too (quiet hours …)
     for ended in await assumptions.end_trials(db):   # omgång 11: the evidence is kept per contact instead
         log.info("trial ended: %s", ended)
+    if pid := await assumptions.tell_trials_ended(db):
+        log.info("told Manager the trials ended: #P%s", pid)
     await assumptions.apply(db, settings)
     Items.watchers.append(assumptions.watcher(settings))
     Items.watchers.append(questions.route)
@@ -231,11 +233,17 @@ async def run() -> None:
     # The internal mail wakes a role when a post from a chain that began with the owner asks for it (agent/posts.py).
     # Coalesced (one queued run per role) and spaced (at most every 30 min), so a chatty day can't flood them.
     last_wake: dict[str, datetime] = {}
+    night: Night | None = None   # set below; a role whose night step is still to come waits for it
+    deferred: dict[str, str] = {}   # why a role was to be woken, for its night step
 
     def wake(role: str, reason: str = "the owner's words") -> None:
         runs = {"director": (director.run, ["understand"]), "manager": (manager.run, []), "researcher": (planner.run, [reason])}
         if role not in runs:
             return  # other roles read their inbox at their next run
+        if night is not None and night.coming(role, datetime.now(ZoneInfo(settings.timezone))):
+            deferred[role] = "; ".join(filter(None, [deferred.get(role), reason]))
+            log.info("%s's night step is still to come tonight; it takes this along: %s", role, reason)
+            return
         if role in last_wake and datetime.now() - last_wake[role] < timedelta(minutes=30):
             return  # the pending posts are picked up by the next run anyway
         last_wake[role] = datetime.now()
@@ -322,6 +330,7 @@ async def run() -> None:
         return await night_pass.run() is not None
 
     async def director_step() -> bool:
+        deferred.pop("director", None)
         if await db.kv_get("night.force_reflect"):   # deploy/audax night reflect
             await db.kv_set("night.force_reflect", None)
             return await director.run("reflect") is not None
@@ -333,10 +342,14 @@ async def run() -> None:
         if await db.kv_get("night.force_researcher"):   # a replay of the night (agent/night.py)
             await db.kv_set("night.force_researcher", None)
             return await planner.run("a replay of last night") is not None
-        reason = await planner.due()
-        return reason is None or await planner.run(reason) is not None
+        reason = deferred.get("researcher") or await planner.due()   # a wake that waited for the sweep counts
+        if reason is None or await planner.run(reason) is not None:
+            deferred.pop("researcher", None)
+            return True
+        return False
 
     async def manager_step() -> bool:
+        deferred.pop("manager", None)
         return await manager.run() is not None
 
     night = Night(

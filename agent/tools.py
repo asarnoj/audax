@@ -329,11 +329,14 @@ def build_chat_tools(
                 "properties": {
                     "days": {"type": "integer", "minimum": 1, "maximum": 21, "description": "Number of days from today"},
                     "include_not_mine": {"type": "boolean", "description": "Include sessions {owner} has said don't apply to them"},
+                    "series_id": {"type": "integer", "description": "Instead: every coming session of this series, however far ahead"},
                 },
                 "required": ["days"],
             },
         )
         async def get_schedule(args: dict[str, Any]) -> dict[str, Any]:
+            if args.get("series_id"):
+                return _text(await schedule.format_series(args["series_id"]))
             return _text(await schedule.format_days(args["days"], args.get("include_not_mine", False)))
 
         @tool(

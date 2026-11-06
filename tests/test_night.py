@@ -246,3 +246,20 @@ async def test_a_step_the_budget_holds_back_waits_instead_of_using_up_its_attemp
     for _ in range(4):
         await night.tick(noon)
     assert ran == ["held", "held", "held", "manager"]
+
+
+async def test_a_wake_waits_for_tonights_sweep_when_the_roles_step_is_still_to_come(db):
+    # 5–6 Nov: a date falling due at midnight, or a step Director made in the sweep, ran a role minutes before its night step
+    steps = [(n, None) for n in ("assistant", "director", "researcher", "manager")]
+    night = Night(load_settings(), db, steps)
+    evening = datetime(2026, 11, 5, 23, 30, tzinfo=TZ)
+    assert not night.coming("manager", evening)   # nothing known yet (just started): wake as usual
+    night.state = {"night": "2026-11-04", "done": ["assistant", "director", "researcher", "manager"], "attempts": {}}
+    assert night.coming("manager", evening)   # last night's sweep is done; tonight's hasn't begun
+    assert not night.coming("manager", datetime(2026, 11, 5, 15, 0, tzinfo=TZ))   # daytime
+    night.state = {"night": "2026-11-05", "done": ["assistant", "director"], "attempts": {}}
+    midnight = datetime(2026, 11, 6, 0, 28, tzinfo=TZ)
+    assert night.coming("researcher", midnight) and not night.coming("director", midnight)
+    night.state["done"] += ["researcher", "manager"]
+    assert not night.coming("researcher", midnight)   # tonight's sweep is over: a wake runs at once
+    assert not night.coming("assistant_chat", midnight)

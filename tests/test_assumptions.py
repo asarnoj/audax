@@ -108,3 +108,15 @@ async def test_bundles_and_the_days_contacts(db):
         await db.execute("INSERT INTO messages (telegram_message_id, direction, origin, text, created_at) "
                          "VALUES (1, 'out', 'proactive', 'x', datetime('now', ?))", (f"-{minutes} minutes",))
     assert await assumptions.contacts_today(db, datetime.now(tz)) == 2
+
+
+async def test_manager_is_told_once_that_its_trials_ended(db):
+    # 5–6 Nov: the trials were dropped by the code, and Manager's working memory went on deferring to #E201
+    eid = await Items(db).create("experiment", "Prövar buntar", "manager", kind="improve", status="running", owner="manager",
+                                 review_at="2026-11-09", data={"setting": "bundle_times", "test_value": "09:00,17:00",
+                                                               "hypothesis": "h", "intervention": "i", "measure": "m"})
+    await assumptions.end_trials(db)
+    pid = await assumptions.tell_trials_ended(db)
+    post = await db.fetchone("SELECT sender, recipient, body FROM posts WHERE id = ?", (pid,))
+    assert (post["sender"], post["recipient"]) == ("system", "manager") and f"#E{eid}" in post["body"]
+    assert await assumptions.tell_trials_ended(db) is None   # once

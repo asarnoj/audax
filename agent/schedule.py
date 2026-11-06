@@ -254,6 +254,24 @@ class Schedule:
             lines.append(f"- {when} {s.summary}{where}{tag}{ref}")
         return "\n".join(lines).strip()
 
+    async def format_series(self, series_id: int) -> str:
+        """Every coming session of one series, however far ahead: what a question about it refers to."""
+        row = await self.db.fetchone("SELECT calendar, series_key, label, relevance, note FROM calendar_series WHERE id = ?", (series_id,))
+        if row is None:
+            return f"Ingen serie med id {series_id}."
+        events = await self.db.fetchall(
+            "SELECT start, end, all_day, location FROM calendar_events WHERE calendar = ? AND series_key = ? AND status = 'active' "
+            "AND start > ? ORDER BY start", (row["calendar"], row["series_key"], utc_iso(self.now())))
+        head = f"{row['label']} (serie {series_id}, {row['relevance']}{', ' + row['note'] if row['note'] else ''})"
+        if not events:
+            return head + ": inga kommande pass."
+        lines = [head + f": {len(events)} kommande pass"]
+        for e in events:
+            d, end = (datetime.fromisoformat(e[k]).astimezone(self.tz) for k in ("start", "end"))
+            when = "heldag" if e["all_day"] else f"{d:%H:%M}–{end:%H:%M}"
+            lines.append(f"- {_weekday(d)} {d.day}/{d.month} {when}" + (f" · {e['location']}" if e["location"] else ""))
+        return "\n".join(lines)
+
     # --- relevance --------------------------------------------------------
 
     async def set_relevance(self, series_id: int, relevance: str, note: str | None = None) -> bool:
@@ -272,8 +290,8 @@ class Schedule:
     async def unknown_series(self) -> list[dict]:
         """Unknown series with an upcoming session, soonest first: these are worth asking about."""
         rows = await self.db.fetchall(
-            "SELECT s.id, s.label, MIN(e.start) AS next_start FROM calendar_series s "
-            "JOIN calendar_events e ON e.calendar = s.calendar AND e.series_key = s.series_key "
+            "SELECT s.id, s.label, MIN(e.start) AS next_start, MAX(e.start) AS last_start, COUNT(*) AS sessions "
+            "FROM calendar_series s JOIN calendar_events e ON e.calendar = s.calendar AND e.series_key = s.series_key "
             "WHERE s.relevance = 'unknown' AND e.status = 'active' AND e.start > ? "
             "GROUP BY s.id ORDER BY next_start",
             (utc_iso(self.now()),),
@@ -292,6 +310,7 @@ class Schedule:
             "question": "Vilka av de här passen i TimeEdit gäller dig? (Kryssa i alla som gäller.)",   # as a poll only without a chat
             "options": options + ["Inga av dessa"],
             "series_ids": [u["id"] for u in unknown],
+            "sessions": [_sessions(u, self.tz) for u in unknown],   # with dates: "torsdagar kl 12" for one session 3 weeks out confused (5 Nov)
         }
 
     async def record_poll(self, poll_id: str, message_row_id: int | None, question: dict) -> None:
@@ -325,6 +344,16 @@ class Schedule:
 
 def _weekday(d: datetime) -> str:
     return ["Mån", "Tis", "Ons", "Tor", "Fre", "Lör", "Sön"][d.weekday()]
+
+
+def _sessions(u: dict, tz: ZoneInfo) -> str:
+    """One unknown series for a question in the conversation: how many sessions, and when, with dates."""
+    first = datetime.fromisoformat(u["next_start"]).astimezone(tz)
+    when = f"{_weekday(first).lower()} {first.day}/{first.month} {first:%H:%M}"
+    if u.get("sessions", 1) <= 1:
+        return f"{u['label']}: ett enda pass, {when}"
+    last = datetime.fromisoformat(u["last_start"]).astimezone(tz)
+    return f"{u['label']}: {u['sessions']} pass, nästa {when}, sista {_weekday(last).lower()} {last.day}/{last.month}"
 
 
 def _option(label: str, next_start: str, tz: ZoneInfo) -> str:

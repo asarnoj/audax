@@ -193,3 +193,17 @@ async def test_a_question_asked_in_the_chat_is_closed_by_the_answer_recorded_the
     assert await s.next_question() is None
     await s.set_relevance(q["series_ids"][0], "mine")   # the chat records the owner's answer
     assert (await db.fetchone("SELECT answered_at FROM polls WHERE poll_id = 'chat:7'"))["answered_at"] is not None
+
+
+async def test_a_question_names_its_sessions_with_dates_and_one_series_can_be_looked_up_however_far_ahead(db, now):
+    # 5 Nov: "Storträff på torsdagar kl 12" was one session three weeks out, beyond the chat's 21-day view
+    src = FakeSource("timeedit", "ask")
+    src.ics = ics(vevent("st", now + timedelta(days=24, hours=3), 5, "Storträff"),
+                  *[vevent(f"o{i}", now + timedelta(days=1 + 7 * i, hours=1), 2, "Övning") for i in range(3)])
+    s = make(db, now, src)
+    s.window_days = 30
+    await s.sync()
+    q = await s.next_question()
+    assert q["sessions"] == ["Övning: 3 pass, nästa tis 13/10 10:00, sista tis 27/10", "Storträff: ett enda pass, tor 5/11 12:00"]
+    assert "- Tor 5/11 12:00–17:00" in await s.format_series(q["series_ids"][1])
+    assert await s.format_series(999) == "Ingen serie med id 999."

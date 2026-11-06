@@ -278,3 +278,24 @@ async def end_trials(db: Database) -> list[str]:
         done.append(ref(e))
     await db.kv_set("assumptions.trials_ended", True)
     return done
+
+
+async def tell_trials_ended(db: Database) -> int | None:
+    """Once: Manager hears that its trials ended. They were dropped by the code, so its working memory went on saying a
+    trial was running and deferring to it (#E201, 5 and 6 Nov); a change made under a role is news for that role."""
+    if await db.kv_get("assumptions.trials_told"):
+        return None
+    await db.kv_set("assumptions.trials_told", True)
+    ended = await db.fetchall(
+        "SELECT id FROM items WHERE form = 'experiment' AND status = 'dropped' "
+        "AND json_extract(data, '$.decision') LIKE 'avslutad 4 nov: prövningarna ersattes%'")
+    if not ended:
+        return None
+    from agent.posts import Posts
+
+    refs = ", ".join(f"#E{r['id']}" for r in ended)
+    return await Posts(db).send(
+        "system", "manager", "note",
+        f"Prövningarna av inställningarna är avslutade sedan 4 nov ({refs}, status dropped), och protokollet med en prövning "
+        "i taget, fasta perioder och avgörande finns inte längre. Inget väntar på att de ska avgöras. Inställningarna är din "
+        "förståelse (understanding) och vägleder desken utan att binda; kontaktliggaren under Measures håller underlaget per kontakt.")

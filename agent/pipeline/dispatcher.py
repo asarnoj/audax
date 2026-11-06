@@ -359,11 +359,12 @@ class Dispatcher:
             if self.outbox.speak is None:   # no chat at all (tests, a bare engine)
                 poll_id, message_row_id = await self.send_poll(question["question"], question["options"])
             else:   # the one voice asks, as part of the conversation, and the chat records the answer (22 Oct: a poll came out of nowhere)
-                sessions = "\n".join(f"- {o} (series {i})" for o, i in zip(question["options"], question["series_ids"]))
+                sessions = "\n".join(f"- {o} (series {i})" for o, i in zip(question["sessions"], question["series_ids"]))
                 try:
                     ids = await self.outbox.speak(
                         "Ask the owner which of these sessions in their timetable apply to them: briefly, as a question in your "
-                        "conversation, with a few words on why (so you know when they are busy). When they answer, record it with "
+                        "conversation, with a few words on why (so you know when they are busy). Say when they are, with the dates "
+                        "below: a single session is one occasion, not a weekly series. When they answer, record it with "
                         "set_series_relevance for each series (mine, not_mine or sometimes).\n" + sessions,
                         about={f"TimeEdit-serie {i}" for i in question["series_ids"]})
                 except Exception as e:
