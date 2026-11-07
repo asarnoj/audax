@@ -26,7 +26,8 @@ FEW = 3                       # fewer contacts than this in a group say nothing 
 ACTIVE = timedelta(minutes=45)
 NEGATIVE = ("negative:amount", "negative:timing")
 KINDS = {"opportunity": "fynd", "event": "fynd", "news": "fynd", "tool": "fynd", "social": "fynd", "job": "fynd",
-         "insight": "tanke", "search_update": "tanke", "manager_note": "tanke", "thought": "tanke", "nudge": "knuff"}
+         "insight": "tanke", "search_update": "tanke", "manager_note": "tanke", "thought": "tanke", "nudge": "knuff",
+         "step": "steg"}
 
 
 def _at(s: str) -> datetime:

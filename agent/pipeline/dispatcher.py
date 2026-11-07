@@ -20,7 +20,8 @@ from agent.config import Settings
 from agent.db import Database
 from agent.memory import MemoryRepo
 from agent.prompts import prompt as prompt_template
-from agent.pipeline.outbox import AlreadySaid, FallbackDispatcher, Outbox, SendPoll
+from agent.items import Items
+from agent.pipeline.outbox import STEP, AlreadySaid, FallbackDispatcher, Outbox, SendPoll
 from agent.schedule import Schedule, utc_iso
 
 log = logging.getLogger(__name__)
@@ -177,6 +178,8 @@ class Dispatcher:
             elif decision == "drop":
                 await self.outbox.set_tier(row["id"], "drop", "dropped")
                 label = "släppt"
+                if row["kind"] == STEP and (sid := json.loads(row["features"] or "{}").get("step")):   # its plan hears why
+                    await Items(self.db).update(int(sid), "system", status="dropped", data={"result": f"Desken släppte det: {d.get('reason', '')}"})
             await self.outbox.record(row["id"], MODULE, label, d.get("reason", ""), trace)
             to = {"at": "calendar", "now": "assistant", "shelf": "board", "drop": "bin"}[decision]
             await trail.emit("place", "manager", to=to, ref=f"#F{row['id']}")
@@ -231,10 +234,13 @@ class Dispatcher:
             await self._prepare()
             await self.outbox.expire_shelf()
             now = self.schedule.now()
+            bookings = await self.agenda.due_bookings(now)
+            along: set[int] = set()
             if due := await self.agenda.due_findings(now):
-                await self._deliver_findings(due, now)
-            for b in await self.agenda.due_bookings(now):
-                await self._deliver_booking(b, now)
+                along = await self._deliver_findings(due, now, bookings=bookings)
+            for b in bookings:
+                if b["id"] not in along:
+                    await self._deliver_booking(b, now)
             undecided = await self.outbox.pending()
         if undecided and (self._last_decide is None or now - self._last_decide >= RETRY_UNDECIDED):
             await self.run()
@@ -265,7 +271,8 @@ class Dispatcher:
             return busy.end + timedelta(minutes=2)
         return None
 
-    async def _deliver_findings(self, rows: list, now: datetime, decided_now: bool = False) -> None:
+    async def _deliver_findings(self, rows: list, now: datetime, decided_now: bool = False, bookings: list = ()) -> set[int]:
+        """Returns the bookings that went along in the same message."""
         hold, go = [], []
         for r in rows:
             urgent = json.loads(r["features"] or "{}").get("time_sensitivity") == "high"
@@ -276,10 +283,31 @@ class Dispatcher:
             await self.agenda.schedule_findings([r["id"]], until)
             await self.outbox.record(r["id"], MODULE, f"väntar till {self.agenda.show(until)}", "Tiden kom, men det var nattro, paus, ett pass, eller något du själv bett om (dagens antal, samlat).", {})
             await trail.emit("place", "manager", to="calendar", ref=f"#F{r['id']}")
-        if go:
-            await self.outbox.deliver([r for r, _ in go])  # the Assistant writes the message
-            for r, _ in go:   # a planned one is taken from the calendar, one sent now from the Assistant's inbox
-                await trail.emit("deliver", "assistant", source="inbox" if decided_now else "calendar", ref=f"#F{r['id']}")
+        if not go:
+            return set()
+        joined = []   # a booking due now goes in the same message: one contact, not two 11 seconds apart (5 and 6 Nov)
+        for b in bookings:
+            if (b["fixed"] or not await self._hold_until(now, urgent=False)) and await self.db.execute_count(
+                    "UPDATE bookings SET status = 'sending' WHERE id = ? AND status = 'planned'", (b["id"],)):
+                joined.append(b)
+        along = "\n".join(f"- #B{b['id']} " + ("a reminder the owner asked for" if b["kind"] == "reminder" else "something you promised the owner")
+                          + (f" (about {b['ref']})" if b["ref"] else "") + f": {b['body']}" for b in joined)
+        refs_along = frozenset({f"#B{b['id']}" for b in joined} | {b["ref"] for b in joined if b["ref"]})
+        ids = await self.outbox.deliver([r for r, _ in go], along, refs_along)  # the Assistant writes the message
+        for r, _ in go:   # a planned one is taken from the calendar, one sent now from the Assistant's inbox
+            await trail.emit("deliver", "assistant", source="inbox" if decided_now else "calendar", ref=f"#F{r['id']}")
+        for b in joined:
+            if ids:
+                await self.db.execute("UPDATE bookings SET status = 'sent', sent_at = datetime('now'), message_id = ? WHERE id = ?",
+                                      (ids[0], b["id"]))
+                await trail.emit("deliver", "assistant", source="calendar", ref=f"#B{b['id']}")
+            else:   # nothing went out: the booking goes on its own, as before
+                await self.db.execute("UPDATE bookings SET status = 'planned' WHERE id = ? AND status = 'sending'", (b["id"],))
+        if ids and joined:
+            from agent import refs
+
+            await refs.link(self.db, ids, set(refs_along))
+        return {b["id"] for b in joined} if ids else set()
 
     async def _deliver_booking(self, b, now: datetime) -> None:
         """A reminder the owner asked for, or a promise the Assistant made, through the one voice."""

@@ -308,7 +308,10 @@ async def run() -> None:
     async def quiet_now() -> bool:
         return settings.quiet_hours.contains(datetime.now(ZoneInfo(settings.timezone)).time()) or bool(await dispatcher.silenced_until())
 
-    calendar = Calendar(db, settings.timezone, wake=wake, speak=bot.chat.speak, quiet=quiet_now)
+    async def to_desk() -> None:
+        await dispatcher.run(force=True)
+
+    calendar = Calendar(db, settings.timezone, wake=wake, speak=bot.chat.speak, quiet=quiet_now, desk=to_desk)
     scheduler.add_job(calendar.tick, "interval", minutes=5, next_run_time=datetime.now() + timedelta(minutes=1), id="calendar",
                       max_instances=1, coalesce=True)
     # The conversation's window (agent/chat.py): a big, quiet conversation is folded into its summary.

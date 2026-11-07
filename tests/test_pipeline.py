@@ -372,6 +372,33 @@ async def test_a_booking_is_never_sent_as_its_raw_text(db, tmp_path):
         Clock.at = None
 
 
+async def test_a_reminder_due_with_a_finding_goes_in_the_same_message(db, tmp_path):
+    # 5 and 6 Nov: the desk put a thought with a booked reminder "so it is one message", and two went out 11 s apart
+    d, sent = await make_dispatcher(db, tmp_path, {"decisions": []})
+    Clock.at = NOW.replace(hour=12)
+    try:
+        due = utc_iso(NOW.replace(hour=11, minute=59))
+        f = await add_candidate(db, "thought", "Reserv", "Sätt en reserv bland valen", {})
+        await d.agenda.schedule_findings([f], NOW.replace(hour=11, minute=59))
+        b = await db.execute("INSERT INTO bookings (kind, title, body, due_at, requested_by, fixed) VALUES "
+                             "('reminder', 'Kurser', 'Planera vårens kurser', ?, 'owner', 1)", (due,))
+        spoken = []
+
+        async def speak(instruction, about=frozenset()):
+            spoken.append((instruction, about))
+            return [await db.execute("INSERT INTO messages (telegram_message_id, direction, text, origin) VALUES (3, 'out', 'x', 'proactive')")]
+
+        d.outbox.speak = speak
+        await d.tick()
+        assert len(spoken) == 1 and "Sätt en reserv" in spoken[0][0] and "Planera vårens kurser" in spoken[0][0]
+        assert f"#B{b}" in spoken[0][1]
+        booking = await db.fetchone("SELECT status, message_id FROM bookings WHERE id = ?", (b,))
+        assert booking["status"] == "sent" and booking["message_id"] is not None
+        assert (await db.fetchone("SELECT status FROM candidates WHERE id = ?", (f,)))["status"] == "sent"
+    finally:
+        Clock.at = None
+
+
 async def test_the_offices_questions_reach_a_quiet_owner_one_contact_at_a_time(db, tmp_path):
     from agent.items import Items
 

@@ -97,7 +97,7 @@ All kommunikation mellan rollerna går genom en central postlogg (#P). Varje rol
 
 ## Kalendern och städpassen
 
-- **Kalendern** (`agent/due.py`) går var femte minut. När ett steg, ett experiment eller en fråga är dags väcks ägaren. Ett steg som Assistant äger och som ska tas upp med dig gör Assistant vid sitt datum, utom under nattro eller paus. Så når en plan dig, i stället för löften i chatten.
+- **Kalendern** (`agent/due.py`) går var femte minut. När ett steg, ett experiment eller en fråga är dags väcks ägaren. Ett steg som Assistant äger och som ska tas upp med dig går vid sitt datum till desken som ett ärende (sorten `steg`). Desken väljer stunden, inte om det ska fram, och steget är klart när meddelandet gått ut. Så når en plan dig, i stället för löften i chatten. Det som infaller samtidigt, till exempel en påminnelse du bokat och ett fynd, går ut som ett meddelande.
 - **Ett steg till Researcher görs direkt.** Researcher väcks när steget skapas; datumet är när svaret behövs senast.
 - **Ett steg kan vänta på något.** När det det väntar på blir klart är steget dags direkt.
 - **En fråga utan svar** stängs efter en vecka. Det är också något att förstå, inte något att fråga om igen direkt.

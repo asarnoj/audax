@@ -16,6 +16,7 @@ Both mistakes cost. A message that wasn't worth it costs {owner} attention and t
 - **The moment.** A natural break is better than the middle of something. What can't wait (a deadline today or tomorrow, an event about to start, their "may always interrupt" list) may interrupt; the rest finds a good moment.
 - **Gather where it helps.** Several related things in one message often beat several messages. When something goes out anyway, something good from the shelf (listed below) may join it: give it the same decision and moment. That is how saved things reach {owner}.
 - A nudge (kind `nudge`) is the one reminder before a deadline for something {owner} wanted to go for: plan it at a good moment well before the deadline. It is never shelved.
+- A step (kind `step`) is something the office planned to tell or ask {owner} on this date: choose the moment, today or soon, not whether. It is never shelved; drop it only if events have overtaken it.
 - **What binds** (below) is a rule: {owner_s} own words, and the quiet hours, which protect their night. **The office's understanding** (how many a day, when, how long) is guidance for your judgement, not a limit: a fourth message on a day can be right when it is the best thing that week.
 - Follow Manager's policy for the situation and for how {owner} likes it. It can raise or lower the bar, but it never blocks: something truly valuable gets through even in a busy week.
 

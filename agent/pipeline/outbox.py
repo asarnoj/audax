@@ -70,8 +70,10 @@ class Outbox:
     async def pending(self) -> list:
         return await self.db.fetchall("SELECT * FROM candidates WHERE status = 'pending' ORDER BY created_at")
 
-    async def deliver(self, rows: list) -> None:
+    async def deliver(self, rows: list, along: str = "", along_refs: frozenset[str] = frozenset()) -> list[int]:
         """Sends one message carrying the given candidates and links them for replies, reactions and "why did I get this?".
+        `along` is what else is due at the same moment (a reminder the owner booked): it goes in the same message, which is
+        returned so the caller can mark it sent (6 Nov: the desk put a thought with a reminder, and two messages went out).
 
         At most once per candidate: each one is claimed (pending -> sending) before anything is written, so a second
         concurrent delivery of the same candidate finds nothing to claim. If nothing at all could be sent, the claim
@@ -82,7 +84,7 @@ class Outbox:
         if sent["n"] >= BREAKER_PER_HOUR:
             log.warning("delivery held: %d proactive messages in the last hour (breaker)", sent["n"])
             await self.db.kv_set(BREAKER_KEY, utc_iso(self.schedule.now()))
-            return
+            return []
         claimed = []
         for r in rows:
             if await self.db.execute_count(
@@ -93,22 +95,23 @@ class Outbox:
             log.warning("delivery: %d of %d candidate(s) were no longer pending, skipped", len(rows) - len(claimed), len(rows))
         rows = claimed
         if not rows:
-            return
+            return []
         message_ids: list[int] = []
         try:
-            message_ids = await self._send(rows)
+            message_ids = await self._send(rows, along, along_refs)
         except AlreadySaid:
             for r in rows:
                 await self.db.execute("UPDATE candidates SET status = 'dropped', tier = 'drop', updated_at = datetime('now') WHERE id = ?", (r["id"],))
                 await self.record(r["id"], "chat", "drop", "Redan sagt i samtalet, så inget nytt meddelande skickades.", {})
+            await self._steps_done(rows, "Redan sagt i samtalet.")
             log.info("delivery: the chat had already said this; %d candidate(s) dropped", len(rows))
-            return
+            return []
         except Exception:
             log.exception("delivery failed; the candidates wait for the next round")
         if not message_ids:
             for r in rows:
                 await self.db.execute("UPDATE candidates SET status = 'pending' WHERE id = ? AND status = 'sending'", (r["id"],))
-            return
+            return []
         from agent import refs
 
         await refs.link(self.db, message_ids, {f"#F{r['id']}" for r in rows})
@@ -118,9 +121,19 @@ class Outbox:
                 await self.db.execute(
                     "INSERT OR IGNORE INTO message_candidates (message_id, candidate_id) VALUES (?, ?)", (mid, r["id"])
                 )
+        await self._steps_done(rows, "Sagt till ägaren.")
         log.info("delivered %d candidate(s)", len(rows))
+        return message_ids
 
-    async def _send(self, rows: list) -> list[int]:
+    async def _steps_done(self, rows: list, result: str) -> None:
+        """A step of a plan that went out through the desk (agent/due.py) is done."""
+        from agent.items import Items
+
+        for r in rows:
+            if r["kind"] == STEP and (sid := json.loads(r["features"] or "{}").get("step")):
+                await Items(self.db).update(int(sid), "assistant", status="done", data={"result": result}, note="levererat")
+
+    async def _send(self, rows: list, along: str = "", along_refs: frozenset[str] = frozenset()) -> list[int]:
         """The chat writes the message (one voice). If it can't, nothing goes out and the findings wait for the next
         round: a draft is written for the office, not for the owner, so it is never sent as it is. Only without a
         chat at all (tests, a bare engine) is the plain draft sent."""
@@ -130,11 +143,15 @@ class Outbox:
                               + (f"\n  NOT confirmed (say so): {doubt}" if (doubt := _feature(r, "unconfirmed")) else "")
                               + ("\n  a thought of the office's (say it as yourself)" if r["kind"] == "thought" else "")
                               + (f"\n  unsure (a direct question may settle it): {unsure}" if (unsure := _feature(r, "unsure")) else "")
+                              + ("\n  a step of the office's plan, due now: read it and what it serves if you need the details"
+                                 if r["kind"] == STEP else "")
                               for r in rows)
+            if along:
+                items += "\nDue at the same moment, in the same message:\n" + along
             try:
                 ids = await self.speak(
                     "Findings for the owner: one message, one line per item, links kept, each with what it is and why it is "
-                    f"for them.\n{items}", about={f"#F{r['id']}" for r in rows}
+                    f"for them.\n{items}", about={f"#F{r['id']}" for r in rows} | set(along_refs)
                 )
                 if ids:
                     return ids
@@ -236,6 +253,9 @@ class FallbackDispatcher:
             await self.outbox.set_tier(r["id"], "now")
             await self.outbox.record(r["id"], self.MODULE, "nu", "Reserv: Claude var otillgänglig, så bara det brådskande skickades.", {"availability": context})
         await self.outbox.deliver(rows)  # the rest stays undecided; the desk tries again when Claude is back
+
+
+STEP = "step"   # a step of a plan for the owner, offered to the desk when its date comes (agent/due.py)
 
 
 def _feature(row, key: str) -> str:

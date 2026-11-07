@@ -140,3 +140,28 @@ async def test_managers_overview_shows_how_the_contacts_landed(db):
     await db.execute("INSERT INTO messages (telegram_message_id, direction, text, origin, created_at) VALUES (2, 'out', 'Hur går det med barnboken?', 'proactive', datetime('now', '-3 days'))")
     text = await pulse(db, NOW)
     assert "Ägaren skrev senast: för 5 dagar sedan" in text and "Hur går det med barnboken?" in text and "inget svar" in text
+
+
+async def test_with_a_desk_a_step_for_the_owner_is_offered_to_it_and_done_when_it_goes_out(db):
+    # 5 and 7 Nov: steps went out at 06:31, the minute the night ended, past the desk and the policy's working hours
+    from agent.pipeline.outbox import Outbox
+
+    _, _, tell, _ = await plan(db)
+    asked = []
+
+    async def desk():
+        asked.append(1)
+
+    cal = Calendar(db, "Europe/Stockholm", wake=lambda role, why: None, desk=desk)
+    await cal.tick(NOW)
+    [row] = await db.fetchall("SELECT * FROM candidates")
+    assert row["kind"] == "step" and asked == [1] and "Ta upp planen med Julius" in row["body"] and "Medgrundare" in row["body"]
+    assert (await Items(db).get(tell))["status"] == "planned"   # not yet: the desk chooses the moment
+    await cal.tick(NOW)
+    assert (await db.fetchone("SELECT count(*) AS n FROM candidates"))["n"] == 1   # offered once per date
+
+    async def speak(instruction, about=frozenset()):
+        return [await db.execute("INSERT INTO messages (telegram_message_id, direction, text, origin) VALUES (1, 'out', 'x', 'proactive')")]
+
+    await Outbox(db, None, None, speak).deliver([row])
+    assert (await Items(db).get(tell))["status"] == "done"

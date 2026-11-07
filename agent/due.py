@@ -214,8 +214,9 @@ class Calendar:
     """Ticks every few minutes: wakes the owners of what is due, once per date."""
 
     def __init__(self, db: Database, tz: str, wake: Callable[[str, str], None], speak=None,
-                 quiet: Callable[[], Awaitable[bool]] | None = None):
+                 quiet: Callable[[], Awaitable[bool]] | None = None, desk: Callable[[], Awaitable[None]] | None = None):
         self.db = db
+        self.desk = desk            # Manager's desk: when set, a step for the owner is offered to it instead of said at once
         self.tz = ZoneInfo(tz)
         self.wake = wake            # (role, reason) -> schedules that role's run
         self.speak = speak          # the chat's speak: for steps that tell or ask the owner
@@ -235,9 +236,11 @@ class Calendar:
             if await self.db.kv_get(key) == item["review_at"]:
                 continue   # already woken for this date
             if item["form"] == "step" and item["owner"] == "assistant" and item.get("action") in OWNER_FACING:
-                if self.speak is None or (self.quiet and await self.quiet()):
+                if self.desk is not None:
+                    await self._offer(item)   # the desk chooses the moment (7 Nov: steps went out at 06:31, the minute the night ended)
+                elif self.speak is None or (self.quiet and await self.quiet()):
                     continue   # later, when the owner can be reached
-                if not await self._tell(item):
+                elif not await self._tell(item):
                     continue
             elif item["owner"]:
                 roles.setdefault(item["owner"], []).append(ref(item))
@@ -255,9 +258,30 @@ class Calendar:
             done.append(f"tråd {f['item_id']} → {f['role']}")
         for role, refs in roles.items():
             self.wake(role, "dags: " + ", ".join(refs))
+        if self.desk is not None and any(d.endswith("→ assistant") for d in done):
+            await self.desk()
         if done:
             log.info("calendar: %s", "; ".join(done))
         return done
+
+    async def _offer(self, item: dict) -> None:
+        """A step for the owner whose date has come joins the outbox like a finding; the desk decides when, and it is done
+        when it goes out (agent/pipeline/outbox.py)."""
+        from agent.pipeline.outbox import STEP, add_candidate
+
+        items = Items(self.db)
+        parent = await items.get(item["parent_id"]) if item["parent_id"] else None
+        waited = await items.get(parse_ref(item["after"])) if item.get("after") and parse_ref(item["after"]) else None
+        what = "Fråga ägaren" if item["action"] == "ask_owner" else "Berätta för ägaren"
+        if waited is not None:
+            body = (f"Ett löfte att återkomma ({ref(item)}): {item['title']}. Det väntade på {ref(waited)} ({waited['title']}); "
+                    f"läs vad det blev och säg hur det står till.")
+        else:
+            body = (f"{what} ({ref(item)}): {item['title']}. Klart när: {item.get('done_when', '')}."
+                    + (f" Det tjänar: {parent['title']}." if parent else ""))
+        await add_candidate(self.db, kind=STEP, title=item["title"], body=body,
+                            features={"relevance": "high", "time_sensitivity": "medium", "step": item["id"],
+                                      "reason": f"Ett steg i en plan, med dagens datum ({ref(item)})."})
 
     async def _tell(self, item: dict) -> bool:
         from agent.pipeline.outbox import AlreadySaid
