@@ -123,8 +123,10 @@ async def move_lessons(db: Database, memory: Path) -> int:
     path = memory / "lardomar.md"
     if not path.exists() or path.read_text().startswith("# Kontorets praxis"):
         return 0
+    old = path.read_text()
+    path.write_text(PRACTICE_HEADER)   # first: each belief made below rewrites this view, which must not move them again (9 Nov)
     moved = 0
-    for line in path.read_text().splitlines():
+    for line in old.splitlines():
         m = re.match(r"- (.+?)\s*\((Assistant|Director|Researcher|Manager), (\d+) (\w+)\)\s*$", line.strip())
         if not m:
             continue

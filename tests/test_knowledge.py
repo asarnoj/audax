@@ -62,3 +62,15 @@ def test_the_latest_week_is_read_against_the_owners_own_baseline():
     line = ledger.baseline(old + new, 21)
     assert "svar på 0 av 3 (0 %), mot 100 % av 10 dessförinnan" in line
     assert ledger.baseline(new, 21) == ""   # nothing to compare with
+
+
+async def test_moving_the_lessons_with_the_view_watching_moves_each_once(db, tmp_path, monkeypatch):
+    # 9 Nov: each belief made rewrote the view, which moved the same lesson again: 196 copies and a RecursionError
+    async def watch(db_, item):
+        if item["form"] == "belief":
+            await write_practice(db_, tmp_path)
+
+    monkeypatch.setattr(Items, "watchers", [watch])
+    (tmp_path / "lardomar.md").write_text("# Lärdomar\n- A (Assistant, 18 okt)\n- B (Director, 2 nov)\n")
+    await write_practice(db, tmp_path)
+    assert [r["title"] for r in await Items(db).find("belief", kind="practice")] == ["A", "B"]
