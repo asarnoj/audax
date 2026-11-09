@@ -42,7 +42,7 @@ from agent.config import INSTANCE
 from agent.office import Office
 from agent import assumptions, opportunities, questions, threads
 from agent.due import Calendar, follower, starter
-from agent.beliefs import write_profile
+from agent.beliefs import write_practice, write_profile
 from agent.items import Items
 from agent import routines
 from agent.schedule import Schedule, describe_change, utc_iso
@@ -117,6 +117,7 @@ async def run() -> None:
     async def profile_watch(db_, item) -> None:   # the profile is a view of the beliefs (agent/beliefs.py)
         if item["form"] == "belief":
             await write_profile(db_, memory.path, settings.owner or "ägaren", settings.timezone)
+            await write_practice(db_, memory.path)   # and lardomar.md of the practice beliefs (omgång 13)
 
     Items.watchers.append(profile_watch)
     # Watched sources and missions are routines (agent/routines.py): moved from the files once, kept in memory, and
@@ -144,6 +145,8 @@ async def run() -> None:
     Items.watchers.append(starter(lambda role, why: wake(role, why)))   # a research step is done now, not on its date (wake is set below)
     if await write_profile(db, memory.path, settings.owner or "ägaren", settings.timezone):
         await memory.commit_if_changed("profilen skriven ur uppfattningarna")
+    if await write_practice(db, memory.path):   # the lessons were lines; now they are practice beliefs (omgång 13)
+        await memory.commit_if_changed("lärdomarna blev praxis (uppfattningar)")
     cal_configs, cal_options = load_calendar_configs()
     schedule = Schedule(settings, db, build_sources(cal_configs, settings.timezone), cal_options.get("window_days", 21))
     bot = TelegramBot(settings, db, chat_gate, memory, schedule)

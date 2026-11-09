@@ -25,6 +25,7 @@ from zoneinfo import ZoneInfo
 
 from agent import assumptions, search_map, texts, thoughts, trail
 from agent.due import answered_since, earlier_runs, review, write_now
+from agent.beliefs import add_practice
 from agent.items import Items
 from agent.office_tools import build_office_tools, describe_forms
 from agent.pursuits import Pursuits
@@ -70,7 +71,7 @@ SCHEMA = {
         "thoughts": thoughts.SCHEMA,
         "working_memory": texts.WORKING_MEMORY,
         "lessons": {"type": "array", "items": {"type": "string"},
-                    "description": "Swedish: lessons about how the office works that every role should know; usually none"},
+                    "description": "Swedish: lessons about how the office works that every role should know; each becomes a practice belief (#U) resting on this run; usually none"},
         "summary": {"type": "string", "description": "Swedish. What you did in this run and why, briefly: the run's own account"},
     },
     "required": ["working_memory", "summary"],
@@ -186,7 +187,7 @@ class Director:
         changes: list[str] = []
         self.dir.mkdir(exist_ok=True)
         await write_now(self.db, self.dir / "now.md", now)   # its own sections as Director left them, the dates fresh
-        if lessons := self.memory.add_lessons("director", out.get("lessons") or [], now):
+        if lessons := await add_practice(self.db, self.memory.path, "director", out.get("lessons") or [], now):   # a lesson is a practice belief (omgång 13)
             changes += [f"lärdom: {x}" for x in lessons]
         changes += await thoughts.add(self.db, "director", out.get("thoughts"), self.settings.timezone)
 

@@ -20,6 +20,7 @@ from zoneinfo import ZoneInfo
 
 from agent import assumptions, texts, thoughts, trail
 from agent.due import answered_since, earlier_runs, review
+from agent.beliefs import add_practice
 from agent.items import Items
 from agent.office_tools import build_office_tools, describe_forms
 from agent.pursuits import Pursuits
@@ -51,7 +52,7 @@ SCHEMA = {
             "required": ["kind", "title", "description"],
         },
         "checkin": {"type": "boolean", "description": "Send the check-in question now"},
-        "lessons": {"type": "array", "items": {"type": "string"}, "description": "Swedish: lessons for the whole office; usually none"},
+        "lessons": {"type": "array", "items": {"type": "string"}, "description": "Swedish: lessons for the whole office; each becomes a practice belief (#U) resting on this run; usually none"},
         "posts": {
             "type": "array",
             "description": "Notes or feedback to another role (not to the owner). They read it at their next run.",
@@ -214,7 +215,7 @@ class Manager:
         await self.posts.handled(self._seen_posts, f"läst av Manager {now:%Y-%m-%d}")
         self._seen_posts = []
 
-        if lessons := self.memory.add_lessons("manager", out.get("lessons") or [], now):
+        if lessons := await add_practice(self.db, self.memory.path, "manager", out.get("lessons") or [], now):   # a lesson is a practice belief (omgång 13)
             changes += [f"lärdom: {x}" for x in lessons]
 
         if (p := out.get("proposal")) and not await self.db.fetchone("SELECT 1 FROM proposals WHERE status IN ('pending', 'asked')"):

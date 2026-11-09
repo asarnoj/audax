@@ -126,9 +126,11 @@ FORMS: dict[str, Form] = {f.name: f for f in (
     ),
     Form(
         "belief", "U", "Uppfattning",
-        "Something Audax holds about the owner: a preference, a fact, a pattern, a value or a hypothesis, with its source, "
-        "how sure, and how long it holds. A new one can replace an older one; the old one stays in the history.",
-        {k: ("current", "superseded", "retracted") for k in ("preference", "fact", "pattern", "value", "hypothesis")},
+        "Something Audax holds about the owner: a preference, a fact, a pattern, a value or a hypothesis; or how the office "
+        "acts (practice: a rule in the policy, a filter in now.md, a lesson). Each with its source, what it rests on "
+        "(observations), how sure, and how long it holds. A new one can replace an older one; the old one stays in the "
+        "history. Everything that steers what Audax does rests on one (omgång 13).",
+        {k: ("current", "superseded", "retracted") for k in ("preference", "fact", "pattern", "value", "hypothesis", "practice")},
         closed=("superseded", "retracted"),
         fields=(
             Field("area", "enum", False, AREAS, "where it belongs in the profile: " + ", ".join(AREAS)),
@@ -142,6 +144,8 @@ FORMS: dict[str, Form] = {f.name: f for f in (
                   "a belief the desk reads, binding only when the owner said it (agent/assumptions.py): quiet_hours (HH:MM-HH:MM), daily_contacts "
                   "(a number), bundle_times (HH:MM,HH:MM or inga), message_length (characters)"),
             Field("value", help="the setting's value, e.g. 22:00-06:30"),
+            Field("observations", help="what it rests on, one per line: 'YYYY-MM-DD: what was seen (ref)'. Add a line when "
+                  "something new supports or contradicts it; the code shows how much rests on it"),
         ),
         needs_source=True,
     ),
@@ -251,7 +255,7 @@ CORE = ("id", "form", "kind", "title", "status", "owner", "parent_id", "source",
 CREATE = {
     "assistant": {"aim", "belief", "question", "step", "wanted"},
     "director": {"aim", "belief", "question", "step", "experiment", "rule"},
-    "researcher": {"step", "question", "rule", "routine", "opportunity", "experiment", "wanted"},
+    "researcher": {"step", "question", "rule", "routine", "opportunity", "experiment", "wanted", "belief"},
     "manager": {"belief", "question", "step", "experiment", "rule", "routine"},
 }
 UPDATE_ANY = {

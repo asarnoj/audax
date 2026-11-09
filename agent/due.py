@@ -114,6 +114,10 @@ async def review(db: Database, role: str, now: datetime, memory=None) -> str:
 
         if big := oversized(memory, role):
             parts.append("Texter som vuxit förbi sin storlek (tighten: refer by id instead of copying):\n" + "\n".join(f"- {b}" for b in big))
+        from agent.freshness import for_review as freshness
+
+        if fresh := await freshness(db, memory, role):
+            parts.append(fresh)
     if role == "researcher":
         parts.append(await source_yield(db))
         from agent.wanted import for_review as wanted_review

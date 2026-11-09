@@ -177,6 +177,10 @@ class Items:
         """One line: the id, what it is, its title and status."""
         form = FORMS[item["form"]]
         what = form.label + (f" ({item['kind']})" if item["kind"] else "")
+        if item["form"] == "belief":   # what it rests on shows wherever it is listed (omgång 13)
+            from agent.beliefs import weight
+
+            return f"{ref(item)} {what}: {item['title']} · {item['status']} · {weight(item)}"
         return f"{ref(item)} {what}: {item['title']} · {item['status']}"
 
     async def describe(self, item_id: int) -> str | None:

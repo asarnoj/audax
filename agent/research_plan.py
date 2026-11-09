@@ -28,6 +28,7 @@ from agent.posts import ROLES, Posts
 from agent.prompts import prompt as prompt_template
 from agent.due import due_items, earlier_runs, review, source_yields
 from agent.forms import FormError
+from agent.beliefs import add_practice
 from agent.items import Items, parse_ref, ref
 from agent.office_tools import build_office_tools
 from agent.pursuits import judged_against
@@ -134,7 +135,7 @@ SCHEMA = {
         "thoughts": thoughts.SCHEMA,
         "working_memory": texts.WORKING_MEMORY,
         "lessons": {"type": "array", "items": {"type": "string"},
-                    "description": "Swedish: lessons about how the office works that every role should know; usually none"},
+                    "description": "Swedish: lessons about how the office works that every role should know; each becomes a practice belief (#U) resting on this run; usually none"},
         "summary": {"type": "string", "description": "Swedish. What you did in this run and why, briefly: the run's own account"},
     },
     "required": ["steps", "missions", "queries", "senses", "working_memory", "summary"],
@@ -302,7 +303,7 @@ class ResearchPlanner:
                 pid = await self.posts.send("researcher", p["to"], p.get("kind", "note"), p["body"])
                 changes.append(f"post #P{pid} till {p['to']}")
         changes += await thoughts.add(self.db, "researcher", out.get("thoughts"), self.settings.timezone)
-        if lessons := self.memory.add_lessons("researcher", out.get("lessons") or [], now):
+        if lessons := await add_practice(self.db, self.memory.path, "researcher", out.get("lessons") or [], now):   # a lesson is a practice belief (omgång 13)
             changes += [f"lärdom: {x}" for x in lessons]
         texts.working_memory(self.memory.path, "researcher", out.get("working_memory"))
         await self.posts.handled(self._seen_posts, f"läst av Researcher {now:%Y-%m-%d}")

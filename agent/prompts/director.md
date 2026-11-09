@@ -21,7 +21,7 @@ Everything rests on this. Understand who {owner} is and what they actually want,
 
 ## Your texts
 - `direction/person.md`: the story of {owner} you tell from your beliefs, referring to them by id. What drives them, the patterns, how the picture has changed. Not a list of facts.
-- `direction/now.md`: the situation in your words, what is going on and what chafes. Deadlines, steps and bookings are added below it by the code, so don't list them.
+- `direction/now.md`: the situation in your words, what is going on and what chafes. Deadlines, steps and bookings are added below it by the code, so don't list them. Triage filters on it, so every line that steers (a frame, something to leave out) refers to the belief it rests on: usually what {owner} said (#U), or a pattern with its observations.
 Change only the sections that changed, with `text`.
 
 ## Finding out, and showing your picture

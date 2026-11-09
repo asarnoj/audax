@@ -94,6 +94,21 @@ async def contacts(db: Database, tz: str, days: int = 21, now: datetime | None =
     return out
 
 
+NO_DATA = ("inget underlag om hur ägaren tar emot kontakt. Utgångsläge tills det finns: de flesta läser notiser när det "
+           "passar och svarar långt ifrån alltid, så utebliven reaktion säger lite; ett svar säger mer.")
+
+
+def baseline(cs: list[dict], days: int, recent: int = 7) -> str:
+    """The latest week against the owner's own rate: three unanswered say something only against how they usually answer."""
+    cut = max(c["local"] for c in cs) - timedelta(days=recent)
+    new, old = [c for c in cs if c["local"] > cut], [c for c in cs if c["local"] <= cut]
+    if not new or len(old) < FEW:
+        return ""
+    rate = lambda g: 100 * sum(c["answered"] for c in g) // len(g)  # noqa: E731
+    return (f"- Senaste {recent} dagarna mot ägarens egen baslinje: svar på {sum(c['answered'] for c in new)} av {len(new)} "
+            f"({rate(new)} %), mot {rate(old)} % av {len(old)} dessförinnan. Few contacts weigh little either way.")
+
+
 def _rate(group: list[dict]) -> str:
     if len(group) < FEW:
         return f"{len(group)} (för få)"
@@ -124,7 +139,7 @@ async def summary(db: Database, tz: str, days: int = 21) -> str:
     e = await errors(db)
     lines = [f"Kontaktliggaren, senaste {days} dagarna (evidence, not targets; a group under {FEW} says nothing yet):"]
     if not cs:
-        lines.append("- Inga egna kontakter.")
+        lines.append(f"- Inga egna kontakter: {NO_DATA}")
     else:
         mins = sorted(c["minutes"] for c in cs if c["minutes"] is not None)
         lines.append(f"- Egna kontakter: {len(cs)} ({len(cs) / days:.1f}/dag), svar på {sum(c['answered'] for c in cs)}"
@@ -137,6 +152,8 @@ async def summary(db: Database, tz: str, days: int = 21) -> str:
             for c in cs:
                 groups.setdefault(key(c), []).append(c)
             lines.append(f"- {title}: " + "; ".join(f"{k}: {_rate(v)}" for k, v in sorted(groups.items())))
+    if cs and (base := baseline(cs, days)):
+        lines.append(base)
     lines.append(f"- Deskens fel, 14 dagar: höll tillbaka men ägaren ville ha det {e['held_back']} gånger (hämtat från hyllan "
                  f"{e['pulled']}, frågade varför inget sades {e['asked_why']}); skickade men ägaren ville inte {e['too_much']} gånger "
                  "('för mycket', tyst, bara det viktiga, 👎).")
@@ -174,6 +191,8 @@ async def for_desk(db: Database, tz: str) -> str:
     line = f"Own contacts today: {n_today}. Last 14 days: {len(cs)}"
     if cs:
         line += f", answered {sum(c['answered'] for c in cs)}, 'too much' after {sum(c['too_much'] for c in cs)}"
+    else:
+        line += f" ({NO_DATA})"
     line += (f". Your errors in 14 days: held back what the owner then wanted {e['held_back']} times (fetched from the shelf "
              f"{e['pulled']}); sent what they didn't want {e['too_much']} times.")
     return line

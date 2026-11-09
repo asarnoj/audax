@@ -42,7 +42,7 @@ TEXTS = (
     Text("arbetsminne/researcher.md", "researcher", "Working memory: focus, open hypotheses, waiting for, tried and learned. Ids only.", 2000),
     Text("arbetsminne/assistant.md", "assistant", "Working memory: ongoing threads, what the owner cares about now, how they want it. Ids only.", 2000),
     Text("research/maps/*.md", "researcher", "How to search one space: segments, where they publish, methods, gaps.", 4000),
-    Text("lardomar.md", "all", "The office's lessons about how to work that can't run as a rule in the code.", 4000),
+    Text("lardomar.md", "all", "The office's practice: written by the code from the practice beliefs (#U), not edited.", 6000),
 )
 
 

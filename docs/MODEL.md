@@ -64,7 +64,7 @@ Inget löper för evigt: steg, experiment och frågor har ett datum då de ses �
 | `policy.md` | Manager | resonemanget om din uppmärksamhet och tonen; dina egna önskemål om stil ordagrant |
 | `research/maps/` | Researcher | hur man söker inom ett område |
 | `arbetsminne/<roll>.md` | varje roll | fokus, öppna hypoteser, väntar på, prövat och lärt |
-| `lardomar.md` | alla | kontorets lärdomar om arbetet, sådant som inte kan vara en regel |
+| `lardomar.md` | koden | kontorets praxis: skrivs av koden ur uppfattningarna av sorten `practice` (#U), med vad varje sak vilar på |
 
 **Profilen** (`profile.md`) är ingen text någon skriver: koden bygger den ur de uppfattningar som gäller just nu. Det är samma vy som webbsidan visar: det här vet Audax om dig, och varifrån.
 
@@ -261,7 +261,8 @@ Allt som ska gå att följa upp har ett id: formerna (#S, #T, #E, #U, #Q, #G, #N
 - **Director → Researcher:** vad varje uppdrag gav och hur du reagerade blir feedback inför nästa planering.
 - **Manager → dispatchern:** varje natt dispatcherns beslut med skäl och stickprov mot policyn. Missar ("varför sa du inte det här?", det du själv hämtade ur det sparade) kopplas till beslutet som höll inne dem.
 - **Mått för Manager** räknas fram av Python och tolkas av Manager: svarstid, reaktioner, pauser, hämtningar och knuffar som följdes. Det är signaler, inte mål.
-- **Lärdomar** som gäller hela kontoret står i `lardomar.md`.
+- **Lärdomar** är uppfattningar av sorten `practice`; `lardomar.md` är vyn av dem.
+- **Levande kunskap** (omgång 13): allt som styr vilar på en uppfattning, och en uppfattning på sina observationer (daterade rader). Koden visar överallt vad den vilar på ("vilar på 3 observationer, 3–5 nov", "ägarens egna ord", "ett antagande"), och liggaren jämför senaste veckan med ägarens egen baslinje. Före varje körning visar genomgången hänvisningar till sådant som stängts och rader i policyn och `now.md` som styr utan att vila på något. Inget faller för att tiden går; det faller när underlaget inte håller.
 
 ## Utanför kontoret
 
