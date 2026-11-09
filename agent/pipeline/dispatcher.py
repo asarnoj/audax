@@ -13,7 +13,7 @@ import json
 import logging
 from datetime import datetime, timedelta, timezone
 
-from agent import assumptions, ledger, trail
+from agent import assumptions, checks, ledger, trail
 from agent.agenda import FOCUS_KEY, SILENCE_KEY, Agenda
 from agent.claude_gate import ClaudeGate, ClaudeTask, Priority, QuotaPaused
 from agent.config import Settings
@@ -27,7 +27,7 @@ from agent.schedule import Schedule, utc_iso
 log = logging.getLogger(__name__)
 
 MODULE = "dispatcher@2"
-DECISIONS = ["now", "at", "shelf", "drop"]
+DECISIONS = ["now", "at", "shelf", "drop", "check"]
 RETRY_UNDECIDED = timedelta(minutes=10)  # mechanics: a finding nobody could decide on (quota, error) is retried
 ASK_EVERY = timedelta(minutes=15)
 HELD_KEY = "dispatcher.questions_held"   # #Q id -> when the writer last chose not to ask it
@@ -48,6 +48,7 @@ SCHEMA = {
                     "candidate_id": {"type": "integer"},
                     "decision": {"type": "string", "enum": DECISIONS},
                     "at": {"type": ["string", "null"], "description": "For 'at': local time, YYYY-MM-DD HH:MM"},
+                    "unclear": {"type": ["string", "null"], "description": "For 'check': Swedish, the deciding fact to find out"},
                     "reason": {"type": "string", "description": "Swedish, shown to the owner if they ask why"},
                 },
                 "required": ["candidate_id", "decision", "reason"],
@@ -77,6 +78,7 @@ class Dispatcher:
         self.settings = settings
         self.db = db
         self._lock = asyncio.Lock()  # one at a time: deciding and delivering never overlap
+        self.web = None   # set by main: the check of an unclear finding reads the web (agent/checks.py)
         self.gate = gate
         self.memory = memory
         self.schedule = schedule
@@ -111,11 +113,23 @@ class Dispatcher:
 
     async def run(self, force: bool = False) -> None:
         """Decides on findings nobody has decided on yet (called when something new arrives or the situation changes)."""
+        to_check: list[int] = []
         async with self._lock:
             await self._prepare()
             pending = await self.outbox.pending()
+            to_check = [r["id"] for r in pending if checks.needs(r)]   # triage named a deciding fact: look first
+            pending = [r for r in pending if r["id"] not in to_check]
             if pending:
-                await self._decide(pending)
+                to_check += await self._decide(pending)
+            for cid in to_check:
+                await self.db.execute("UPDATE candidates SET status = 'checking' WHERE id = ?", (cid,))
+        if to_check:   # outside the lock: a check reads the web, and deliveries go on meanwhile
+            for cid in to_check:
+                row = await self.db.fetchone("SELECT * FROM candidates WHERE id = ?", (cid,))
+                now = self.schedule.now()
+                if not await checks.check(self.db, self.gate, self.settings, self.web, row, self.settings.owner or "ägaren", f"{now:%Y-%m-%d}"):
+                    await self.db.execute("UPDATE candidates SET status = 'pending' WHERE id = ? AND status = 'checking'", (cid,))
+            await self.run(force=True)   # what was checked comes back to the desk, once
 
     async def _prepare(self) -> None:
         from agent.pursuits import Pursuits
@@ -123,7 +137,8 @@ class Dispatcher:
         await Pursuits(self.db, self.settings.timezone).tick()  # missed deadlines; due nudges join the outbox
         await self.outbox.expire()
 
-    async def _decide(self, pending: list) -> None:
+    async def _decide(self, pending: list) -> list[int]:
+        """Decides on each pending finding; returns those the desk wants checked first."""
         self._last_decide = self.schedule.now()
         avail = await self.schedule.availability()
         context = await self._context(pending, avail)
@@ -140,11 +155,12 @@ class Dispatcher:
             )
         except QuotaPaused:
             await self.fallback.run(avail.current is not None, avail.status_line())
-            return
+            return []
         if result.is_error or not isinstance(result.structured, dict):
             log.warning("dispatcher failed (%s), using fallback", result.error)
             await self.fallback.run(avail.current is not None, avail.status_line())
-            return
+            return []
+        to_check: list[int] = []
 
         by_id = {r["id"]: r for r in pending}
         shelf = {r["id"]: r for r in context.pop("_shelf")}
@@ -155,6 +171,17 @@ class Dispatcher:
             if row is None or d.get("decision") not in DECISIONS:
                 continue
             decision, label = d["decision"], d["decision"]
+            if decision == "check":
+                if checks.needs(row) is None and json.loads(row["features"] or "{}").get("checked"):
+                    decision = "now"   # checked once already: it goes out with what is still unclear said as unclear
+                else:
+                    features = json.loads(row["features"] or "{}")
+                    features["check"] = d.get("unclear") or "det som är oklart"
+                    await self.db.execute("UPDATE candidates SET features = ? WHERE id = ?", (json.dumps(features, ensure_ascii=False), row["id"]))
+                    await self.outbox.record(row["id"], MODULE, f"kollas: {features['check']}", d.get("reason", ""), trace)
+                    await trail.emit("place", "manager", to="researcher", ref=f"#F{row['id']}")
+                    to_check.append(row["id"])
+                    continue
             if row["id"] in shelf:   # something saved joins this moment, or has gone stale; "shelf" changes nothing
                 if decision == "shelf":
                     continue
@@ -185,6 +212,7 @@ class Dispatcher:
             await trail.emit("place", "manager", to=to, ref=f"#F{row['id']}")
         if now_rows:
             await self._deliver_findings(now_rows, self.schedule.now(), decided_now=True)
+        return to_check
 
     async def _context(self, pending: list, avail) -> dict:
         now = self.schedule.now()

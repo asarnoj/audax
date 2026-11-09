@@ -170,7 +170,7 @@ class Outbox:
         await self.db.execute(
             "UPDATE candidates SET status = 'sent' WHERE status = 'sending' AND id IN (SELECT candidate_id FROM message_candidates)"
         )
-        n = await self.db.execute_count("UPDATE candidates SET status = 'pending' WHERE status = 'sending'")
+        n = await self.db.execute_count("UPDATE candidates SET status = 'pending' WHERE status IN ('sending', 'checking')")
         await self.db.execute("UPDATE bookings SET status = 'planned' WHERE status = 'sending' AND message_id IS NULL")
         if n:
             log.info("outbox: %d interrupted delivery(ies) back to pending", n)
@@ -253,6 +253,24 @@ class FallbackDispatcher:
             await self.outbox.set_tier(r["id"], "now")
             await self.outbox.record(r["id"], self.MODULE, "nu", "Reserv: Claude var otillgänglig, så bara det brådskande skickades.", {"availability": context})
         await self.outbox.deliver(rows)  # the rest stays undecided; the desk tries again when Claude is back
+
+
+async def reopen_shelf(db: Database, key: str, note: str) -> int:
+    """Once: what is on the shelf and still current, medium or high, goes back to the desk to be judged again. It was
+    shelved under rules that have changed (omgång 12: "don't disturb", "unsure"); the desk may gather it, send it or
+    let it go."""
+    if await db.kv_get(f"reopened.{key}"):
+        return 0
+    await db.kv_set(f"reopened.{key}", True)
+    rows = await db.fetchall(
+        "SELECT id, features FROM candidates WHERE status = 'shelved' AND (expires_at IS NULL OR expires_at > ?) "
+        "AND json_extract(features, '$.relevance') IN ('medium', 'high')", (utc_iso(datetime.now(timezone.utc)),))
+    for r in rows:
+        features = json.loads(r["features"] or "{}")
+        features["returned"] = note
+        await db.execute("UPDATE candidates SET status = 'pending', features = ?, updated_at = datetime('now') WHERE id = ?",
+                         (json.dumps(features, ensure_ascii=False), r["id"]))
+    return len(rows)
 
 
 STEP = "step"   # a step of a plan for the owner, offered to the desk when its date comes (agent/due.py)

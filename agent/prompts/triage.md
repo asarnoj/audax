@@ -15,6 +15,8 @@ Rate each event low, medium or high on:
 
 Set **keep** to false for anything under "Inte intresserad av" in the profile, or noise for a goal, and for anything not worth {owner_s} attention even on the shelf: irrelevant, expired, a duplicate, or from a dubious source.
 
+A promising event that lacks a deciding fact (no date, unclear whether it is still open or how to sign up) is not dropped or rated down for that: keep it and name the fact in **check**. It is looked up before anything is decided.
+
 The same news often arrives through several sources (a news topic, a feed, a search mission). Compare each event with the list of what is already sent, waiting or on the shelf below, and with the other events in this batch. If it says nothing new, it is a duplicate: keep=false. An update with genuinely new facts (a deadline announced, a date set) is not a duplicate; keep it, and say in the brief what is new. If an event has a `source_note`, it says what is usually worth something from that source. Follow it.
 
 ## Output (one item per event; text in Swedish)

@@ -50,6 +50,9 @@ SCHEMA = {
                     "reason": {"type": "string", "description": "Swedish, one sentence on the judgement"},
                     "unsure": {"type": ["string", "null"], "description": "Swedish, only when you keep it but are unsure this "
                                "kind of thing is what the owner wants: what you are unsure about (the message may ask them). Usually null"},
+                    "check": {"type": ["string", "null"], "description": "Swedish, only when you keep it and one missing fact "
+                              "decides whether it is worth telling (a date, whether it is still open, how to sign up) and the page "
+                              "or a search would settle it: that fact. It is looked up before the desk decides. Usually null"},
                 },
                 "required": ["event_id", "keep", "relevance", "actionability", "time_sensitivity", "novelty", "confidence", "complement", "brief", "reason"],
             },
@@ -143,6 +146,8 @@ class Triage:
             features["reason"] = item.get("reason", "")
             if item.get("unsure"):   # a direct question may settle it (agent/thoughts.py)
                 features["unsure"] = item["unsure"]
+            if item.get("check") and item.get("keep", True):   # unsure means look (agent/checks.py)
+                features["check"] = item["check"]
             if payload.get("unconfirmed"):   # what the search couldn't confirm travels with the finding, all the way to the owner
                 features["unconfirmed"] = payload["unconfirmed"]
             oid = payload.get("opportunity")

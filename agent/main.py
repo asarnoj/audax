@@ -30,7 +30,7 @@ from agent.posts import Posts, tell_once
 from agent.pipeline.dispatcher import Dispatcher
 from agent.pipeline.ingest import Ingest
 from agent.sources.pages import claude_extractor
-from agent.pipeline.outbox import Outbox, add_candidate
+from agent.pipeline.outbox import Outbox, add_candidate, reopen_shelf
 from agent.pipeline.triage import Triage
 from agent.reload import ConfigWatcher
 from agent.research import Researcher, load_research
@@ -133,6 +133,9 @@ async def run() -> None:
         log.info("told Manager the trials ended: #P%s", pid)
     if pid := await tell_once(db, "omgang12.notification", "manager", NOTIFICATION_NOTE):
         log.info("told Manager a message is a notification now: #P%s", pid)
+    if n := await reopen_shelf(db, "omgang12", "Tillbaka från hyllan för en ny bedömning (9 nov): sparades under den gamla "
+                               "försiktigheten. Är det fortfarande bra och aktuellt, skicka det, gärna samlat; annars släpp det."):
+        log.info("the shelf: %d thing(s) back to the desk to be judged again", n)
     await assumptions.apply(db, settings)
     Items.watchers.append(assumptions.watcher(settings))
     Items.watchers.append(questions.route)
@@ -211,6 +214,7 @@ async def run() -> None:
     director.web = bot.chat.web = researcher.web = web
     planner = ResearchPlanner(settings, db, gate, memory)  # Researcher's slow task
     planner.web = web
+    dispatcher.web = web   # the check of an unclear finding (agent/checks.py)
 
     def start_mission(mission_id: str) -> None:
         scheduler.add_job(research_tick, "date", run_date=datetime.now() + timedelta(seconds=10), args=[mission_id],

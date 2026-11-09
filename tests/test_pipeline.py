@@ -523,3 +523,44 @@ async def test_a_session_in_the_timetable_holds_nothing_back(db, tmp_path):
     d.schedule.availability = busy
     assert await d._hold_until(NOW.replace(hour=12), urgent=False) is None
     assert not [c for c in await d.agenda.conflicts(NOW.replace(hour=12)) if "pågår" in c]
+
+
+async def test_an_unclear_finding_is_checked_once_and_comes_back_to_the_desk(db, tmp_path):
+    # omgång 12 (9 Nov): the Grok Bot meetup sat on the shelf "until its date is confirmed", and nobody was asked to confirm it
+    import json as _json
+
+    meetup = await add_candidate(db, "event", "Grok Bot Stockholm Meetup", "Meetup på Luma, inget datum", {"relevance": "medium"},
+                                 url="https://lu.ma/grok")
+    tagged = await add_candidate(db, "event", "CTF-kväll", "Okänt om den är öppen", {"check": "om anmälan är öppen"}, url="https://ctf")
+    rounds = []
+
+    def answer(task):
+        if task.kind == "check":
+            return {"confirmed": "Tis 18 nov 18:00, föranmälan på Luma.", "still_unclear": None, "verdict": "keep",
+                    "why": "Kommande", "expires": "2026-11-18"}
+        rounds.append(task.prompt)
+        if len(rounds) == 1:
+            return {"decisions": [{"candidate_id": meetup, "decision": "check", "unclear": "datum och föranmälan", "reason": "oklart"}]}
+        return {"decisions": [{"candidate_id": c, "decision": "check", "unclear": "igen", "reason": "x"} for c in (meetup, tagged)]}
+
+    calls = []
+    d, sent = await make_dispatcher(db, tmp_path, answer, calls)
+    await d.run()
+    kinds = [c.kind for c in calls]
+    assert kinds.count("check") == 2   # triage's named fact first, then the desk's
+    checked = " ".join(c.prompt for c in calls if c.kind == "check")
+    assert "om anmälan är öppen" in checked and "datum och föranmälan" in checked
+    row = await db.fetchone("SELECT status, body, features FROM candidates WHERE id = ?", (meetup,))
+    assert "Kontrollerat: Tis 18 nov 18:00" in row["body"] and _json.loads(row["features"])["checked"] == "datum och föranmälan"
+    assert row["status"] == "sent" and len(sent) == 1   # a second 'check' on a checked finding sends it, said as it stands
+
+
+async def test_the_shelf_is_judged_again_once(db):
+    from agent.pipeline.outbox import reopen_shelf
+
+    good = await add_candidate(db, "insight", "RoyalRoppers", "CTF-lag", {"relevance": "high"})
+    weak = await add_candidate(db, "news", "Svagt", "x", {"relevance": "low"})
+    await db.execute("UPDATE candidates SET status = 'shelved'")
+    assert await reopen_shelf(db, "t", "ny bedömning") == 1 and await reopen_shelf(db, "t", "ny bedömning") == 0
+    status = {r["id"]: r["status"] for r in await db.fetchall("SELECT id, status FROM candidates")}
+    assert status == {good: "pending", weak: "shelved"}
