@@ -130,3 +130,11 @@ class Posts:
     async def get(self, post_id: int) -> dict | None:
         row = await self.db.fetchone("SELECT * FROM posts WHERE id = ?", (post_id,))
         return dict(row) if row else None
+
+
+async def tell_once(db, key: str, to: str, body: str) -> int | None:
+    """A change made under a role is news for that role: told once, from the system, as a note in its inbox."""
+    if await db.kv_get(f"told.{key}"):
+        return None
+    await db.kv_set(f"told.{key}", True)
+    return await Posts(db).send("system", to, "note", body)

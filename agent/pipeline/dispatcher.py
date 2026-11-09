@@ -245,14 +245,15 @@ class Dispatcher:
         if undecided and (self._last_decide is None or now - self._last_decide >= RETRY_UNDECIDED):
             await self.run()
         avail = await self.schedule.availability(now)
-        idle = not avail.quiet and avail.current is None and not await self.silenced_until() and not await self.focus_until()
+        idle = not avail.quiet and not await self.silenced_until() and not await self.focus_until()
         if idle and (self._last_ask is None or now - self._last_ask >= ASK_EVERY):
             self._last_ask = now
             await self._maybe_ask()
 
     async def _hold_until(self, now: datetime, urgent: bool, decided_now: bool = False) -> datetime | None:
         """When a delivery due now must wait instead (mechanics executing the plan, not new judgement). Quiet hours and
-        the owner's own quiet or focus requests always hold; a session holds unless the dispatcher chose to interrupt."""
+        the owner's own quiet or focus requests always hold, and what the owner said binds. A session in the timetable
+        doesn't: a message is a notification read when it suits them (omgång 12, 9 Nov)."""
         if self.settings.quiet_hours.contains(now.time()):
             return self.agenda.quiet_end(now)
         if until := await self.silenced_until():
@@ -267,8 +268,6 @@ class Dispatcher:
         if (not urgent and assumptions.binds(self.settings, "bundle_times")
                 and (until := assumptions.next_bundle(self.settings.bundle_times, now)) is not None):
             return until   # the owner wants them together
-        if not (urgent or decided_now) and (busy := (await self.schedule.availability(now)).current) is not None:
-            return busy.end + timedelta(minutes=2)
         return None
 
     async def _deliver_findings(self, rows: list, now: datetime, decided_now: bool = False, bookings: list = ()) -> set[int]:
@@ -382,26 +381,8 @@ class Dispatcher:
         """At most one open question at a time, across schedule polls, proposals and check-ins (ATTENTION.md §6)."""
         if await self.db.fetchone("SELECT 1 FROM polls WHERE answered_at IS NULL AND created_at >= datetime('now', '-2 days')"):
             return
-        question = await self.schedule.next_question()
-        if question is not None:
-            if self.outbox.speak is None:   # no chat at all (tests, a bare engine)
-                poll_id, message_row_id = await self.send_poll(question["question"], question["options"])
-            else:   # the one voice asks, as part of the conversation, and the chat records the answer (22 Oct: a poll came out of nowhere)
-                sessions = "\n".join(f"- {o} (series {i})" for o, i in zip(question["sessions"], question["series_ids"]))
-                try:
-                    ids = await self.outbox.speak(
-                        "Ask the owner which of these sessions in their timetable apply to them: briefly, as a question in your "
-                        "conversation, with a few words on why (so you know when they are busy). Say when they are, with the dates "
-                        "below: a single session is one occasion, not a weekly series. When they answer, record it with "
-                        "set_series_relevance for each series (mine, not_mine or sometimes).\n" + sessions,
-                        about={f"TimeEdit-serie {i}" for i in question["series_ids"]})
-                except Exception as e:
-                    log.warning("couldn't ask about the schedule: %s", e)
-                    return
-                poll_id, message_row_id = f"chat:{ids[0] if ids else 0}", ids[0] if ids else None
-            await self.schedule.record_poll(poll_id, message_row_id, question)
-            log.info("asked about %d schedule series", len(question["series_ids"]))
-            return
+        # No questions about which timetable sessions apply: they only served holding messages back during sessions,
+        # which a notification doesn't need (omgång 12, 9 Nov). The calendar stays content (deadlines, the week).
         if self.manager is not None and (q := await self.manager.next_question()) is not None:
             await self._ask_manager(q)
             return

@@ -506,6 +506,20 @@ async def test_something_saved_can_join_a_message_that_goes_out(db, tmp_path):
         {"candidate_id": saved, "decision": "now", "reason": "passar ihop med det nya"}]}, calls)
     await d.run()
     assert "Saved for later" in calls[0].prompt and f"[id {saved}]" in calls[0].prompt
-    assert "Silence is the default" not in calls[0].prompt and "Both mistakes cost" in calls[0].prompt
+    assert "Silence is the default" not in calls[0].prompt and "A message is a notification" in calls[0].prompt
     assert len(sent) == 1 and "från hyllan" in sent[0] and "nytt fynd" in sent[0]   # one message carrying both
     assert (await db.fetchone("SELECT status FROM candidates WHERE id = ?", (saved,)))["status"] == "sent"
+
+
+async def test_a_session_in_the_timetable_holds_nothing_back(db, tmp_path):
+    # omgång 12 (9 Nov): a message is a notification read when it suits the owner; only the night and their own words hold
+    from types import SimpleNamespace
+
+    d, _ = await make_dispatcher(db, tmp_path, {"decisions": []})
+
+    async def busy(at=None):
+        return SimpleNamespace(quiet=False, current=SimpleNamespace(summary="Föreläsning", end=NOW + timedelta(hours=1)))
+
+    d.schedule.availability = busy
+    assert await d._hold_until(NOW.replace(hour=12), urgent=False) is None
+    assert not [c for c in await d.agenda.conflicts(NOW.replace(hour=12)) if "pågår" in c]

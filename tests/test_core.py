@@ -320,3 +320,15 @@ def test_a_friends_home_reads_its_own_env_never_the_hosts(tmp_path, monkeypatch)
     finally:
         monkeypatch.delenv("AUDAX_HOME")
         importlib.reload(config)
+
+
+async def test_a_change_is_told_to_a_role_once(tmp_path):
+    from agent.db import Database
+    from agent.posts import tell_once
+
+    db = Database(tmp_path / "t.db")
+    await db.open()
+    pid = await tell_once(db, "x", "manager", "Något har ändrats.")
+    assert (await db.fetchone("SELECT sender, recipient FROM posts WHERE id = ?", (pid,)))["recipient"] == "manager"
+    assert await tell_once(db, "x", "manager", "Något har ändrats.") is None
+    await db.close()

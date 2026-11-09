@@ -26,7 +26,7 @@ from agent.windows import GitHubReader, all_windows
 from agent.db import Database
 from agent.manager import Manager
 from agent.memory import MemoryRepo
-from agent.posts import Posts
+from agent.posts import Posts, tell_once
 from agent.pipeline.dispatcher import Dispatcher
 from agent.pipeline.ingest import Ingest
 from agent.sources.pages import claude_extractor
@@ -50,6 +50,14 @@ from agent.sources.calendar import build_sources, load_calendar_configs
 from agent.telegram_bot import TelegramBot
 
 log = logging.getLogger("agent")
+
+
+NOTIFICATION_NOTE = (
+    "Från 9 nov (omgång 12) gäller: ett meddelande är en notis som ägaren läser när det passar, så stunden betyder lite och "
+    "innehållet mest. Pass i schemat håller inte längre tillbaka något, och frågorna om vilka pass som gäller är borttagna; "
+    "bara nattron och ägarens egna ord binder. Policyn ska inte ha tak eller antal (antal finns i liggaren och i din "
+    "förståelse av inställningarna), och en innehållsmiss hör till Director, inte till tempot. Din nuvarande policy "
+    "skrevs före detta.")
 
 
 async def move_open_questions(memory: MemoryRepo, posts: Posts) -> None:
@@ -123,6 +131,8 @@ async def run() -> None:
         log.info("trial ended: %s", ended)
     if pid := await assumptions.tell_trials_ended(db):
         log.info("told Manager the trials ended: #P%s", pid)
+    if pid := await tell_once(db, "omgang12.notification", "manager", NOTIFICATION_NOTE):
+        log.info("told Manager a message is a notification now: #P%s", pid)
     await assumptions.apply(db, settings)
     Items.watchers.append(assumptions.watcher(settings))
     Items.watchers.append(questions.route)

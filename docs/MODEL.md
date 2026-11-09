@@ -112,11 +112,11 @@ Allt kontoret planerar att höra av sig om ligger i ett gemensamt schema med tid
 - **Bokning före löfte.** När du ber om något ("påminn mig fredag") bokar Assistant först och får direkt "bokat" eller en krock ("fredag 23:30 är nattro"). Vid en krock frågar Assistant dig innan den lovar något.
 - **Dina bokningar ligger fast.** Manager kan föreslå en flytt, men flyttar aldrig i tysthet.
 - **Det sparade** är en hylla utan tid, med bäst-före-datum. Du kan be om det ("något nytt?"), och Manager kan ta fram något därifrån när det passar.
-- **Din kalender** (TimeEdit och Apple) är fakta om dig och läses men ägs inte.
+- **Din kalender** (TimeEdit och Apple) är fakta om dig och läses men ägs inte. Den är underlag för innehåll (deadlines, din vecka), ingen spärr: ett pass håller inte tillbaka ett meddelande, och Audax frågar inte vilka pass som gäller dig.
 
 ## Kontakten: underlag och omdöme
 
-Desken avgör om och när något når dig, genom att bedöma i sammanhanget. Den har inget förval mot tystnad och inget mot att skicka. Båda misstagen kostar: något onödigt tar din uppmärksamhet, och något bra som hålls tillbaka hör du aldrig om. När något ändå går ut kan något från hyllan följa med, och det är hyllans väg till dig.
+**Ett meddelande är en notis** (omgång 12). Du läser det när det passar, så stunden betyder lite och innehållet mest. Det som kostar är innehåll som inte passar, och en sådan miss rättas i urvalet (Director och triagen), inte genom färre meddelanden. Desken avgör om och när något når dig: är det bra hör Audax av sig. Bara nattron och dina egna ord binder. Policyn har inga tak eller antal. När något ändå går ut kan något från hyllan följa med, och det är hyllans väg till dig.
 
 **Kontaktliggaren** (`agent/ledger.py`) sparar varje egen kontakt med sitt sammanhang: vilken sort, tid, längd, hur många saker den samlade och vilken i ordningen den dagen den var. Den sparar också hur kontakten landade: svar, reaktioner och "för mycket". Ur det räknar koden fram tre saker:
 - hur olika sorters kontakter landar;

@@ -71,9 +71,6 @@ class Agenda:
             out.append(f"{self.show(at)} har redan varit")
         if self.quiet.contains(at.time()):
             out.append(f"{self.show(at)} är under nattro ({self.quiet.start:%H:%M}–{self.quiet.end:%H:%M})")
-        busy = (await self.schedule.availability(at)).current
-        if busy is not None:
-            out.append(f"då pågår {busy.summary} ({busy.start:%H:%M}–{busy.end:%H:%M})")
         for key, what in ((SILENCE_KEY, "tyst läge"), (FOCUS_KEY, "fokusläge")):
             if (until := await self._until(key)) and at < until:
                 out.append(f"{what} gäller till {self.show(until)}")
