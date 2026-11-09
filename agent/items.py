@@ -207,6 +207,13 @@ class Items:
             other = link["to_id"] if link["from_id"] == item_id else link["from_id"]
             if o := await self.get(other):
                 lines.append(f"Länk ({link['relation']}): {self.line(o)}")
+        if item["form"] == "belief":   # what it rests on and what came of leaning on it (omgång 13)
+            from agent import facit
+            from agent.beliefs import weight
+
+            lines.append(f"Vilar på: {weight(item)}")
+            if record := facit.words(await facit.of(self.db, item_id)):
+                lines.append(record.capitalize())
         hist = await self.history(item_id)
         if hist:
             lines.append("Historik:")

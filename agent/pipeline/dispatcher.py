@@ -13,7 +13,7 @@ import json
 import logging
 from datetime import datetime, timedelta, timezone
 
-from agent import assumptions, checks, ledger, trail
+from agent import assumptions, checks, facit, ledger, trail
 from agent.agenda import FOCUS_KEY, SILENCE_KEY, Agenda
 from agent.claude_gate import ClaudeGate, ClaudeTask, Priority, QuotaPaused
 from agent.config import Settings
@@ -49,6 +49,7 @@ SCHEMA = {
                     "decision": {"type": "string", "enum": DECISIONS},
                     "at": {"type": ["string", "null"], "description": "For 'at': local time, YYYY-MM-DD HH:MM"},
                     "unclear": {"type": ["string", "null"], "description": "For 'check': Swedish, the deciding fact to find out"},
+                    "rests_on": {"type": "array", "items": {"type": "string"}, "description": "The beliefs (#U) this leans on, if any: a rule in the policy, a frame in now.md or the profile, what the owner said. The code follows how each turns out"},
                     "reason": {"type": "string", "description": "Swedish, shown to the owner if they ask why"},
                 },
                 "required": ["candidate_id", "decision", "reason"],
@@ -171,6 +172,7 @@ class Dispatcher:
             if row is None or d.get("decision") not in DECISIONS:
                 continue
             decision, label = d["decision"], d["decision"]
+            await facit.record(self.db, d.get("rests_on"), row["id"], MODULE, decision)   # each belief gets its record
             if decision == "check":
                 if checks.needs(row) is None and json.loads(row["features"] or "{}").get("checked"):
                     decision = "now"   # checked once already: it goes out with what is still unclear said as unclear

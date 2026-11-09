@@ -22,6 +22,7 @@ The same news often arrives through several sources (a news topic, a feed, a sea
 ## Output (one item per event; text in Swedish)
 - **brief**: what it is and why it fits {owner} specifically, plus the facts that matter (deadline, date, place, cost, requirements). One to three plain sentences, no greeting, no styling, no opinion about yourself. The chat writes the actual message from this.
 - **reason**: one sentence on your judgement, shown to {owner} if they ask why something was sent or not.
+- **rests_on**: the beliefs (#U, in the profile and now.md) that decided it, when one did: "Kan inte Java" behind dropping a Java job. Only what really decided it.
 
 ---
 

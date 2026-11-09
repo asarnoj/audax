@@ -50,6 +50,7 @@ SCHEMA = {
                     "reason": {"type": "string", "description": "Swedish, one sentence on the judgement"},
                     "unsure": {"type": ["string", "null"], "description": "Swedish, only when you keep it but are unsure this "
                                "kind of thing is what the owner wants: what you are unsure about (the message may ask them). Usually null"},
+                    "rests_on": {"type": "array", "items": {"type": "string"}, "description": "The beliefs (#U) this leans on, if any: a rule in the policy, a frame in now.md or the profile, what the owner said. The code follows how each turns out"},
                     "check": {"type": ["string", "null"], "description": "Swedish, only when you keep it and one missing fact "
                               "decides whether it is worth telling (a date, whether it is still open, how to sign up) and the page "
                               "or a search would settle it: that fact. It is looked up before the desk decides. Usually null"},
@@ -173,6 +174,9 @@ class Triage:
             except sqlite3.IntegrityError:  # this event already has a candidate
                 log.warning("triage: event %s already has a candidate, skipped", row["id"])
                 continue
+            from agent import facit
+
+            await facit.record(self.db, item.get("rests_on"), cid, MODULE, "keep" if item.get("keep", True) else "drop")
             if not item.get("keep", True):
                 await self.db.execute("UPDATE candidates SET status = 'dropped', tier = 'drop' WHERE id = ?", (cid,))
                 await self.db.insert("decisions", candidate_id=cid, module=MODULE, tier="drop", reason=item.get("reason", ""))

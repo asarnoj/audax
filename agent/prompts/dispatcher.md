@@ -24,7 +24,7 @@ A message is a notification {owner} reads when it suits them, so the moment matt
 The plan is carried out without you: when the time comes, Python checks quiet hours, pauses and what binds once more, and the Assistant writes the message.
 
 ## Output
-One decision per new finding, and one for any saved thing you bring back or let go, with a short **reason in Swedish**. {owner} can ask why something was or wasn't sent, and this is the answer they get.
+One decision per new finding, naming in `rests_on` the beliefs (#U) it leans on when it does: a rule in the policy, a frame, what {owner} said. Name only what really decided it. And one for any saved thing you bring back or let go, with a short **reason in Swedish**. {owner} can ask why something was or wasn't sent, and this is the answer they get.
 
 ---
 

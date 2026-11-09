@@ -376,6 +376,29 @@ async def test_what_the_owner_says_becomes_a_belief_and_the_profile_follows(db, 
     assert not await write_profile(db, mem, "Julius")   # unchanged: not written again
 
 
+async def test_the_owner_strikes_a_rule_of_the_office_and_its_role_hears_it(db):
+    # omgång 13, C: "varför gör du X?" leads to the belief behind it; "stryk den" is the owner's word
+    from agent.items import Items
+    from agent.tools import build_chat_tools
+
+    import agent.tools as tools_mod
+
+    cap = await Items(db).create("belief", "Max ca 3 proaktiva per dag", "manager", kind="practice", owner="manager",
+                                 source={"type": "inferred"})
+    captured = {}
+    real = tools_mod.create_sdk_mcp_server
+    tools_mod.create_sdk_mcp_server = lambda name, version="1.0.0", tools=None: captured.setdefault("tools", tools) and real(name, version=version, tools=tools)
+    try:
+        build_chat_tools(db, TurnContext())
+    finally:
+        tools_mod.create_sdk_mcp_server = real
+    remember = {t.name: t for t in captured["tools"]}["remember"]
+    await remember.handler({"retract": f"#U{cap}", "quote": "Sluta med taket, skriv när det är bra"})
+    assert (await Items(db).get(cap))["status"] == "retracted"
+    post = await db.fetchone("SELECT recipient, body, from_owner FROM posts ORDER BY id DESC LIMIT 1")
+    assert post["recipient"] == "manager" and f"#U{cap}" in post["body"] and post["from_owner"] == 1
+
+
 async def test_the_chat_is_reminded_of_what_was_said_before_its_turn(db, tmp_path):
     prompts = []
 

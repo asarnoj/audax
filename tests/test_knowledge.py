@@ -74,3 +74,26 @@ async def test_moving_the_lessons_with_the_view_watching_moves_each_once(db, tmp
     (tmp_path / "lardomar.md").write_text("# Lärdomar\n- A (Assistant, 18 okt)\n- B (Director, 2 nov)\n")
     await write_practice(db, tmp_path)
     assert [r["title"] for r in await Items(db).find("belief", kind="practice")] == ["A", "B"]
+
+
+async def test_a_beliefs_record_brings_it_to_trial_when_it_points_against_it(db):
+    # omgång 13, C: a cap in the policy held things back that the owner then fetched from the shelf
+    from agent import facit
+    from agent.pipeline.outbox import add_candidate
+
+    items = Items(db)
+    cap = await items.create("belief", "Högst ett hyllfynd om dagen", "manager", kind="practice", owner="manager",
+                             data={"observations": "2026-10-29: Julius bad om ping nära datum"}, source={"type": "inferred"})
+    held = await add_candidate(db, "event", "Grok-meetup", "x", {})
+    sent = await add_candidate(db, "event", "RoyalRoppers", "y", {})
+    await facit.record(db, [f"#U{cap}", "#U99999", "nonsense"], held, "dispatcher@2", "shelf")
+    await facit.record(db, [f"U{cap}"], sent, "dispatcher@2", "now")
+    await db.execute("UPDATE candidates SET status = 'sent' WHERE id = ?", (sent,))
+    assert await facit.for_review(db, "manager") == ""   # nothing has pointed against it yet
+    await db.execute("UPDATE items SET updated_at = datetime('now', '-1 hour') WHERE id = ?", (cap,))
+    await db.insert("feedback", candidate_id=held, signal="shelf_pull", value="pulled")
+    text = await facit.for_review(db, "manager")
+    assert f"#U{cap}" in text and "höll tillbaka 1, varav 1 hämtades" in text and "skickade 1" in text
+    assert "Facit: höll tillbaka 1" in await items.describe(cap)
+    await items.update(cap, "manager", data={"observations": "2026-10-29: x\n2026-11-10: ändå hämtat; behåller med skäl"})
+    assert await facit.for_review(db, "manager") == ""   # looked at since: it rests until something new points against it

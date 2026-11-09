@@ -118,6 +118,10 @@ async def review(db: Database, role: str, now: datetime, memory=None) -> str:
 
         if fresh := await freshness(db, memory, role):
             parts.append(fresh)
+    from agent import facit
+
+    if trial := await facit.for_review(db, role):
+        parts.append(trial)
     if role == "researcher":
         parts.append(await source_yield(db))
         from agent.wanted import for_review as wanted_review

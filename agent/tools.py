@@ -229,7 +229,7 @@ def build_chat_tools(
         "don't want, what may always interrupt, schedule and habits, how they want to be talked to, limits for Audax). It "
         "becomes a belief with their message as its source and lands in the profile. Use their own words in `quote`. "
         "If it changes something already held (see the profile's #U ids), list those in `replaces`; if they say something "
-        "you hold is wrong, `retract` it. Something only for now (\"inte den här veckan\") gets `valid_until`. A hesitation "
+        "you hold is wrong, or wants a rule of the office gone (\"sluta med det\"), `retract` it: the role that held it hears it. Something only for now (\"inte den här veckan\") gets `valid_until`. A hesitation "
         "(\"jag tror inte…\") is kept as such: confidence low, and it changes nothing else by itself. Say \"Noterat\" only "
         "after this succeeded.",
         {
@@ -262,6 +262,14 @@ def build_chat_tools(
                 await items.update(n, "assistant", status="retracted", note=f"{personalize('{owner}')} sa att det inte stämmer"
                                    + (f": \"{args['quote']}\"" if args.get("quote") else ""))
                 turn.refs.add(f"#U{n}")
+                held = await items.get(n)
+                if held and held.get("owner") not in (None, "assistant"):   # a role's rule or conclusion: it hears it from the owner
+                    from agent.posts import Posts
+
+                    await Posts(db).send("assistant", held["owner"], "note",
+                                         f"{personalize('{owner}')} strök #U{n} ({held['title'][:120]})"
+                                         + (f": \"{args['quote']}\"" if args.get("quote") else "") + ". Det är ägarens ord och binder.",
+                                         verbatim=args.get("quote"), from_owner=True)
                 if not args.get("statement"):
                     return _text(f"[internal] #U{n} retracted.")
             source = {"type": "owner", "date": __import__("datetime").date.today().isoformat()}

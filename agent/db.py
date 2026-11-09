@@ -601,6 +601,18 @@ MIGRATIONS: list[str] = [
         updated_at TEXT NOT NULL DEFAULT (datetime('now'))
     );
     """,
+    # 29: which beliefs a decision leaned on (agent/facit.py), so each belief gets its record.
+    """
+    CREATE TABLE belief_uses (
+        id INTEGER PRIMARY KEY,
+        belief_id INTEGER NOT NULL,
+        candidate_id INTEGER NOT NULL,
+        module TEXT NOT NULL,              -- triage@1, dispatcher@2
+        decision TEXT NOT NULL,            -- keep|drop|now|at|shelf|check
+        created_at TEXT NOT NULL DEFAULT (datetime('now'))
+    );
+    CREATE INDEX belief_uses_belief ON belief_uses (belief_id);
+    """,
 ]
 
 # Tables whose rows carry the id of the run that wrote them (agent/trail.py).
