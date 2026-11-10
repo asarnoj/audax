@@ -98,3 +98,33 @@ async def test_the_check_can_move_the_moment(db, tmp_path):
     assert await checks.check(db, d.gate, d.settings, None, row, "Julius", "2026-10-12")
     row = await db.fetchone("SELECT * FROM candidates WHERE id = ?", (c,))
     assert row["latest_useful"].startswith("2026-10-13T10:00") and json.loads(row["features"])["latest_why"] == "godkännandet tar tid"
+
+
+async def test_a_finding_judged_before_the_owners_later_words_is_judged_again_before_it_goes(db, tmp_path):
+    # 10 Nov: the OpenAI "rogue" retelling was kept 1 Nov, the owner said "already read" 4-5 Nov, it came back from the
+    # shelf to the desk (which judges when, not what) and went out a third time
+    calls = []
+    for key in ("a", "b"):
+        await db.execute("INSERT INTO events (source, kind, dedupe_key, payload) VALUES ('stream:lesswrong', 'event', ?, '{}')", (key,))
+    rogue = await add_candidate(db, "story", "OpenAI rogue models retold", "x", {}, event_id=1)
+    fresh_one = await add_candidate(db, "story", "Nvidia story", "y", {}, event_id=2)
+    await db.execute("UPDATE candidates SET created_at = datetime('now', '-9 days')")
+    await db.execute("INSERT INTO messages (telegram_message_id, direction, text) VALUES (9, 'in', 'Jag har redan läst rogue-storyn om OpenAI')")
+    await Items(db).create("belief", "Har redan läst rogue-storyn", "assistant", kind="fact", source={"type": "owner", "quote": "redan läst"})
+
+    def answer(task):
+        if task.kind == "triage":
+            return {"items": [{"candidate_id": rogue, "keep": False, "reason": "Julius har redan läst den", "rests_on": []},
+                              {"candidate_id": fresh_one, "keep": True, "reason": "fortfarande bra"}]}
+        return {"decisions": [{"candidate_id": c, "decision": "now", "reason": "bra"} for c in (rogue, fresh_one)]}
+
+    d, sent = await make_dispatcher(db, tmp_path, answer, calls)
+    await d.run()
+    assert sent == [] and [t.kind for t in calls] == ["dispatcher", "triage"]
+    assert "redan läst rogue-storyn" in calls[1].prompt   # what the owner said about it, looked up
+    status = {r["id"]: r["status"] for r in await db.fetchall("SELECT id, status FROM candidates")}
+    assert status == {rogue: "dropped", fresh_one: "scheduled"}
+    await d.tick()
+    assert sent == ["y"] and len(calls) == 2   # judged once: what was kept goes, without asking again
+    why = await db.fetchone("SELECT reason FROM decisions WHERE candidate_id = ? AND module = 'rejudge@1'", (rogue,))
+    assert why["reason"] == "Julius har redan läst den"

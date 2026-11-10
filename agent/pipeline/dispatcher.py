@@ -21,6 +21,7 @@ from agent.db import Database
 from agent.memory import MemoryRepo
 from agent.prompts import prompt as prompt_template
 from agent.items import Items
+from agent.pipeline import rejudge
 from agent.pipeline.outbox import STEP, AlreadySaid, FallbackDispatcher, Outbox, SendPoll
 from agent.schedule import Schedule, utc_iso
 
@@ -91,6 +92,7 @@ class Dispatcher:
         self.inbox = inbox
         self.fallback = FallbackDispatcher(outbox)
         self._last_decide: datetime | None = None
+        self._judge_again: list[int] = []   # findings judged before what triage reads changed: triage looks once more
         self._last_ask: datetime | None = None
 
     # --- user controls ----------------------------------------------------
@@ -124,6 +126,7 @@ class Dispatcher:
                 to_check += await self._decide(pending)
             for cid in to_check:
                 await self.db.execute("UPDATE candidates SET status = 'checking' WHERE id = ?", (cid,))
+        await self._rejudge_old()
         if to_check:   # outside the lock: a check reads the web, and deliveries go on meanwhile
             for cid in to_check:
                 row = await self.db.fetchone("SELECT * FROM candidates WHERE id = ?", (cid,))
@@ -304,6 +307,7 @@ class Dispatcher:
                 if b["id"] not in along:
                     await self._deliver_booking(b, now)
             undecided = await self.outbox.pending()
+        await self._rejudge_old()
         if undecided and (self._last_decide is None or now - self._last_decide >= RETRY_UNDECIDED):
             await self.run()
         avail = await self.schedule.availability(now)
@@ -311,6 +315,23 @@ class Dispatcher:
         if idle and (self._last_ask is None or now - self._last_ask >= ASK_EVERY):
             self._last_ask = now
             await self._maybe_ask()
+
+    async def _rejudge_old(self) -> None:
+        """Outside the lock: triage judges again what was judged before the owner's words or its texts changed. What it
+        keeps is due now and goes at the next tick, after the last check; what it lets go is dropped with its reason."""
+        ids, self._judge_again = self._judge_again, []
+        if not ids:
+            return
+        rows = await self.db.fetchall(f"SELECT * FROM candidates WHERE id IN ({','.join('?' * len(ids))})", tuple(ids))
+        kept = await rejudge.run(self.db, self.gate, self.settings, self.memory, rows)
+        now = utc_iso(self.schedule.now())
+        for cid, keep in kept.items():
+            if keep:
+                await self.db.execute("UPDATE candidates SET status = 'scheduled', deliver_at = ? WHERE id = ? AND status = 'checking'", (now, cid))
+            else:
+                await self.db.execute("UPDATE candidates SET status = 'dropped', tier = 'drop', updated_at = datetime('now') "
+                                      "WHERE id = ? AND status = 'checking'", (cid,))
+                await trail.emit("place", "manager", to="bin", ref=f"#F{cid}")
 
     async def _hold_until(self, now: datetime, latest: datetime | None = None, decided_now: bool = False) -> datetime | None:
         """When a delivery due now must wait instead (mechanics executing the plan, not new judgement). Quiet hours and
@@ -355,6 +376,11 @@ class Dispatcher:
             await self.agenda.schedule_findings([r["id"]], until)
             await self.outbox.record(r["id"], MODULE, f"väntar till {self.agenda.show(until)}", "Tiden kom, men det var nattro, paus, eller något du själv bett om (bara det viktiga, dagens antal, samlat).", {})
             await trail.emit("place", "manager", to="calendar", ref=f"#F{r['id']}")
+        old = {r["id"] for r in await rejudge.stale(self.db, self.memory, [r for r, _ in go])}
+        for cid in old:   # judged before what triage reads changed: it looks once more before the owner sees it
+            if await self.db.execute_count("UPDATE candidates SET status = 'checking' WHERE id = ? AND status IN ('pending', 'scheduled')", (cid,)):
+                self._judge_again.append(cid)
+        go = [(r, u) for r, u in go if r["id"] not in old]
         if not go:
             return set()
         joined = []   # a booking due now goes in the same message: one contact, not two 11 seconds apart (5 and 6 Nov)

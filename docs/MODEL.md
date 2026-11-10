@@ -127,6 +127,8 @@ Allt kontoret planerar att höra av sig om ligger i ett gemensamt schema med tid
 
 Det är en utlösare, ingen garanti. Bäst-före (`expires_at`) finns kvar som gränsen för när saken inte är värd något alls.
 
+**Ett omdöme är lika gammalt som det det bedömdes mot** (`agent/pipeline/rejudge.py`). Triagen bedömer ett fynd en gång, mot målen, `now.md` och profilen som de såg ut den dagen. Innan ett fynd från sinnena når dig jämför koden därför när det bedömdes med när det triagen läser senast ändrades: dina egna ord (uppfattningar med dig som källa), `now.md`, profilen och praxis. Bedömdes det före ändringen tittar triagen på det en gång till, och behåller det eller släpper det med ett skäl. Det du själv har sagt om något liknande slås upp i fulltextindexet (`agent/search.py`) per fynd i stället för att hela historiken skickas med, så prompten växer med antalet fynd, inte med historiken. Bakgrunden: OpenAI-storyn behölls 1 nov, du sa "redan läst" 4–5 nov, den kom tillbaka från hyllan till desken (som bedömer när, inte vad) och gick ut en tredje gång 10 nov.
+
 **Kontaktliggaren** (`agent/ledger.py`) sparar varje egen kontakt med sitt sammanhang: vilken sort, tid, längd, hur många saker den samlade och vilken i ordningen den dagen den var. Den sparar också hur kontakten landade: svar, reaktioner och "för mycket". Ur det räknar koden fram tre saker:
 - hur olika sorters kontakter landar;
 - deskens fel åt båda hållen: det som hölls tillbaka men som du sedan hämtade eller frågade efter, eller som hölls tills tiden gått, och det som skickades men som du inte ville ha;
