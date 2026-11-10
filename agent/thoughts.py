@@ -13,6 +13,7 @@ how its own landed.
 
 from __future__ import annotations
 
+from agent import timing
 from agent.db import Database
 from agent.pipeline.outbox import add_candidate
 
@@ -33,10 +34,10 @@ SCHEMA = {
             "why_them": {"type": "string", "description": "Swedish, one sentence: why the owner would be glad to hear it; shown if they ask why"},
             "question": {"type": ["string", "null"], "description": "Swedish: a direct question it carries to learn something, or null"},
             "url": {"type": ["string", "null"]},
-            "time_sensitivity": {"type": "string", "enum": ["low", "medium", "high"]},
+            **timing.SCHEMA,
             "expires": {"type": ["string", "null"], "description": "YYYY-MM-DD if it has a best-before date"},
         },
-        "required": ["kind", "title", "thought", "why_them", "time_sensitivity"],
+        "required": ["kind", "title", "thought", "why_them"],
     },
 }
 
@@ -64,10 +65,10 @@ async def add(db: Database, role: str, thoughts: list | None, tz: str) -> list[s
         body = t["thought"].strip() + (f"\nFråga att ställa rakt ut: {t['question'].strip()}" if (t.get("question") or "").strip() else "")
         await add_candidate(
             db, kind=KIND, title=t["title"], body=body, url=t.get("url"),
-            features={"relevance": "high", "time_sensitivity": t.get("time_sensitivity", "low"), "thought": t["kind"],
+            features={"relevance": "high", "thought": t["kind"], **({"latest_why": t["latest_why"]} if t.get("latest_why") else {}),
                       "from": role, "asks": bool((t.get("question") or "").strip()),
                       "reason": f"{role.capitalize()}, {WORDS.get(t['kind'], 'en tanke')}: {t.get('why_them', '')}"},
-            expires_at=expires)
+            expires_at=expires, latest_useful=timing.parse(t.get("latest_useful"), tz))
         out.append(f"tanke till ägaren: {t['title']}")
     return out
 

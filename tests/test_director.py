@@ -69,7 +69,7 @@ async def test_apply_writes_the_picture_posts_ideas_lessons_dates_and_its_accoun
             "lessons": ["Kursers status och datum kontrolleras innan de föreslås"],
             "thoughts": [{"kind": "idea", "title": "Pitcha appen på Startup", "thought": "Startup har en matchningskväll 20/10.",
                           "url": "https://sses/x", "why_them": "partner", "question": "Vill du pitcha?",
-                          "time_sensitivity": "medium", "expires": "2026-10-20"}],
+                          "expires": "2026-10-20"}],
             "summary": "Startade partnermålet.",
         }, "understand", NOW)
     finally:

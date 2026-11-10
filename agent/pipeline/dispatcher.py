@@ -13,7 +13,7 @@ import json
 import logging
 from datetime import datetime, timedelta, timezone
 
-from agent import assumptions, checks, facit, ledger, trail
+from agent import assumptions, checks, facit, ledger, timing, trail
 from agent.agenda import FOCUS_KEY, SILENCE_KEY, Agenda
 from agent.claude_gate import ClaudeGate, ClaudeTask, Priority, QuotaPaused
 from agent.config import Settings
@@ -137,6 +137,28 @@ class Dispatcher:
 
         await Pursuits(self.db, self.settings.timezone).tick()  # missed deadlines; due nudges join the outbox
         await self.outbox.expire()
+        await self._rejudge()
+
+    async def _rejudge(self) -> None:
+        """What is saved, or planned past its moment, comes back to the desk once when the moment the owner must know it
+        by is a day away (agent/timing.py): send it, let it go, or let it lie with a reason. Again if a check moves the
+        moment earlier."""
+        now = self.schedule.now()
+        rows = await self.db.fetchall(
+            "SELECT * FROM candidates WHERE latest_useful IS NOT NULL AND latest_useful <= ? AND (expires_at IS NULL OR expires_at > ?) "
+            "AND (status = 'shelved' OR (status = 'scheduled' AND deliver_at > latest_useful))",
+            (utc_iso(now + timing.REJUDGE), utc_iso(now)))
+        for r in rows:
+            features = json.loads(r["features"] or "{}")
+            if features.get("rejudged") == r["latest_useful"]:
+                continue
+            features["rejudged"] = r["latest_useful"]
+            features["returned"] = (f"Ägaren behöver veta senast {timing.show(r, self.settings.timezone)}, och det är nära. "
+                                    "Bedöm igen: skicka, släpp, eller låt ligga med ett skäl.")
+            await self.db.execute("UPDATE candidates SET status = 'pending', features = ?, updated_at = datetime('now') WHERE id = ?",
+                                  (json.dumps(features, ensure_ascii=False), r["id"]))
+            await self.outbox.record(r["id"], "timing", "tillbaka till desken", "Tiden då du senast behöver veta det närmar sig.", {})
+            log.info("timing: #F%s back to the desk, latest useful %s", r["id"], r["latest_useful"])
 
     async def _decide(self, pending: list) -> list[int]:
         """Decides on each pending finding; returns those the desk wants checked first."""
@@ -173,6 +195,7 @@ class Dispatcher:
                 continue
             decision, label = d["decision"], d["decision"]
             await facit.record(self.db, d.get("rests_on"), row["id"], MODULE, decision)   # each belief gets its record
+            latest = timing.of(row)
             if decision == "check":
                 if checks.needs(row) is None and json.loads(row["features"] or "{}").get("checked"):
                     decision = "now"   # checked once already: it goes out with what is still unclear said as unclear
@@ -191,12 +214,17 @@ class Dispatcher:
                     await self.outbox.set_tier(row["id"], decision, "pending")
             if decision == "at":
                 at = self.agenda.parse(d.get("at") or "")
+                moved = False
+                if at is not None and latest is not None:
+                    last = timing.last_chance(latest.astimezone(self.agenda.tz), self.settings.quiet_hours)
+                    if at > last:   # a plan that misses its own point is no plan: the latest useful moment is a fact, not a judgement
+                        at, moved = last, True
                 if at is None or at <= self.schedule.now():
                     decision, label = "now", "now"
                 else:
                     await self.outbox.set_tier(row["id"], "at")
                     await self.agenda.schedule_findings([row["id"]], at)
-                    label = f"planerad {self.agenda.show(at)}"
+                    label = f"planerad {self.agenda.show(at)}" + (" (flyttad fram: senast nyttig)" if moved else "")
             if decision == "now":
                 await self.outbox.set_tier(row["id"], "now")
                 now_rows.append(row)
@@ -209,6 +237,8 @@ class Dispatcher:
                 label = "släppt"
                 if row["kind"] == STEP and (sid := json.loads(row["features"] or "{}").get("step")):   # its plan hears why
                     await Items(self.db).update(int(sid), "system", status="dropped", data={"result": f"Desken släppte det: {d.get('reason', '')}"})
+            if latest is not None and latest <= self.schedule.now() + timing.REJUDGE:
+                await self._seen_moment(row)   # the desk saw how close it is: it doesn't come back for the same moment
             await self.outbox.record(row["id"], MODULE, label, d.get("reason", ""), trace)
             to = {"at": "calendar", "now": "assistant", "shelf": "board", "drop": "bin"}[decision]
             await trail.emit("place", "manager", to=to, ref=f"#F{row['id']}")
@@ -225,7 +255,8 @@ class Dispatcher:
             candidates.append(
                 f"[id {r['id']}] {r['kind']} · {r['title']}\n"
                 f"features: {r['features']}\n"
-                f"waiting: {int(age.total_seconds() // 3600)} h · expires: {r['expires_at'] or '-'}\n"
+                f"waiting: {int(age.total_seconds() // 3600)} h · expires: {r['expires_at'] or '-'} · "
+                f"must know by: {timing.show(r, self.settings.timezone)}\n"
                 f"brief: {r['body']}"
             )
         shelf = await self._shelf()
@@ -241,7 +272,8 @@ class Dispatcher:
             "activity": await self._activity(),
             "settings": await assumptions.lines(self.db, self.settings),
             "ledger": await ledger.for_desk(self.db, self.settings.timezone),
-            "shelf": "\n".join(f"[id {r['id']}] {r['kind']} · {r['title']} · saved {r['updated_at'][:10]} · {r['body'][:160]}"
+            "shelf": "\n".join(f"[id {r['id']}] {r['kind']} · {r['title']} · saved {r['updated_at'][:10]}"
+                               + (f" · must know by {timing.show(r, self.settings.timezone)}" if r["latest_useful"] else "") + f" · {r['body'][:160]}"
                                for r in shelf) or "(empty)",
             "_shelf": shelf,
             "interrupt": self.memory.section("profile.md", "får alltid störa") or "(empty)",
@@ -280,43 +312,54 @@ class Dispatcher:
             self._last_ask = now
             await self._maybe_ask()
 
-    async def _hold_until(self, now: datetime, urgent: bool, decided_now: bool = False) -> datetime | None:
+    async def _hold_until(self, now: datetime, latest: datetime | None = None, decided_now: bool = False) -> datetime | None:
         """When a delivery due now must wait instead (mechanics executing the plan, not new judgement). Quiet hours and
-        the owner's own quiet or focus requests always hold, and what the owner said binds. A session in the timetable
-        doesn't: a message is a notification read when it suits them (omgång 12, 9 Nov)."""
+        the owner's own request for quiet always hold. Their request for only what matters, and their own count and
+        times, hold only what can wait: nothing past the moment they must know it by (agent/timing.py). A session in
+        the timetable doesn't hold: a message is a notification read when it suits them (omgång 12, 9 Nov)."""
+        def fits(until: datetime) -> bool:
+            return latest is None or until <= latest
+
         if self.settings.quiet_hours.contains(now.time()):
             return self.agenda.quiet_end(now)
         if until := await self.silenced_until():
             return until
-        if not urgent and (until := await self.focus_until()):
+        if (until := await self.focus_until()) and fits(until):
             return until
         # Only what the owner said binds (agent/assumptions.py); the office's understanding was weighed by the desk.
-        if (not urgent and assumptions.binds(self.settings, "daily_contacts")
+        if (assumptions.binds(self.settings, "daily_contacts")
                 and await assumptions.contacts_today(self.db, now) >= self.settings.daily_contacts):
             q = self.settings.quiet_hours.end   # the owner's own limit for today is reached: tomorrow morning
-            return (now + timedelta(days=1)).replace(hour=q.hour, minute=q.minute, second=0, microsecond=0)
-        if (not urgent and assumptions.binds(self.settings, "bundle_times")
-                and (until := assumptions.next_bundle(self.settings.bundle_times, now)) is not None):
+            until = (now + timedelta(days=1)).replace(hour=q.hour, minute=q.minute, second=0, microsecond=0)
+            if fits(until):
+                return until
+        if (assumptions.binds(self.settings, "bundle_times")
+                and (until := assumptions.next_bundle(self.settings.bundle_times, now)) is not None and fits(until)):
             return until   # the owner wants them together
         return None
+
+    async def _seen_moment(self, row) -> None:
+        features = json.loads(row["features"] or "{}")
+        if features.get("rejudged") != row["latest_useful"]:
+            features["rejudged"] = row["latest_useful"]
+            await self.db.execute("UPDATE candidates SET features = ? WHERE id = ?", (json.dumps(features, ensure_ascii=False), row["id"]))
 
     async def _deliver_findings(self, rows: list, now: datetime, decided_now: bool = False, bookings: list = ()) -> set[int]:
         """Returns the bookings that went along in the same message."""
         hold, go = [], []
         for r in rows:
-            urgent = json.loads(r["features"] or "{}").get("time_sensitivity") == "high"
-            until = await self._hold_until(now, urgent, decided_now)
+            until = await self._hold_until(now, timing.of(r), decided_now)
             (hold if until else go).append((r, until))
         for r, until in hold:
             await self.outbox.set_tier(r["id"], "at")
             await self.agenda.schedule_findings([r["id"]], until)
-            await self.outbox.record(r["id"], MODULE, f"väntar till {self.agenda.show(until)}", "Tiden kom, men det var nattro, paus, ett pass, eller något du själv bett om (dagens antal, samlat).", {})
+            await self.outbox.record(r["id"], MODULE, f"väntar till {self.agenda.show(until)}", "Tiden kom, men det var nattro, paus, eller något du själv bett om (bara det viktiga, dagens antal, samlat).", {})
             await trail.emit("place", "manager", to="calendar", ref=f"#F{r['id']}")
         if not go:
             return set()
         joined = []   # a booking due now goes in the same message: one contact, not two 11 seconds apart (5 and 6 Nov)
         for b in bookings:
-            if (b["fixed"] or not await self._hold_until(now, urgent=False)) and await self.db.execute_count(
+            if (b["fixed"] or not await self._hold_until(now)) and await self.db.execute_count(
                     "UPDATE bookings SET status = 'sending' WHERE id = ? AND status = 'planned'", (b["id"],)):
                 joined.append(b)
         along = "\n".join(f"- #B{b['id']} " + ("a reminder the owner asked for" if b["kind"] == "reminder" else "something you promised the owner")
@@ -340,7 +383,7 @@ class Dispatcher:
 
     async def _deliver_booking(self, b, now: datetime) -> None:
         """A reminder the owner asked for, or a promise the Assistant made, through the one voice."""
-        if not b["fixed"] and (until := await self._hold_until(now, urgent=False)):  # promises wait; the owner's own bookings don't
+        if not b["fixed"] and (until := await self._hold_until(now)):  # promises wait; the owner's own bookings don't
             await self.db.execute("UPDATE bookings SET due_at = ? WHERE id = ?", (utc_iso(until), b["id"]))
             return
         if not await self.db.execute_count("UPDATE bookings SET status = 'sending' WHERE id = ? AND status = 'planned'", (b["id"],)):

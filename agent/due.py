@@ -288,7 +288,7 @@ class Calendar:
             body = (f"{what} ({ref(item)}): {item['title']}. Klart när: {item.get('done_when', '')}."
                     + (f" Det tjänar: {parent['title']}." if parent else ""))
         await add_candidate(self.db, kind=STEP, title=item["title"], body=body,
-                            features={"relevance": "high", "time_sensitivity": "medium", "step": item["id"],
+                            features={"relevance": "high", "step": item["id"],
                                       "reason": f"Ett steg i en plan, med dagens datum ({ref(item)})."})
 
     async def _tell(self, item: dict) -> bool:

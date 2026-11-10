@@ -29,11 +29,15 @@ async def of(db: Database, belief_id: int, since: str | None = None) -> dict:
     With `since`, only what the owner did after it (wanted, not wanted) counts as wanted or unwanted."""
     when = "AND f.created_at > ?" if since else ""
     extra = (since,) if since else ()
-    held = await db.fetchone(
+    from agent.timing import LET_PASS
+
+    passed = "AND datetime(c.latest_useful) > datetime(?)" if since else ""
+    held = await db.fetchone(   # wanted after all: fetched, asked about, or held until the owner could no longer use it
         "SELECT count(DISTINCT u.candidate_id) AS n, count(DISTINCT CASE WHEN EXISTS (SELECT 1 FROM feedback f "
-        f" WHERE f.candidate_id = c.id AND (f.signal = 'shelf_pull' OR f.value LIKE 'missed%') {when}) THEN c.id END) AS wanted "
-        "FROM belief_uses u JOIN candidates c ON c.id = u.candidate_id WHERE u.belief_id = ? AND u.decision IN ('drop', 'shelf')",
-        (*extra, belief_id))
+        f" WHERE f.candidate_id = c.id AND (f.signal = 'shelf_pull' OR f.value LIKE 'missed%') {when}) "
+        f" OR ({LET_PASS} {passed}) THEN c.id END) AS wanted "
+        "FROM belief_uses u JOIN candidates c ON c.id = u.candidate_id WHERE u.belief_id = ? AND u.decision IN ('drop', 'shelf', 'at')",
+        (*extra, *extra, belief_id))
     sent = await db.fetchone(
         "SELECT count(DISTINCT c.id) AS n, "
         "count(DISTINCT CASE WHEN EXISTS (SELECT 1 FROM message_candidates mc JOIN messages m ON m.id = mc.message_id "
@@ -51,7 +55,7 @@ def words(f: dict) -> str:
         return ""
     parts = []
     if f["held"]:
-        parts.append(f"höll tillbaka {f['held']}, varav {f['wanted']} hämtades eller efterfrågades sedan")
+        parts.append(f"höll tillbaka {f['held']}, varav {f['wanted']} hämtades, efterfrågades eller hölls tills tiden gått")
     if f["sent"]:
         parts.append(f"skickade {f['sent']}, varav {f['answered']} besvarades och {f['unwanted']} inte var önskade")
     return "facit: " + "; ".join(parts)

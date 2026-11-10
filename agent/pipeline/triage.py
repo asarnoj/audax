@@ -17,7 +17,7 @@ from agent.claude_gate import ClaudeGate, ClaudeTask, Priority, QuotaPaused
 from agent.config import Settings
 from agent.db import Database
 from agent.memory import MemoryRepo
-from agent import trail
+from agent import timing, trail
 from agent.pipeline.outbox import add_candidate
 from agent.prompts import prompt as prompt_template
 from agent.pursuits import judged_against
@@ -42,7 +42,6 @@ SCHEMA = {
                     "keep": {"type": "boolean"},
                     "relevance": LEVEL,
                     "actionability": LEVEL,
-                    "time_sensitivity": LEVEL,
                     "novelty": LEVEL,
                     "confidence": LEVEL,
                     "complement": LEVEL,
@@ -54,14 +53,15 @@ SCHEMA = {
                     "check": {"type": ["string", "null"], "description": "Swedish, only when you keep it and one missing fact "
                               "decides whether it is worth telling (a date, whether it is still open, how to sign up) and the page "
                               "or a search would settle it: that fact. It is looked up before the desk decides. Usually null"},
+                    **timing.SCHEMA,
                 },
-                "required": ["event_id", "keep", "relevance", "actionability", "time_sensitivity", "novelty", "confidence", "complement", "brief", "reason"],
+                "required": ["event_id", "keep", "relevance", "actionability", "novelty", "confidence", "complement", "brief", "reason"],
             },
         }
     },
     "required": ["items"],
 }
-FEATURES = ("relevance", "actionability", "time_sensitivity", "novelty", "confidence", "complement")
+FEATURES = ("relevance", "actionability", "novelty", "confidence", "complement")
 
 
 class Triage:
@@ -149,6 +149,8 @@ class Triage:
                 features["unsure"] = item["unsure"]
             if item.get("check") and item.get("keep", True):   # unsure means look (agent/checks.py)
                 features["check"] = item["check"]
+            if item.get("latest_why"):
+                features["latest_why"] = item["latest_why"]
             if payload.get("unconfirmed"):   # what the search couldn't confirm travels with the finding, all the way to the owner
                 features["unconfirmed"] = payload["unconfirmed"]
             oid = payload.get("opportunity")
@@ -170,6 +172,7 @@ class Triage:
                     url=payload.get("url"),
                     expires_at=_expiry(payload, self.settings.timezone, row["kind"]),
                     event_id=row["id"],
+                    latest_useful=timing.parse(item.get("latest_useful"), self.settings.timezone),
                 )
             except sqlite3.IntegrityError:  # this event already has a candidate
                 log.warning("triage: event %s already has a candidate, skipped", row["id"])

@@ -12,6 +12,7 @@ from __future__ import annotations
 import json
 import logging
 
+from agent import timing
 from agent.claude_gate import ClaudeTask, Priority, QuotaPaused
 
 log = logging.getLogger(__name__)
@@ -25,6 +26,7 @@ SCHEMA = {
                     "description": "drop only if what you found makes it worthless to the owner (over, closed, not what it seemed)"},
         "why": {"type": "string", "description": "Swedish, one sentence"},
         "expires": {"type": ["string", "null"], "description": "YYYY-MM-DD after which it is worth nothing (event day, deadline), or null"},
+        **timing.SCHEMA,
     },
     "required": ["confirmed", "verdict", "why"],
 }
@@ -32,11 +34,14 @@ SCHEMA = {
 PROMPT = """You check one finding for {owner} before Audax decides whether to tell them. Something deciding is unclear;
 find it out. Read the finding's page first; search the web only if the page doesn't settle it. Be quick and factual:
 a few reads, not an investigation. Report what you found, with the facts that matter, and what is still unclear.
+Say when {owner} must know at the latest from what you found (registration, approval, a waiting list), if that differs
+from what is written below or nothing is.
 
 Today: {today}
 Finding: {title}
 What triage wrote: {body}
 Address: {url}
+Must know at the latest: {latest}
 What is unclear: {unclear}
 """
 
@@ -55,7 +60,8 @@ async def check(db, gate, settings, web, row, owner: str, today: str) -> bool:
 
     unclear = needs(row)
     servers, names = build_web_tools(web, TurnContext()) if web else ({}, [])
-    prompt = PROMPT.format(owner=owner, today=today, title=row["title"], body=row["body"], url=row["url"] or "(none)", unclear=unclear)
+    prompt = PROMPT.format(owner=owner, today=today, title=row["title"], body=row["body"], url=row["url"] or "(none)", unclear=unclear,
+                           latest=timing.show(row, settings.timezone))
     try:
         result = await gate.run(ClaudeTask(kind="check", prompt=prompt, priority=Priority.URGENT, model=settings.models.dispatcher,
                                            allowed_tools=["WebSearch", *names], mcp_servers=servers, output_schema=SCHEMA, max_turns=12))
@@ -80,9 +86,14 @@ async def check(db, gate, settings, web, row, owner: str, today: str) -> bool:
             expires = utc_iso(datetime.fromisoformat(out["expires"][:10]).replace(hour=23, minute=59, tzinfo=timezone.utc))
         except ValueError:
             pass
+    latest = row["latest_useful"]
+    if found := timing.parse(out.get("latest_useful"), settings.timezone):
+        latest = found   # what the page said about registration and approval decides it
+        if out.get("latest_why"):
+            features["latest_why"] = out["latest_why"]
     drop = out.get("verdict") == "drop"
-    await db.execute("UPDATE candidates SET body = ?, features = ?, expires_at = ?, status = ?, updated_at = datetime('now') WHERE id = ?",
-                     (body, json.dumps(features, ensure_ascii=False), expires, "dropped" if drop else "pending", row["id"]))
+    await db.execute("UPDATE candidates SET body = ?, features = ?, expires_at = ?, latest_useful = ?, status = ?, updated_at = datetime('now') WHERE id = ?",
+                     (body, json.dumps(features, ensure_ascii=False), expires, latest, "dropped" if drop else "pending", row["id"]))
     if drop:
         await Outbox(db, None, None).record(row["id"], "check@1", "släppt efter kontroll", out.get("why", ""), {"checked": unclear})
     log.info("checked #F%s (%s): %s", row["id"], unclear, "dropped" if drop else "back to the desk")

@@ -59,7 +59,9 @@ async def test_one_nudge_before_the_deadline_and_missed_after_it(db):
     assert await p.tick() == 2
     nudges = await db.fetchall("SELECT title, body, features FROM candidates WHERE kind = 'nudge' ORDER BY id")
     assert [n["title"] for n in nudges] == ["Ideate", "Armada"]
-    assert json.loads(nudges[0]["features"])["time_sensitivity"] == "high" and "om 2 dag" in nudges[0]["body"]
+    assert "om 2 dag" in nudges[0]["body"] and "2026-10-22" in json.loads(nudges[0]["features"])["latest_why"]
+    latest = (await db.fetchone("SELECT latest_useful FROM candidates WHERE kind = 'nudge' ORDER BY id"))["latest_useful"]
+    assert latest.startswith("2026-10-21T22:00")   # by the deadline day: the evening before is the last chance
     assert "bad om påminnelsen" in nudges[1]["body"]
     assert await p.tick() == 0  # one nudge per pursuit
     assert (await Items(db).get(past))["status"] == "missed"

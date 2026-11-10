@@ -118,9 +118,18 @@ Allt kontoret planerar att höra av sig om ligger i ett gemensamt schema med tid
 
 **Ett meddelande är en notis** (omgång 12). Du läser det när det passar, så stunden betyder lite och innehållet mest. Det som kostar är innehåll som inte passar, och en sådan miss rättas i urvalet (Director och triagen), inte genom färre meddelanden. Desken avgör om och när något når dig: är det bra hör Audax av sig. Bara nattron och dina egna ord binder. Policyn har inga tak eller antal. **Osäkert betyder kolla:** saknar ett lovande fynd en avgörande uppgift (datum, om det är öppet, hur man anmäler sig) namnger triagen eller desken den, och en kort körning (`agent/checks.py`) läser sidan och söker vid behov. Fyndet kommer tillbaka till desken med det som bekräftats, en gång; det som fortfarande är oklart går ut sagt som oklart eller släpps med skäl. Hyllan är bara för det ljumma. När något ändå går ut kan något från hyllan följa med, och det är hyllans väg till dig.
 
+**Senast nyttig** (omgång 14, `agent/timing.py`). Den som hittar något anger när du senast måste veta det och varför. Det är inte sista dagen i sig, utan sista dagen minus det du behöver för att hinna: några dagar för ett event med godkännande eller väntlista, en kväll för en ansökan. Triagen anger det, kontrollen rättar det och en knuff utgår från sin deadline. Brådska är ingen nivå längre utan räknas fram ur tidpunkten och nuet:
+- desken kan inte planera efter tidpunkten; en plan efter den flyttas dit (kvällen innan, om tidpunkten faller i natten);
+- det du bett om att bara få det viktiga, eller dina egna antal och tider, håller bara kvar det som kan vänta förbi tidpunkten; nattron och "tyst" håller alltid;
+- det som ligger på hyllan eller är planerat för sent kommer tillbaka till desken en gång när tidpunkten är ett dygn bort;
+- det som hölls tills tidpunkten passerat räknas som deskens fel ("lät tiden gå") och i facit mot uppfattningarna desken lutade sig mot;
+- reserven, när Claude är borta, skickar det du behöver veta inom tolv timmar.
+
+Det är en utlösare, ingen garanti. Bäst-före (`expires_at`) finns kvar som gränsen för när saken inte är värd något alls.
+
 **Kontaktliggaren** (`agent/ledger.py`) sparar varje egen kontakt med sitt sammanhang: vilken sort, tid, längd, hur många saker den samlade och vilken i ordningen den dagen den var. Den sparar också hur kontakten landade: svar, reaktioner och "för mycket". Ur det räknar koden fram tre saker:
 - hur olika sorters kontakter landar;
-- deskens fel åt båda hållen: det som hölls tillbaka men som du sedan hämtade eller frågade efter, och det som skickades men som du inte ville ha;
+- deskens fel åt båda hållen: det som hölls tillbaka men som du sedan hämtade eller frågade efter, eller som hölls tills tiden gått, och det som skickades men som du inte ville ha;
 - vad som aldrig prövats.
 
 Desken och Manager bedömer utifrån det. Det är underlag och inga mål.

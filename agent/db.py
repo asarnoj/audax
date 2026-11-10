@@ -613,6 +613,10 @@ MIGRATIONS: list[str] = [
     );
     CREATE INDEX belief_uses_belief ON belief_uses (belief_id);
     """,
+    # 30: when the owner must know a finding at the latest (agent/timing.py); urgency follows from it and from now.
+    """
+    ALTER TABLE candidates ADD COLUMN latest_useful TEXT;
+    """,
 ]
 
 # Tables whose rows carry the id of the run that wrote them (agent/trail.py).

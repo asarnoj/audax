@@ -8,7 +8,6 @@ Most events from broad sources are not relevant to {owner}. Be strict, and save 
 Rate each event low, medium or high on:
 - **relevance**: how directly it serves {owner_s} goals, projects and interests. The goals (with what helps and what is noise) and now.md are the best guide to what matters right now.
 - **actionability**: whether {owner} can do something concrete with it (apply, sign up, use, read for a reason).
-- **time_sensitivity**: high if the value is gone within a few days (a deadline or an event soon), medium within a few weeks, otherwise low.
 - **novelty**: whether it is new to {owner}, or close to something they have already seen or know.
 - **confidence**: how sure you are of this judgement.
 - **complement**: how much it helps with what Audax exists to compensate for: finding opportunities {owner} wouldn't look for themselves, and daring to go for them.
@@ -22,6 +21,7 @@ The same news often arrives through several sources (a news topic, a feed, a sea
 ## Output (one item per event; text in Swedish)
 - **brief**: what it is and why it fits {owner} specifically, plus the facts that matter (deadline, date, place, cost, requirements). One to three plain sentences, no greeting, no styling, no opinion about yourself. The chat writes the actual message from this.
 - **reason**: one sentence on your judgement, shown to {owner} if they ask why something was sent or not.
+- **latest_useful** and **latest_why**: when {owner} must know at the latest for it to be worth something, and why. Not the deadline itself: the deadline less what they need to make it (an event that takes the organiser's approval or has a waiting list needs days; an application that takes an evening needs that evening; a talk this afternoon needs the morning). Null when nothing runs out (a story, a tip). How urgent it is follows from this and from now, so don't rate urgency.
 - **rests_on**: the beliefs (#U, in the profile and now.md) that decided it, when one did: "Kan inte Java" behind dropping a Java job. Only what really decided it.
 
 ---

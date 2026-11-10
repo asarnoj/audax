@@ -165,14 +165,14 @@ async def run() -> None:
     async def sync_calendars() -> None:
         changes = await schedule.sync()
         for change in changes:
-            soon = (change.start - schedule.now()).total_seconds() < 24 * 3600
             await add_candidate(
                 db,
                 kind="schedule_change",
                 title=change.summary,
                 body=describe_change(change),
-                features={"time_sensitivity": "high" if soon else "medium", "relevance": "high", "actionability": "medium"},
+                features={"relevance": "high", "actionability": "medium", "latest_why": "innan det som ändrats börjar"},
                 expires_at=utc_iso(change.start),
+                latest_useful=utc_iso(change.start),
             )
         await dispatcher.run(force=bool(changes))
 

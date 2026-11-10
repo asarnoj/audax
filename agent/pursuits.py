@@ -181,10 +181,11 @@ class Pursuits:
             )
             cid = await add_candidate(
                 self.db, kind="nudge", title=r["title"], body=body, url=r.get("url"),
-                features={"relevance": "high", "actionability": "high", "time_sensitivity": "high" if days_left is not None and days_left <= 2 else "medium",
-                          "novelty": "medium", "confidence": "high", "complement": "high",
-                          "reason": "Knuff före deadline för något du visat intresse för"},
+                features={"relevance": "high", "actionability": "high", "novelty": "medium", "confidence": "high", "complement": "high",
+                          "reason": "Knuff före deadline för något du visat intresse för",
+                          **({"latest_why": f"sista dag {r['deadline']}: dagen innan räcker för att hinna söka"} if r.get("deadline") else {})},
                 expires_at=expires,
+                latest_useful=utc_iso(datetime.fromisoformat(r["deadline"]).replace(tzinfo=self.tz)) if r.get("deadline") else None,
             )
             await self.items.update(r["id"], "system", data={"nudged_at": datetime.now(ZoneInfo("UTC")).replace(tzinfo=None).isoformat(timespec="minutes"),
                                                              "nudge_candidate_id": cid}, note="knuff köad")

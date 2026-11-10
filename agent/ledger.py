@@ -130,7 +130,11 @@ async def errors(db: Database, days: int = 14) -> dict:
         f"SELECT count(*) AS n FROM feedback WHERE created_at >= datetime('now', ?) AND (value IN ({','.join('?' * len(NEGATIVE))}) "
         "OR (signal = 'command' AND (value LIKE 'quiet%' OR value LIKE 'focus%')) OR (signal = 'reaction' AND value = '👎'))",
         (since, *NEGATIVE)))["n"]
-    return {"held_back": pulled + asked_why, "pulled": pulled, "asked_why": asked_why, "too_much": much}
+    from agent.timing import LET_PASS
+
+    let_pass = (await db.fetchone(f"SELECT count(*) AS n FROM candidates c WHERE {LET_PASS} AND datetime(c.latest_useful) >= datetime('now', ?)",
+                                  (since,)))["n"]
+    return {"held_back": pulled + asked_why + let_pass, "pulled": pulled, "asked_why": asked_why, "let_pass": let_pass, "too_much": much}
 
 
 async def summary(db: Database, tz: str, days: int = 21) -> str:
@@ -155,7 +159,8 @@ async def summary(db: Database, tz: str, days: int = 21) -> str:
     if cs and (base := baseline(cs, days)):
         lines.append(base)
     lines.append(f"- Deskens fel, 14 dagar: höll tillbaka men ägaren ville ha det {e['held_back']} gånger (hämtat från hyllan "
-                 f"{e['pulled']}, frågade varför inget sades {e['asked_why']}); skickade men ägaren ville inte {e['too_much']} gånger "
+                 f"{e['pulled']}, frågade varför inget sades {e['asked_why']}, lät tiden gå {e['let_pass']}: hölls tills ägaren inte längre "
+                 f"hann använda det); skickade men ägaren ville inte {e['too_much']} gånger "
                  "('för mycket', tyst, bara det viktiga, 👎).")
     if never := await never_tried(cs, days):
         lines.append(f"- Aldrig prövat ({days} dagar): " + "; ".join(never) + ". A habit confirms itself; this is where nothing is known.")
@@ -194,5 +199,5 @@ async def for_desk(db: Database, tz: str) -> str:
     else:
         line += f" ({NO_DATA})"
     line += (f". Your errors in 14 days: held back what the owner then wanted {e['held_back']} times (fetched from the shelf "
-             f"{e['pulled']}); sent what they didn't want {e['too_much']} times.")
+             f"{e['pulled']}, let the moment they had to know by pass {e['let_pass']}); sent what they didn't want {e['too_much']} times.")
     return line

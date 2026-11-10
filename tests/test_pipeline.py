@@ -10,6 +10,7 @@ from agent.db import Database
 from agent.pipeline.dispatcher import FOCUS_KEY, Dispatcher
 from agent.pipeline.outbox import Outbox, add_candidate
 from agent.pipeline.triage import Triage
+from agent.schedule import utc_iso
 from agent.research import ResearchTask, Researcher, normalize_url
 from agent.schedule import Schedule, utc_iso
 from agent.telegram_bot import _parse_duration
@@ -75,8 +76,8 @@ async def make_dispatcher(db, tmp_path, structured, calls=None):
 
 
 async def test_dispatcher_sends_now_plans_later_shelves_and_drops(db, tmp_path):
-    a = await add_candidate(db, "event", "Hackathon", "Hackathon på Uni", {"time_sensitivity": "medium"}, url="https://x/a")
-    b = await add_candidate(db, "opportunity", "Jobb", "Sommarjobb", {"time_sensitivity": "medium"}, url="https://x/b")
+    a = await add_candidate(db, "event", "Hackathon", "Hackathon på Uni", {}, url="https://x/a")
+    b = await add_candidate(db, "opportunity", "Jobb", "Sommarjobb", {}, url="https://x/b")
     p = await add_candidate(db, "opportunity", "Praktik", "Praktik hos X", {}, url="https://x/p")
     c = await add_candidate(db, "news", "Nyhet", "Kul nyhet", {})
     e = await add_candidate(db, "event", "Gammalt", "Redan över", {})
@@ -123,18 +124,18 @@ async def test_dispatcher_only_thinks_about_new_findings(db, tmp_path):
 
 async def test_the_owners_focus_and_quiet_hours_always_hold(db, tmp_path):
     a = await add_candidate(db, "event", "A", "inte akut", {})
-    b = await add_candidate(db, "schedule_change", "B", "akut", {"time_sensitivity": "high"})
+    b = await add_candidate(db, "schedule_change", "B", "akut", {}, latest_useful=utc_iso(NOW + timedelta(minutes=30)))
     d, sent = await make_dispatcher(
         db, tmp_path,
         {"decisions": [{"candidate_id": a, "decision": "now", "reason": "x"}, {"candidate_id": b, "decision": "now", "reason": "y"}]},
     )
-    await d.silence(FOCUS_KEY, NOW + timedelta(hours=1))
+    await d.silence(FOCUS_KEY, NOW + timedelta(hours=1))   # only what matters: what can't wait past its moment goes
     await d.run()
     assert sent == ["akut"]
     held = await db.fetchone("SELECT status, deliver_at FROM candidates WHERE id = ?", (a,))
     assert held["status"] == "scheduled" and held["deliver_at"].startswith("2026-10-12T13:00")  # when focus ends (15:00 local)
 
-    c = await add_candidate(db, "event", "C", "sent kväll", {"time_sensitivity": "high"})
+    c = await add_candidate(db, "event", "C", "sent kväll", {}, latest_useful=utc_iso(NOW.replace(hour=23, minute=45)))
     d2, sent2 = await make_dispatcher(db, tmp_path, {"decisions": [{"candidate_id": c, "decision": "now", "reason": "z"}]})
     Clock.at = NOW.replace(hour=23, minute=30)
     try:
@@ -173,8 +174,8 @@ async def test_a_booking_is_checked_before_it_is_promised_and_delivered_through_
 
 
 async def test_dispatcher_falls_back_when_claude_fails(db, tmp_path):
-    await add_candidate(db, "event", "A", "inte akut", {"time_sensitivity": "medium"})
-    await add_candidate(db, "schedule_change", "B", "akut", {"time_sensitivity": "high"})
+    await add_candidate(db, "event", "A", "inte akut", {}, latest_useful=utc_iso(NOW + timedelta(days=5)))
+    await add_candidate(db, "schedule_change", "B", "akut", {}, latest_useful=utc_iso(NOW + timedelta(hours=2)))
     d, sent = await make_dispatcher(db, tmp_path, None)  # structured=None -> treated as failure
     await d.run()
     assert sent == ["akut"]
@@ -189,7 +190,7 @@ async def test_triage_creates_candidates_and_drops(db, tmp_path):
                           (json.dumps({"title": "Bra", "url": "https://a", "date": "2030-10-20"}),))
     e2 = await db.execute("INSERT INTO events (source, kind, dedupe_key, payload) VALUES ('research:x', 'event', 'b', ?)",
                           (json.dumps({"title": "Dåligt", "url": "https://b"}),))
-    lv = dict(relevance="high", actionability="high", time_sensitivity="medium", novelty="high", confidence="high", complement="high")
+    lv = dict(relevance="high", actionability="high", novelty="high", confidence="high", complement="high")
     out = {"items": [
         {"event_id": e1, "keep": True, "brief": "Kolla in det här", "reason": "passar", **lv},
         {"event_id": e2, "keep": False, "brief": "-", "reason": "irrelevant", **lv},
@@ -323,7 +324,7 @@ async def test_concurrent_triage_makes_one_candidate_per_event(db, tmp_path):
 
     e = await db.execute("INSERT INTO events (source, kind, dedupe_key, payload) VALUES ('stream:x', 'news', 'k', ?)",
                          (json.dumps({"title": "Ideate", "url": "https://i"}),))
-    lv = dict(relevance="high", actionability="high", time_sensitivity="medium", novelty="high", confidence="high", complement="high")
+    lv = dict(relevance="high", actionability="high", novelty="high", confidence="high", complement="high")
     t = Triage(load_settings(), db, gate_returning(db, tmp_path, {"items": [{"event_id": e, "keep": True, "brief": "b", "reason": "r", **lv}]}), FakeMemory())
     await asyncio.gather(t.run(), t.run())
     assert (await db.fetchone("SELECT count(*) AS n FROM candidates WHERE event_id = ?", (e,)))["n"] == 1
@@ -458,7 +459,7 @@ async def test_a_guess_guides_the_desk_but_what_the_owner_said_binds(db, tmp_pat
     assert sent0 == ["den fjärde"]   # the desk judged it worth it, and a guess doesn't stop it
 
     a = await add_candidate(db, "event", "A", "kan vänta", {})
-    u = await add_candidate(db, "event", "U", "brådskar", {"time_sensitivity": "high"})
+    u = await add_candidate(db, "event", "U", "brådskar", {}, latest_useful=utc_iso(NOW + timedelta(hours=3)))
     d, sent = await make_dispatcher(
         db, tmp_path,
         {"decisions": [{"candidate_id": a, "decision": "now", "reason": "x"}, {"candidate_id": u, "decision": "now", "reason": "y"}]})
@@ -521,7 +522,7 @@ async def test_a_session_in_the_timetable_holds_nothing_back(db, tmp_path):
         return SimpleNamespace(quiet=False, current=SimpleNamespace(summary="Föreläsning", end=NOW + timedelta(hours=1)))
 
     d.schedule.availability = busy
-    assert await d._hold_until(NOW.replace(hour=12), urgent=False) is None
+    assert await d._hold_until(NOW.replace(hour=12)) is None
     assert not [c for c in await d.agenda.conflicts(NOW.replace(hour=12)) if "pågår" in c]
 
 

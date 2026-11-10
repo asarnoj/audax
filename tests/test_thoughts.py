@@ -15,8 +15,8 @@ async def db(tmp_path):
 async def test_a_thought_joins_the_outbox_and_its_role_sees_how_it_landed(db):
     made = await thoughts.add(db, "researcher", [
         {"kind": "working_on", "title": "Praktiken", "thought": "De flesta öppnar i november.", "why_them": "så du vet",
-         "question": "Vill du att jag letar utomlands också?", "time_sensitivity": "low"},
-        {"kind": "idea", "title": "Tom", "thought": " ", "why_them": "x", "time_sensitivity": "low"}], "Europe/Stockholm")
+         "question": "Vill du att jag letar utomlands också?"},
+        {"kind": "idea", "title": "Tom", "thought": " ", "why_them": "x"}], "Europe/Stockholm")
     assert made == ["tanke till ägaren: Praktiken"]   # an empty one is nothing
     c = await db.fetchone("SELECT id, kind, status, body FROM candidates")
     assert (c["kind"], c["status"]) == ("thought", "pending") and "Fråga att ställa rakt ut" in c["body"]

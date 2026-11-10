@@ -40,9 +40,10 @@ async def add_candidate(
     url: str | None = None,
     expires_at: str | None = None,
     event_id: int | None = None,
+    latest_useful: str | None = None,
 ) -> int:
     return await db.insert("candidates", event_id=event_id, kind=kind, title=title, body=body, url=url,
-                           features=json.dumps(features, ensure_ascii=False), expires_at=expires_at)
+                           features=json.dumps(features, ensure_ascii=False), expires_at=expires_at, latest_useful=latest_useful)
 
 
 def render(row) -> str:
@@ -237,7 +238,7 @@ class Outbox:
 class FallbackDispatcher:
     """Rule-based dispatcher used when Claude is unavailable (quota paused, errors).
 
-    Only time-critical items go out, and never during quiet hours.
+    Only what the owner must know before Claude is likely back goes out (agent/timing.py).
     """
 
     MODULE = "fallback@1"
@@ -246,12 +247,15 @@ class FallbackDispatcher:
         self.outbox = outbox
 
     async def run(self, busy: bool, context: str) -> None:
-        rows = [r for r in await self.outbox.pending() if json.loads(r["features"]).get("time_sensitivity") == "high"]
+        from agent import timing
+
+        soon = self.outbox.schedule.now() + timing.FALLBACK
+        rows = [r for r in await self.outbox.pending() if (latest := timing.of(r)) is not None and latest <= soon]
         if not rows:
             return
         for r in rows:
             await self.outbox.set_tier(r["id"], "now")
-            await self.outbox.record(r["id"], self.MODULE, "nu", "Reserv: Claude var otillgänglig, så bara det brådskande skickades.", {"availability": context})
+            await self.outbox.record(r["id"], self.MODULE, "nu", "Reserv: Claude var otillgänglig, så bara det du behövde veta innan dess skickades.", {"availability": context})
         await self.outbox.deliver(rows)  # the rest stays undecided; the desk tries again when Claude is back
 
 
