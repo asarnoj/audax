@@ -3,7 +3,7 @@
 Triage judges a finding once, against the goals, now.md and the profile as they were that day. What was saved or
 planned carried that judgement on for weeks: the OpenAI "rogue" retelling was kept on 1 Nov, the owner said "already
 read" on 4 and 5 Nov, it came back from the shelf on 9 Nov to the desk (which judges when, not what) and went out on
-10 Nov, the third time. So before a finding from the senses reaches the owner, the code compares when it was judged
+10 Nov, the third time. So before a finding reaches the owner, the code compares when it was judged
 with when what triage reads last changed (the owner's own words, Director's now.md, the profile, the office's
 practice). If it was judged before, triage looks at it once more, now: keep it, or let it go with a reason. The
 content stays Director's judgement; the desk gets no new task.
@@ -26,6 +26,7 @@ log = logging.getLogger(__name__)
 MODULE = "rejudge@1"
 READS = ("direction/now.md", "profile.md", "lardomar.md")   # what triage judges against (agent/pursuits.py, judged_against)
 SAID = 3   # the owner's own messages shown per finding
+FACTS = ("nudge", "schedule_change")   # made from facts at the moment they are due (a deadline, a changed lesson): nothing to age
 
 SCHEMA = {
     "type": "object",
@@ -72,11 +73,12 @@ async def frames_changed(db, memory) -> datetime | None:
 
 
 async def stale(db, memory, rows) -> list:
-    """The findings from the senses judged before what triage reads last changed."""
+    """The findings judged before what triage reads last changed: from the senses, a search, or a role's thought or
+    plan alike (10 Nov: Director's insight from 30 Oct was planned for 12 Nov beside a step asking the same thing)."""
     changed = await frames_changed(db, memory)
     if changed is None:
         return []
-    return [r for r in rows if r["event_id"] is not None and judged_at(r) < changed]
+    return [r for r in rows if r["kind"] not in FACTS and judged_at(r) < changed]
 
 
 async def _said(db, row, tz: str) -> str:

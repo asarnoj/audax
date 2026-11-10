@@ -128,3 +128,17 @@ async def test_a_finding_judged_before_the_owners_later_words_is_judged_again_be
     assert sent == ["y"] and len(calls) == 2   # judged once: what was kept goes, without asking again
     why = await db.fetchone("SELECT reason FROM decisions WHERE candidate_id = ? AND module = 'rejudge@1'", (rogue,))
     assert why["reason"] == "Julius har redan läst den"
+
+
+async def test_what_ages_is_judged_again_and_facts_made_when_due_are_not(db):
+    from tests.test_pipeline import FakeMemory
+    from agent.pipeline import rejudge
+
+    insight = await add_candidate(db, "insight", "GF", "Directors insikt", {})
+    nudge = await add_candidate(db, "nudge", "Utbyte", "knuff", {})
+    await db.execute("UPDATE candidates SET created_at = datetime('now', '-9 days')")
+    rows = await db.fetchall("SELECT * FROM candidates")
+    assert await rejudge.stale(db, FakeMemory(), rows) == []   # nothing has changed since: nothing to look at again
+    await Items(db).create("belief", "Vill inte ha X", "assistant", kind="preference", source={"type": "owner", "quote": "inte X"})
+    assert [r["id"] for r in await rejudge.stale(db, FakeMemory(), rows)] == [insight]
+    assert nudge
