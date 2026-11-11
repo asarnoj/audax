@@ -35,7 +35,7 @@ async def record_entries(db: Database, stream_id: str) -> None:
         else:
             await db.execute("INSERT INTO watch_health (key, stream, entry, failing_since, error) VALUES (?, ?, ?, datetime('now'), ?) "
                              "ON CONFLICT(key) DO UPDATE SET failing_since = COALESCE(failing_since, datetime('now')), error = excluded.error",
-                             (key, stream_id, entry, error[:200]))
+                             (key, stream_id, entry, error.splitlines()[0][:200] if error.strip() else "fel utan text"))
 
 
 async def failing(db: Database) -> list:
