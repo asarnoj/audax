@@ -6,7 +6,7 @@ from agent.web import WebReader
 
 
 @pytest.mark.parametrize("url", [
-    "http://localhost:8080/", "http://127.0.0.1/", "http://192.168.1.1/admin", "http://10.0.0.5/", "http://100.79.231.124:22/",
+    "http://localhost:8080/", "http://127.0.0.1/", "http://192.168.1.1/admin", "http://10.0.0.5/", "http://100.64.0.7:22/",
     "http://[::1]/", "http://169.254.169.254/latest/meta-data", "http://raspberrypi.local/", "http://pi.tailnet.ts.net/",
     "file:///etc/passwd", "http://intranet/",
 ])

@@ -247,7 +247,7 @@ async def test_only_the_owners_words_may_wake_a_role(db):
     Posts.waker = woken.append
     try:
         await Posts(db).send("assistant", "director", "note", "hitta praktik nu", verbatim="hjälp mig hitta praktik", from_owner=True, wake=True)
-        await Posts(db).send("manager", "director", "note", "Julius är stressad", wake=True)  # role to role: waits
+        await Posts(db).send("manager", "director", "note", "Alex är stressad", wake=True)  # role to role: waits
     finally:
         Posts.waker = None
     assert woken == ["director"]
@@ -367,13 +367,13 @@ async def test_what_the_owner_says_becomes_a_belief_and_the_profile_follows(db, 
 
     mem = tmp_path / "memory"
     mem.mkdir()
-    assert await write_profile(db, mem, "Julius")
+    assert await write_profile(db, mem, "Alex")
     profile = (mem / "profile.md").read_text()
-    assert "## Inte intresserad av\n- Tekniska roller på bank går bra, inte rådgivning eller sälj (Julius, " in profile
+    assert "## Inte intresserad av\n- Tekniska roller på bank går bra, inte rådgivning eller sälj (Alex, " in profile
     assert "Vill inte jobba på bank" not in profile   # superseded: in the history, not in the profile
-    assert "Vill inte söka utbyte (Julius" in profile and "osäkert" in profile
+    assert "Vill inte söka utbyte (Alex" in profile and "osäkert" in profile
     assert "gäller till 2026-10-25" in profile or "Inga jobbtips" not in profile   # gone once its date has passed
-    assert not await write_profile(db, mem, "Julius")   # unchanged: not written again
+    assert not await write_profile(db, mem, "Alex")   # unchanged: not written again
 
 
 async def test_the_owner_strikes_a_rule_of_the_office_and_its_role_hears_it(db):
@@ -484,7 +484,7 @@ async def test_a_question_in_progress_stays_in_view_with_its_brief_until_recorde
     async def typing():
         pass
 
-    q = await Items(db).create("question", "Vad återstår innan någon kan använda språkappen?", "director", kind="intent", owner="director",
+    q = await Items(db).create("question", "Vad återstår innan någon kan använda sidoprojektet?", "director", kind="intent", owner="director",
                                status="asked", data={"to": "owner", "why": "Avgör om nästa steg är en demo", "guess": "Lansering, inte bygge",
                                                      "settles_it": "Vad som saknas, konkret", "context": "Sista commit 16 aug",
                                                      "asked_at": datetime.now().isoformat(timespec="minutes")})

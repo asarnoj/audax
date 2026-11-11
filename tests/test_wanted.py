@@ -111,7 +111,7 @@ async def test_a_watch_is_checked_against_the_earlier_rounds():
 async def test_an_investigation_sets_up_watches_checked_against_the_past_and_waits_for_the_window(db, tmp_path, monkeypatch):
     from agent import direction_ops as ops
 
-    await ops.add_topic(db, "swish-illustrationstavling", "Swish illustrationstävling", "sv", "Frida vill veta", urgent=True, by="assistant")
+    await ops.add_topic(db, "swish-illustrationstavling", "Swish illustrationstävling", "sv", "Ägaren vill veta", urgent=True, by="assistant")
     made = await wanted.migrate(db)
     assert len(made) == 1 and await wanted.migrate(db) == []   # once
     w = (await Items(db).find("wanted"))[0]

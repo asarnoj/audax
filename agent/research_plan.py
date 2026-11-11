@@ -314,7 +314,7 @@ class ResearchPlanner:
         return changes
 
     async def _account_steps(self, steps: list[dict], now: datetime) -> list[str]:
-        """Each open step gets an outcome in the answer, so none lies untouched until its date (22–24 Oct: the improv step
+        """Each open step gets an outcome in the answer, so none lies untouched until its date (22–24 Oct: a hobby step
         waited for 4 Nov). The code writes it on the step; an open step left out is named in the run's account."""
         items = Items(self.db)
         out, seen = [], set()

@@ -122,12 +122,12 @@ async def test_manager_shelf_posts_and_questions(env, tmp_path):
     note = await Posts(db).send("assistant", "manager", "note", "längd", verbatim="det där var för långt", from_owner=True)
     m = manager(db, memory, tmp_path)
     m._seen_posts = [note]
-    await m.apply({**BASE, "posts": [{"to": "director", "kind": "note", "body": "Julius verkar stressad"}], "resurface": [shelved, sent]}, NOW)
+    await m.apply({**BASE, "posts": [{"to": "director", "kind": "note", "body": "Alex verkar stressad"}], "resurface": [shelved, sent]}, NOW)
 
     st = {r["id"]: r["status"] for r in await db.fetchall("SELECT id, status FROM candidates")}
     assert st == {shelved: "pending", sent: "sent"}  # only shelved items can be resurfaced
     assert await Posts(db).inbox("manager") == []  # read, so handled
-    assert [p["body"] for p in await Posts(db).inbox("director")] == ["Julius verkar stressad"]
+    assert [p["body"] for p in await Posts(db).inbox("director")] == ["Alex verkar stressad"]
 
 
 

@@ -782,7 +782,7 @@ def _post_tools(posts: Posts, turn: TurnContext | None = None) -> list:
         {
             "type": "object",
             "properties": {
-                "source": {"type": "string", "description": "id, e.g. hn-best or topic-machinarium-2"},
+                "source": {"type": "string", "description": "id, e.g. hn-best or topic-ai-news"},
                 "action": {"type": "string", "enum": ["stop", "pace"]},
                 "minutes": {"type": "integer", "description": "pace: minutes between checks"},
                 "why": {"type": "string", "description": "{owner_s} reason, in their words"},

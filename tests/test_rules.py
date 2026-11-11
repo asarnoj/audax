@@ -25,12 +25,12 @@ async def event(db, source, kind, **payload):
 
 
 async def test_code_throws_away_duplicates_what_has_passed_and_what_a_rule_says(db):
-    await add_candidate(db, "news", "Machinarium 2 får en trailer", "b", {}, url="https://YouTube.com/watch?v=1")
+    await add_candidate(db, "news", "Nordljus 2 får en trailer", "b", {}, url="https://YouTube.com/watch?v=1")
     rule = await Items(db).create("rule", "Mentimeter: bara Sverige och student", "researcher",
                                   data={"applies_to": "mentimeter-greenhouse", "condition": json.dumps({"any": ["Toronto", "Berlin", "Sales"]}),
                                         "action": "drop", "reason": "Fel ort eller inte en studentroll"})
     ids = [
-        await event(db, "stream:topic-x", "news", title="Machinarium 2 får en trailer", url="https://news.example/m2"),   # same title
+        await event(db, "stream:topic-x", "news", title="Nordljus 2 får en trailer", url="https://news.example/m2"),   # same title
         await event(db, "stream:hn", "news", title="Något annat", url="https://youtube.com/watch?v=1/"),                  # same address
         await event(db, "stream:sses", "event", title="Kurs som redan har varit", date="2026-10-01"),
         await event(db, "stream:jobtech", "opportunity", title="Junior utvecklare", deadline="2026-10-05"),
@@ -61,18 +61,18 @@ async def test_researchers_review_shows_each_sources_yield_and_its_rules(db):
     from agent.due import review
 
     await routines.put_stream(db, {"id": "lesswrong", "type": "rss", "url": "https://lesswrong.com/feed"}, "system")
-    await routines.put_stream(db, {"id": "amanita", "type": "page", "url": "https://amanita-design.net"}, "system")
+    await routines.put_stream(db, {"id": "studio-x", "type": "page", "url": "https://studio.example"}, "system")
     await routines.put_stream(db, {"id": "dead-careers", "type": "page", "url": "https://x.example/jobs"}, "system")
     await routines.pause(db, "stream", "dead-careers", "system", "pausad efter 5 fel i rad", health="404")
     for i in range(25):
         await event(db, "stream:lesswrong", "news", title=f"Inlägg {i}")
-    eid = await event(db, "stream:amanita", "news", title="Nytt spel")
+    eid = await event(db, "stream:studio-x", "news", title="Nytt spel")
     await add_candidate(db, "news", "Nytt spel", "b", {}, event_id=eid)
     await Items(db).create("rule", "LessWrong: inga AI-nyheter", "researcher",
                            data={"applies_to": "lesswrong", "condition": json.dumps({"any": ["Hugging Face"]}), "action": "drop", "reason": "Ägaren ville inte"})
     text = await review(db, "researcher", datetime(2026, 10, 21, 12, tzinfo=ZoneInfo("Europe/Stockholm")))
     assert "lesswrong: 25 in, 0 kept (0 %), 0 reached the owner · low yield" in text
-    assert "amanita: 1 in, 1 kept (100 %), 0 reached the owner" in text
+    assert "studio-x: 1 in, 1 kept (100 %), 0 reached the owner" in text
     assert "dead-careers: 0 in, 0 kept, 0 reached the owner · paused (404)" in text
     assert "LessWrong: inga AI-nyheter" in text and "hits 0" in text
 

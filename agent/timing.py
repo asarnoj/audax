@@ -1,6 +1,6 @@
 """The latest useful moment (instance/granskning/2026-11-10-omgang-14-tid-och-granskning.md, A).
 
-Urgency used to be a level triage set once (low/medium/high) and nothing ever moved it: the Grok meetup, which needed
+Urgency used to be a level triage set once (low/medium/high) and nothing ever moved it: a meetup that needed
 the organiser's approval and had a waiting list, was planned for the morning of the event, and 25 things went stale on
 the shelf without anyone judging them again. Now whoever makes a finding says when the owner must know at the latest,
 and why: not the deadline itself but the deadline less what the owner needs to make it. What is urgent follows from that
@@ -9,7 +9,7 @@ and from now:
 - what would hold something past it (the owner's focus, their own count or times) doesn't hold it; the night still does;
 - what is saved or planned comes back to the desk once when the moment is a day away;
 - what was held until it passed counts as the desk's error ("lät tiden gå"), and against the beliefs it leaned on.
-A trigger, not a guarantee (Julius, 9 Nov). The best-before date (`expires_at`) stays: when it is worth nothing at all.
+A trigger, not a guarantee (the owner, 9 Nov). The best-before date (`expires_at`) stays: when it is worth nothing at all.
 """
 
 from __future__ import annotations

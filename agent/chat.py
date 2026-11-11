@@ -176,7 +176,7 @@ class ChatSession:
     async def start_interview(self) -> None:
         """For a new owner (empty memory). Later interviews start from the chat itself (the interview_guide tool)."""
         host = (self.settings.host or "").strip()
-        of = host if host[-1:].lower() in ("s", "x", "z") else host + "s"   # Swedish genitive: "Julius dator", "Annas dator"
+        of = host if host[-1:].lower() in ("s", "x", "z") else host + "s"   # Swedish genitive: "Klaus dator", "Annas dator"
         he = self.settings.host_pronoun or ""
         where = (f"\n\nThis Audax runs on {of} computer and Claude subscription, so that the owner can try it. Say it in the opening, "
                  f"in about these words: \"Det körs på {of} dator och Claude-abonnemang, så det du skriver sparas där och {host} kan "

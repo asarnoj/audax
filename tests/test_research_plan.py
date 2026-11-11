@@ -119,13 +119,13 @@ async def test_researcher_plans_when_needed_with_the_web_but_never_mail(env, tmp
 async def test_every_open_step_gets_an_outcome_written_on_it(env, tmp_path):
     db, memory, *_ = env
     items = Items(db)
-    improv = await items.create("step", "Improv-prova-på i Stockholm", "director", owner="researcher", review_at="2026-11-04",
+    pottery = await items.create("step", "Keramik-prova-på i Stockholm", "director", owner="researcher", review_at="2026-11-04",
                                 data={"action": "research", "done_when": "Datum och länk"})
     armada = await items.create("step", "Armada-utställare", "director", owner="researcher", review_at="2026-11-06",
                                 data={"action": "research", "done_when": "Lista"})
     p = planner(db, memory, tmp_path)
-    changes = await p.apply({"steps": [{"id": f"#T{improv}", "outcome": "done", "result": "Drop-in varannan tisdag, https://x"}]}, NOW)
-    assert (await items.get(improv))["status"] == "done" and "Drop-in" in (await items.get(improv))["result"]
+    changes = await p.apply({"steps": [{"id": f"#T{pottery}", "outcome": "done", "result": "Drop-in varannan tisdag, https://x"}]}, NOW)
+    assert (await items.get(pottery))["status"] == "done" and "Drop-in" in (await items.get(pottery))["result"]
     assert f"steg utan åtgärd: #T{armada}" in changes   # left out: named in the run's account
 
 

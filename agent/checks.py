@@ -1,8 +1,8 @@
 """Unsure means look (instance/granskning/2026-11-09-omgang-12-notisen.md, stage 2).
 
 A promising finding that lacks a deciding fact (a date, whether registration is needed, whether it is still open) used
-to be shelved "until it is confirmed", and nobody was asked to confirm it: the Grok Bot meetup sat on the shelf from
-26 Oct with its date one page away. Now triage or the desk names what is unclear, and a short run reads the page and
+to be shelved "until it is confirmed", and nobody was asked to confirm it: a meetup sat on the shelf for two
+weeks with its date one page away. Now triage or the desk names what is unclear, and a short run reads the page and
 searches if needed. The finding comes back to the desk with what was confirmed, once: what is still unclear goes out
 said as unclear (the `unsure` feature), or is dropped with a reason.
 """

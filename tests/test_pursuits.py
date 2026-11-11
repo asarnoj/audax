@@ -51,14 +51,14 @@ async def test_a_delivered_tip_becomes_a_pursuit_with_its_deadline(db):
 
 async def test_one_nudge_before_the_deadline_and_missed_after_it(db):
     p = FixedDay(db)
-    soon, _ = await p.upsert({"title": "Ideate", "deadline": "2026-10-22"}, "chat")  # 2 days left: due
+    soon, _ = await p.upsert({"title": "Inkubatorn", "deadline": "2026-10-22"}, "chat")  # 2 days left: due
     later, _ = await p.upsert({"title": "Spotify", "deadline": "2026-11-30"}, "chat")  # not yet
     asked, _ = await p.upsert({"title": "Armada", "remind_at": "2026-10-20"}, "chat")  # owner asked for today
     done, _ = await p.upsert({"title": "KTH utbyte", "deadline": "2026-10-21", "status": "applied"}, "chat")  # applied: no nudge
     past, _ = await p.upsert({"title": "Hackathon", "deadline": "2026-10-19"}, "chat")
     assert await p.tick() == 2
     nudges = await db.fetchall("SELECT title, body, features FROM candidates WHERE kind = 'nudge' ORDER BY id")
-    assert [n["title"] for n in nudges] == ["Ideate", "Armada"]
+    assert [n["title"] for n in nudges] == ["Inkubatorn", "Armada"]
     assert "om 2 dag" in nudges[0]["body"] and "2026-10-22" in json.loads(nudges[0]["features"])["latest_why"]
     latest = (await db.fetchone("SELECT latest_useful FROM candidates WHERE kind = 'nudge' ORDER BY id"))["latest_useful"]
     assert latest.startswith("2026-10-21T22:00")   # by the deadline day: the evening before is the last chance
@@ -72,7 +72,7 @@ async def test_one_nudge_before_the_deadline_and_missed_after_it(db):
 
 async def test_stats_show_whether_a_nudge_was_followed(db):
     p = FixedDay(db)
-    pid, _ = await p.upsert({"title": "Ideate", "deadline": "2026-10-22"}, "chat")
+    pid, _ = await p.upsert({"title": "Inkubatorn", "deadline": "2026-10-22"}, "chat")
     await p.tick()
     await db.execute("UPDATE items SET data = json_set(data, '$.nudged_at', strftime('%Y-%m-%dT%H:%M', 'now', '-1 minute')) WHERE id = ?", (pid,))
     await p.upsert({"id": pid, "status": "applied"}, "chat")

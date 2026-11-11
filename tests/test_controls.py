@@ -107,11 +107,11 @@ async def test_research_runs_in_background_and_notifies(setup):
 
 async def test_recent_items_explain_what_happened(setup):
     db, c, outbox, *_ = setup
-    eid = await db.execute("INSERT INTO events (source, kind, dedupe_key, payload) VALUES ('stream:topic-machinarium-2', 'news', 'a', '{\"title\": \"Machinarium 2 trailer\"}')")
+    eid = await db.execute("INSERT INTO events (source, kind, dedupe_key, payload) VALUES ('stream:topic-nordljus-2', 'news', 'a', '{\"title\": \"Nordljus 2 trailer\"}')")
     cid = await db.execute("INSERT INTO candidates (event_id, kind, title, body, status, features) VALUES (?, 'news', 't', 'b', 'dropped', '{\"reason\": \"bara en recension\"}')", (eid,))
     await outbox.record(cid, "dispatcher@1", "drop", "inget nytt", {})
-    text = await c.recent_items("machinarium")
-    assert "Machinarium 2 trailer → left out: inget nytt" in text
+    text = await c.recent_items("nordljus")
+    assert "Nordljus 2 trailer → left out: inget nytt" in text
     assert "Nothing has come in" in await c.recent_items("nope")
 
 

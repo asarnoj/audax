@@ -19,7 +19,7 @@ async def db(tmp_path):
 
 
 def test_a_belief_shows_how_much_it_rests_on():
-    assert weight({"source": {"type": "owner"}}, "Frida") == "Fridas egna ord"
+    assert weight({"source": {"type": "owner"}}, "Kim") == "Kims egna ord"
     assert weight({"source": {"type": "assumed"}}) == "ett antagande, aldrig bekräftat"
     assert weight({"source": {"type": "inferred", "evidence": "tre rättelser"}}) == "inget belägg angivet utom en fritext"
     obs = "2026-11-03: rättelse om seminariet (#M411)\n2026-11-05: Storträff\n2026-11-05: NYT-storyn"
@@ -83,8 +83,8 @@ async def test_a_beliefs_record_brings_it_to_trial_when_it_points_against_it(db)
 
     items = Items(db)
     cap = await items.create("belief", "Högst ett hyllfynd om dagen", "manager", kind="practice", owner="manager",
-                             data={"observations": "2026-10-29: Julius bad om ping nära datum"}, source={"type": "inferred"})
-    held = await add_candidate(db, "event", "Grok-meetup", "x", {})
+                             data={"observations": "2026-10-29: ägaren bad om ping nära datum"}, source={"type": "inferred"})
+    held = await add_candidate(db, "event", "AI-meetup", "x", {})
     sent = await add_candidate(db, "event", "RoyalRoppers", "y", {})
     await facit.record(db, [f"#U{cap}", "#U99999", "nonsense"], held, "dispatcher@2", "shelf")
     await facit.record(db, [f"U{cap}"], sent, "dispatcher@2", "now")

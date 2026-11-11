@@ -1,7 +1,7 @@
 """A judgement is as old as what it was judged against.
 
 Triage judges a finding once, against the goals, now.md and the profile as they were that day. What was saved or
-planned carried that judgement on for weeks: the OpenAI "rogue" retelling was kept on 1 Nov, the owner said "already
+planned carried that judgement on for weeks: a retelling of a story was kept on 1 Nov, the owner said "already
 read" on 4 and 5 Nov, it came back from the shelf on 9 Nov to the desk (which judges when, not what) and went out on
 10 Nov, the third time. So before a finding reaches the owner, the code compares when it was judged
 with when what triage reads last changed (the owner's own words, Director's now.md, the profile, the office's

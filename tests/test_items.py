@@ -41,13 +41,13 @@ async def test_a_plan_is_steps_under_a_goal_with_owners_dates_and_history(db):
     goal = await items.create("aim", "Medgrundare före jul", "director", kind="goal", source={"type": "owner", "message": 274})
     step = await items.create("step", "Kolla att Collide går att gå på som individ", "director", owner="researcher", parent=goal,
                               data={"action": "research", "done_when": "Datum, länk och svar på om man kan komma ensam"},
-                              review_at="2026-10-21", note="Julius bad om en plan 19 okt")
+                              review_at="2026-10-21", note="Alex bad om en plan 19 okt")
     s = await items.get(step)
     assert (s["form"], s["status"], s["owner"], s["parent_id"], s["review_at"]) == ("step", "planned", "researcher", goal, "2026-10-21")
     assert await items.update(step, "researcher", status="done", data={"result": "Ja, 8 dec, öppet för alla"}, note="klart") == ["result", "status"]
     assert await items.update(step, "researcher", status="done") == []   # nothing changed, nothing logged
     hist = await items.history(step)
-    assert [h["note"] for h in hist] == ["Julius bad om en plan 19 okt", "klart"]
+    assert [h["note"] for h in hist] == ["Alex bad om en plan 19 okt", "klart"]
     text = await items.describe(goal)
     assert "#S" + str(goal) in text and "Rymmer: #T" + str(step) in text and "Källa: type owner, message 274" in text
     assert [i["id"] for i in await items.find("step", open_only=True)] == []
@@ -62,7 +62,7 @@ async def test_a_belief_can_replace_an_older_one_and_both_stay(db):
     new = await items.create("belief", "Tekniska roller på bank går bra, inte rådgivning eller sälj", "assistant", kind="preference",
                              data={"subject": "bank"}, source={"type": "owner", "quote": "en teknisk roll på en bank kan jag faktiskt tänka mig"})
     await items.link(new, old, "supersedes", "assistant")
-    await items.update(old, "assistant", status="superseded", note="Julius ändrade sig 19 okt")
+    await items.update(old, "assistant", status="superseded", note="Alex ändrade sig 19 okt")
     current = await items.find("belief", status="current", where="json_extract(data, '$.subject') = ?", args=("bank",))
     assert [c["id"] for c in current] == [new]
     assert "Länk (supersedes)" in await items.describe(old)

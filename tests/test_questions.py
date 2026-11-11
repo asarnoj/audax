@@ -25,7 +25,7 @@ def text(out):
 
 async def test_a_question_to_the_world_becomes_a_step_and_its_result_the_answer(db):
     director = {t.name: t for t in office_tools(db, "director")}
-    out = await director["find_out"].handler({"what": "Finns det improv-prova-på i Stockholm i november?", "why": "Julius vill börja",
+    out = await director["find_out"].handler({"what": "Finns det keramik-prova-på i Stockholm i november?", "why": "Alex vill börja",
                                               "guess": "Troligen, osäker", "settles_it": "Ett datum och en länk", "ask": "world"})
     assert "Researcher is on it" in text(out)
     q = (await Items(db).find("question"))[0]
@@ -39,7 +39,7 @@ async def test_a_question_to_the_world_becomes_a_step_and_its_result_the_answer(
 
 async def test_a_question_to_another_role_is_in_its_review_and_it_may_answer(db):
     manager = {t.name: t for t in office_tools(db, "manager")}
-    await manager["find_out"].handler({"what": "Är Julius mitt i en tentaperiod nu?", "why": "Takten", "guess": "Nej", "ask": "director"})
+    await manager["find_out"].handler({"what": "Är Alex mitt i en tentaperiod nu?", "why": "Takten", "guess": "Nej", "ask": "director"})
     q = (await Items(db).find("question"))[0]
     from datetime import datetime
 

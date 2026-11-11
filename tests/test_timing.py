@@ -25,7 +25,7 @@ def test_a_bare_date_means_by_that_day_and_the_last_chance_is_before_the_night()
 
 
 async def test_a_plan_past_the_moment_is_moved_to_it(db, tmp_path):
-    # 9 Nov: the Grok meetup needed approval and had a waiting list, and was planned for the morning of the event
+    # 9 Nov: a meetup needed approval and had a waiting list, and was planned for the morning of the event
     by = NOW.replace(hour=12) + timedelta(days=1)
     g = await add_candidate(db, "event", "Meetup", "godkännande krävs", {"latest_why": "godkännande tar tid"}, latest_useful=utc_iso(by))
     night = await add_candidate(db, "event", "Ansökan", "x", {}, latest_useful=timing.parse("2026-10-15", "Europe/Stockholm"))
@@ -90,44 +90,44 @@ async def test_holding_until_the_moment_passed_is_the_desks_error_and_counts_aga
 async def test_the_check_can_move_the_moment(db, tmp_path):
     from agent import checks
 
-    c = await add_candidate(db, "event", "Meetup", "Grok-meetup 11 nov", {"check": "anmälan?"}, url="https://x",
+    c = await add_candidate(db, "event", "Meetup", "AI-meetup 11 nov", {"check": "anmälan?"}, url="https://x",
                             latest_useful=utc_iso(NOW + timedelta(days=2)))
     d, _ = await make_dispatcher(db, tmp_path, {"confirmed": "Kräver godkännande, väntlista", "verdict": "keep", "why": "x",
                                                 "latest_useful": "2026-10-13 12:00", "latest_why": "godkännandet tar tid"})
     row = await db.fetchone("SELECT * FROM candidates WHERE id = ?", (c,))
-    assert await checks.check(db, d.gate, d.settings, None, row, "Julius", "2026-10-12")
+    assert await checks.check(db, d.gate, d.settings, None, row, "Alex", "2026-10-12")
     row = await db.fetchone("SELECT * FROM candidates WHERE id = ?", (c,))
     assert row["latest_useful"].startswith("2026-10-13T10:00") and json.loads(row["features"])["latest_why"] == "godkännandet tar tid"
 
 
 async def test_a_finding_judged_before_the_owners_later_words_is_judged_again_before_it_goes(db, tmp_path):
-    # 10 Nov: the OpenAI "rogue" retelling was kept 1 Nov, the owner said "already read" 4-5 Nov, it came back from the
+    # 10 Nov: a retelling of a story was kept 1 Nov, the owner said "already read" 4-5 Nov, it came back from the
     # shelf to the desk (which judges when, not what) and went out a third time
     calls = []
     for key in ("a", "b"):
         await db.execute("INSERT INTO events (source, kind, dedupe_key, payload) VALUES ('stream:lesswrong', 'event', ?, '{}')", (key,))
-    rogue = await add_candidate(db, "story", "OpenAI rogue models retold", "x", {}, event_id=1)
+    retold = await add_candidate(db, "story", "Skeppsstoryn återberättad", "x", {}, event_id=1)
     fresh_one = await add_candidate(db, "story", "Nvidia story", "y", {}, event_id=2)
     await db.execute("UPDATE candidates SET created_at = datetime('now', '-9 days')")
-    await db.execute("INSERT INTO messages (telegram_message_id, direction, text) VALUES (9, 'in', 'Jag har redan läst rogue-storyn om OpenAI')")
-    await Items(db).create("belief", "Har redan läst rogue-storyn", "assistant", kind="fact", source={"type": "owner", "quote": "redan läst"})
+    await db.execute("INSERT INTO messages (telegram_message_id, direction, text) VALUES (9, 'in', 'Jag har redan läst skeppsstoryn')")
+    await Items(db).create("belief", "Har redan läst skeppsstoryn", "assistant", kind="fact", source={"type": "owner", "quote": "redan läst"})
 
     def answer(task):
         if task.kind == "triage":
-            return {"items": [{"candidate_id": rogue, "keep": False, "reason": "Julius har redan läst den", "rests_on": []},
+            return {"items": [{"candidate_id": retold, "keep": False, "reason": "Alex har redan läst den", "rests_on": []},
                               {"candidate_id": fresh_one, "keep": True, "reason": "fortfarande bra"}]}
-        return {"decisions": [{"candidate_id": c, "decision": "now", "reason": "bra"} for c in (rogue, fresh_one)]}
+        return {"decisions": [{"candidate_id": c, "decision": "now", "reason": "bra"} for c in (retold, fresh_one)]}
 
     d, sent = await make_dispatcher(db, tmp_path, answer, calls)
     await d.run()
     assert sent == [] and [t.kind for t in calls] == ["dispatcher", "triage"]
-    assert "redan läst rogue-storyn" in calls[1].prompt   # what the owner said about it, looked up
+    assert "redan läst skeppsstoryn" in calls[1].prompt   # what the owner said about it, looked up
     status = {r["id"]: r["status"] for r in await db.fetchall("SELECT id, status FROM candidates")}
-    assert status == {rogue: "dropped", fresh_one: "scheduled"}
+    assert status == {retold: "dropped", fresh_one: "scheduled"}
     await d.tick()
     assert sent == ["y"] and len(calls) == 2   # judged once: what was kept goes, without asking again
-    why = await db.fetchone("SELECT reason FROM decisions WHERE candidate_id = ? AND module = 'rejudge@1'", (rogue,))
-    assert why["reason"] == "Julius har redan läst den"
+    why = await db.fetchone("SELECT reason FROM decisions WHERE candidate_id = ? AND module = 'rejudge@1'", (retold,))
+    assert why["reason"] == "Alex har redan läst den"
 
 
 async def test_what_ages_is_judged_again_and_facts_made_when_due_are_not(db):

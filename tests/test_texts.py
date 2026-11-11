@@ -75,8 +75,8 @@ async def test_the_old_portfolio_moves_into_the_missions_once(db):
 def test_the_working_memory_in_an_answer_changes_only_its_sections(tmp_path):
     wm = tmp_path / "arbetsminne" / "director.md"
     wm.parent.mkdir()
-    wm.write_text("# Arbetsminne\n\n## Fokus\nTentan.\n\n## Väntar på\nIdeate-besked.\n")
+    wm.write_text("# Arbetsminne\n\n## Fokus\nTentan.\n\n## Väntar på\nInkubator-besked.\n")
     texts.working_memory(tmp_path, "director", [{"section": "Fokus", "text": "Google-beslutet (#S1)."}])
-    assert wm.read_text() == "# Arbetsminne\n\n## Fokus\nGoogle-beslutet (#S1).\n\n## Väntar på\nIdeate-besked.\n"
+    assert wm.read_text() == "# Arbetsminne\n\n## Fokus\nGoogle-beslutet (#S1).\n\n## Väntar på\nInkubator-besked.\n"
     texts.working_memory(tmp_path, "director", [])
-    assert "Ideate-besked" in wm.read_text()
+    assert "Inkubator-besked" in wm.read_text()

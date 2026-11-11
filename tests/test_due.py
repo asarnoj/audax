@@ -27,8 +27,8 @@ async def plan(db):
     goal = await items.create("aim", "Medgrundare före jul", "director", kind="goal", data={"deadline": "2026-12-10"})
     research = await items.create("step", "Kolla att Collide går att gå på som individ", "director", owner="researcher", parent=goal,
                                   review_at="2026-10-20", data={"action": "research", "done_when": "Datum, länk, svar"})
-    tell = await items.create("step", "Ta upp planen med Julius", "director", owner="assistant", parent=goal,
-                              review_at="2026-10-20 11:30", data={"action": "tell_owner", "done_when": "Julius har fått planen"})
+    tell = await items.create("step", "Ta upp planen med Alex", "director", owner="assistant", parent=goal,
+                              review_at="2026-10-20 11:30", data={"action": "tell_owner", "done_when": "Alex har fått planen"})
     later = await items.create("step", "Avstämning: vem har hen träffat?", "director", owner="director", parent=goal,
                                review_at="2026-12-15", data={"action": "check", "done_when": "Avstämt"})
     return goal, research, tell, later
@@ -48,7 +48,7 @@ async def test_the_calendar_wakes_the_owner_once_and_the_assistant_tells_the_own
     cal = Calendar(db, "Europe/Stockholm", wake=lambda role, why: woken.append((role, why)), speak=speak, quiet=never_quiet)
     done = await cal.tick(NOW)
     assert woken == [("researcher", f"dags: #T{research}")]
-    assert "Ta upp planen med Julius" in spoken[0] and "Medgrundare före jul" in spoken[0]
+    assert "Ta upp planen med Alex" in spoken[0] and "Medgrundare före jul" in spoken[0]
     assert (await Items(db).get(tell))["status"] == "done"
     assert len(done) == 2
     assert await cal.tick(NOW) == []   # once per date
@@ -69,7 +69,7 @@ async def test_quiet_hours_hold_what_would_reach_the_owner(db):
 
 async def test_an_unanswered_question_is_closed_after_a_week(db):
     items = Items(db)
-    q = await items.create("question", "Vad lockar med språkappen?", "director", kind="intent",
+    q = await items.create("question", "Vad lockar med sidoprojektet?", "director", kind="intent",
                            data={"to": "owner", "why": "förstå avsikten", "asked_at": "2026-10-10T12:00"}, status="asked")
     await Calendar(db, "Europe/Stockholm", wake=lambda r, w: None).tick(NOW)
     assert (await items.get(q))["status"] == "unanswered"
@@ -104,7 +104,7 @@ async def test_a_standing_order_shows_on_both_sides_until_withdrawn(db):
     from agent.posts import Posts
 
     posts = Posts(db)
-    pid = await posts.send("director", "researcher", "order", "Ändra inget i sökningen förrän Julius svarat på #Q142")
+    pid = await posts.send("director", "researcher", "order", "Ändra inget i sökningen förrän Alex svarat på #Q142")
     assert f"#P{pid} (order) till researcher" in await review(db, "director", NOW)
     assert f"#P{pid} (order) från director" in await review(db, "researcher", NOW) and "question it" in await review(db, "researcher", NOW)
     assert not await posts.withdraw(pid, "researcher", "inte min")   # only its sender withdraws it
@@ -115,7 +115,7 @@ async def test_a_standing_order_shows_on_both_sides_until_withdrawn(db):
 async def test_feedback_that_tells_another_role_what_not_to_do_also_stands_until_its_date(db):
     from agent.posts import Posts
 
-    pid = await Posts(db).send("director", "researcher", "feedback", "Ändra inget i sökningen förrän Julius har svarat på #Q142")
+    pid = await Posts(db).send("director", "researcher", "feedback", "Ändra inget i sökningen förrän Alex har svarat på #Q142")
     assert f"#P{pid} (feedback) från director" in await review(db, "researcher", NOW)
     assert f"#P{pid} (feedback) till researcher" in await review(db, "director", NOW)
     assert await Posts(db).withdraw(pid, "director", "frös sökningen")
@@ -155,7 +155,7 @@ async def test_with_a_desk_a_step_for_the_owner_is_offered_to_it_and_done_when_i
     cal = Calendar(db, "Europe/Stockholm", wake=lambda role, why: None, desk=desk)
     await cal.tick(NOW)
     [row] = await db.fetchall("SELECT * FROM candidates")
-    assert row["kind"] == "step" and asked == [1] and "Ta upp planen med Julius" in row["body"] and "Medgrundare" in row["body"]
+    assert row["kind"] == "step" and asked == [1] and "Ta upp planen med Alex" in row["body"] and "Medgrundare" in row["body"]
     assert (await Items(db).get(tell))["status"] == "planned"   # not yet: the desk chooses the moment
     await cal.tick(NOW)
     assert (await db.fetchone("SELECT count(*) AS n FROM candidates"))["n"] == 1   # offered once per date

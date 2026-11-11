@@ -1,7 +1,7 @@
 """The office's thoughts for the owner (instance/granskning/2026-11-04-omgang-11-kontakten.md, stage 2).
 
 What the roles understand, notice and plan stayed in the log: Director's ideas were "usually none" and only in the
-reflection, Researcher's word to the owner "rarely", Manager's note almost never; seven reached Julius in a month.
+reflection, Researcher's word to the owner "rarely", Manager's note almost never; seven reached the owner in a month.
 Now Director, Researcher and Manager may each put a thought for the owner: a pattern they noticed, an idea, a plan
 that has taken shape, what they are working on, a hypothesis about what the owner wants. Sometimes it carries a direct
 question, to learn something ("Vill du ha fler sådana här?"), never a hypothetical ("säg till om …").

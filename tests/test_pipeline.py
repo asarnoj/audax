@@ -255,7 +255,7 @@ async def test_delivery_goes_through_the_voice_and_never_sends_the_draft(db, tmp
 async def test_concurrent_dispatcher_runs_deliver_a_candidate_once(db, tmp_path):
     import asyncio
 
-    a = await add_candidate(db, "news", "Machinarium 2", "Trailer ute", {}, url="https://m")
+    a = await add_candidate(db, "news", "Nordljus 2", "Trailer ute", {}, url="https://m")
     d, sent = await make_dispatcher(db, tmp_path, {"decisions": [{"candidate_id": a, "decision": "now", "reason": "nu"}]})
     await asyncio.gather(d.run(force=True), d.run(force=True), d.run(force=True))
     assert len(sent) == 1
@@ -323,7 +323,7 @@ async def test_concurrent_triage_makes_one_candidate_per_event(db, tmp_path):
     import asyncio
 
     e = await db.execute("INSERT INTO events (source, kind, dedupe_key, payload) VALUES ('stream:x', 'news', 'k', ?)",
-                         (json.dumps({"title": "Ideate", "url": "https://i"}),))
+                         (json.dumps({"title": "Inkubatorn", "url": "https://i"}),))
     lv = dict(relevance="high", actionability="high", novelty="high", confidence="high", complement="high")
     t = Triage(load_settings(), db, gate_returning(db, tmp_path, {"items": [{"event_id": e, "keep": True, "brief": "b", "reason": "r", **lv}]}), FakeMemory())
     await asyncio.gather(t.run(), t.run())
@@ -332,12 +332,12 @@ async def test_concurrent_triage_makes_one_candidate_per_event(db, tmp_path):
 
 async def test_triage_sees_what_was_already_sent(db, tmp_path):
     calls = []
-    sent = await add_candidate(db, "news", "Machinarium 2 trailer", "b", {}, url="https://yt/x")
+    sent = await add_candidate(db, "news", "Nordljus 2 trailer", "b", {}, url="https://yt/x")
     await db.execute("UPDATE candidates SET status = 'sent' WHERE id = ?", (sent,))
     await db.execute("INSERT INTO events (source, kind, dedupe_key, payload) VALUES ('stream:y', 'news', 'k2', ?)", (json.dumps({"title": "Trailer"}),))
     t = Triage(load_settings(), db, gate_returning(db, tmp_path, {"items": []}, calls), FakeMemory())
     await t.run()
-    assert "Machinarium 2 trailer" in calls[0].prompt and "https://yt/x" in calls[0].prompt
+    assert "Nordljus 2 trailer" in calls[0].prompt and "https://yt/x" in calls[0].prompt
 
 
 def test_a_story_does_not_expire_on_its_publication_date():
@@ -527,11 +527,11 @@ async def test_a_session_in_the_timetable_holds_nothing_back(db, tmp_path):
 
 
 async def test_an_unclear_finding_is_checked_once_and_comes_back_to_the_desk(db, tmp_path):
-    # omgång 12 (9 Nov): the Grok Bot meetup sat on the shelf "until its date is confirmed", and nobody was asked to confirm it
+    # omgång 12 (9 Nov): a meetup sat on the shelf "until its date is confirmed", and nobody was asked to confirm it
     import json as _json
 
-    meetup = await add_candidate(db, "event", "Grok Bot Stockholm Meetup", "Meetup på Luma, inget datum", {"relevance": "medium"},
-                                 url="https://lu.ma/grok")
+    meetup = await add_candidate(db, "event", "AI-meetup i Stockholm", "Meetup på Luma, inget datum", {"relevance": "medium"},
+                                 url="https://lu.ma/meetup")
     tagged = await add_candidate(db, "event", "CTF-kväll", "Okänt om den är öppen", {"check": "om anmälan är öppen"}, url="https://ctf")
     rounds = []
 

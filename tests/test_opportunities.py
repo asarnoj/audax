@@ -63,7 +63,7 @@ async def test_a_research_step_from_another_role_wakes_researcher_at_once(db):
 
     woken = []
     Items.watchers = [starter(lambda role, why: woken.append(role))]
-    await Items(db).create("step", "Hitta improv-prova-på i Stockholm", "director", owner="researcher", review_at="2026-11-04",
+    await Items(db).create("step", "Hitta keramik-prova-på i Stockholm", "director", owner="researcher", review_at="2026-11-04",
                            data={"action": "research", "done_when": "Datum och länk"})
     assert woken == ["researcher"]
     await Items(db).create("step", "Mitt eget steg", "researcher", owner="researcher", review_at="2026-11-04",

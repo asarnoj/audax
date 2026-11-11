@@ -27,7 +27,7 @@ def memory(tmp_path):
     mem = tmp_path / "memory"
     (mem / "arbetsminne").mkdir(parents=True)
     subprocess.run(["git", "-C", str(mem), "init", "-q"], check=True)
-    (mem / "profile.md").write_text("Julius")
+    (mem / "profile.md").write_text("Alex")
     subprocess.run(["git", "-C", str(mem), "-c", "user.name=t", "-c", "user.email=t@t", "add", "-A"], check=True)
     subprocess.run(["git", "-C", str(mem), "-c", "user.name=t", "-c", "user.email=t@t", "commit", "-qm", "init"], check=True)
     return mem
@@ -92,7 +92,7 @@ async def test_a_piece_of_work_is_found_by_its_id(db, tmp_path):
 
     result = await ClaudeGate(db, tmp_path, runner=runner).run(ClaudeTask(kind="chat", prompt="x", priority=Priority.CHAT))
     await db.insert("messages", telegram_message_id=2, direction="out", text="Två saker.")   # the reply, sent after the run
-    (mem / "profile.md").write_text("Julius, gillar hackathons")
+    (mem / "profile.md").write_text("Alex, gillar hackathons")
     await MemoryRepo(mem).commit_if_changed("chat", by="assistant")
     w = await office.work(result.run_id)
     assert w["task"] == "Conversation" and w["about"][0]["text"] == "Vad har du hittat?" and w["answer"] == "Två saker."

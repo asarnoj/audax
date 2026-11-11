@@ -50,7 +50,7 @@ async def current(db: Database, area: str | None = None, subject: str | None = N
 
 
 def source_note(item: dict, owner_name: str = "ägaren") -> str:
-    """Where a belief came from, in a few words: 'Julius, 9 okt', 'sett 14 okt', 'slutsats, Director'."""
+    """Where a belief came from, in a few words: 'Alex, 9 okt', 'sett 14 okt', 'slutsats, Director'."""
     src = item.get("source") or {}
     when = src.get("date") or (item.get("created_at") or "")[:10]
     try:

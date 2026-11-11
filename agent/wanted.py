@@ -1,7 +1,7 @@
 """Efterlysningar (instance/granskning/2026-11-02-omgang-10-sokningen.md): what the owner asks Audax to look for, worked
 out before it is watched.
 
-On 26 Oct a friend asked to be told of "a Swish illustration competition". The chat searched once and said there was
+On 26 Oct an owner asked to be told of "a Swish illustration competition". The chat searched once and said there was
 none, and a news search on her own words ran 97 times without a hit. The competition is called "Årets kort", comes
 back every November, and last year's round was written about in three places a single search would have found. So:
 
