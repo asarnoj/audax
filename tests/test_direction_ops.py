@@ -123,3 +123,40 @@ async def test_a_noisy_source_is_flagged_beside_the_whole_intake_shown_and_narro
     hn = await routines.find(db, "stream", "hn")
     assert hn["_config"]["stream"]["url"] == "https://hn/top" and hn["_config"]["stream"]["note"] == "Bara det högt röstade"
     assert [c.url for c in load_stream_configs() if c.id == "hn"] == ["https://hn/top"]   # what runs follows
+
+
+async def test_a_company_is_added_the_way_the_file_writes_its_list_and_never_breaks_it(db, monkeypatch):
+    # 4 Nov: "bevaka Sana" appended an entry indented unlike the rest; the file stopped parsing and 22 companies went unwatched
+    async def fake_detect(url, client):
+        return ("ashby", "acme")
+
+    import agent.sources.connectors as conn
+
+    monkeypatch.setattr(conn, "detect_ats", fake_detect)
+    path = instance_config("watchlist.yaml")
+    path.write_text("# lista\n\ncompanies:\n- name: Sana Labs\n  ats: ashby\n  slug: sana-roles\n- name: Scania\n  careers_url: https://scania/careers\n")
+    assert "bevakas nu (ashby)" in await ops.add_company(db, "Acme", "https://acme/careers")
+    text = path.read_text()
+    assert text.startswith("# lista") and [c["name"] for c in yaml.safe_load(text)["companies"]] == ["Sana Labs", "Scania", "Acme"]
+    monkeypatch.setattr(conn, "detect_ats", lambda url, client: _async(("ashby", "sana-roles")))
+    assert "redan" in await ops.add_company(db, "Sana", "https://sana/careers")   # the same board under another name
+    assert "redan" in await ops.add_company(db, "Scania AB", "https://scania/careers")
+
+
+async def _async(value):
+    return value
+
+
+def test_an_unreadable_watchlist_is_told_to_the_maintainer(tmp_path):
+    import pytest as _pytest
+
+    from agent.sources.connectors import load_watchlist
+    from agent.sources.streams import CONFIG_ERRORS
+
+    bad = tmp_path / "watchlist.yaml"
+    bad.write_text("companies:\n- name: A\n  ats: lever\n  slug: a\n  - {\"name\": \"B\"}\n")
+    with _pytest.raises(Exception):
+        load_watchlist(bad)
+    assert "watchlist.yaml" in CONFIG_ERRORS
+    bad.write_text("companies:\n- name: A\n  ats: lever\n  slug: a\n")
+    assert [c.name for c in load_watchlist(bad)] == ["A"] and "watchlist.yaml" not in CONFIG_ERRORS

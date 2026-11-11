@@ -125,7 +125,14 @@ def load_watchlist(path: Path | None = None) -> list[Company]:
     path = path or WATCHLIST
     if not path.exists():
         return []
-    data = yaml.safe_load(path.read_text()) or {}
+    from agent.sources.streams import CONFIG_ERRORS
+
+    try:
+        data = yaml.safe_load(path.read_text()) or {}
+    except yaml.YAMLError as e:   # Audax's own file: the maintainer is told (health), not only the role that can't fix it
+        CONFIG_ERRORS["watchlist.yaml"] = f"{type(e).__name__}: {str(e)[:150]}"
+        raise
+    CONFIG_ERRORS.pop("watchlist.yaml", None)
     return [Company(c["name"], c["ats"], c["slug"]) for c in data.get("companies", []) if c.get("ats") and c.get("slug")]
 
 

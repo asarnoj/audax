@@ -67,9 +67,27 @@ async def apply_missions(db: Database, ops: list[dict], by: str = "researcher") 
     return changes
 
 
+def _appended(text: str, data: dict, entry: dict) -> str:
+    """The watchlist with one more company, written the way the file already writes its list, and read back before it is
+    kept (4 Nov: a line indented unlike the rest made the whole file unreadable, and 22 companies went unwatched for a
+    week). If the file's own way can't be matched, the whole list is written out plainly instead."""
+    import re
+
+    m = re.search(r"^([ \t]*)- ", text.split("companies:", 1)[-1], re.M)
+    indent = m.group(1) if m else "  "
+    new = text.rstrip("\n") + f"\n{indent}- " + json.dumps(entry, ensure_ascii=False) + "\n"
+    try:
+        if (yaml.safe_load(new) or {}).get("companies", [])[-1:] == [entry]:
+            return new
+    except yaml.YAMLError:
+        pass
+    return yaml.safe_dump({**data, "companies": [*(data.get("companies") or []), entry]}, allow_unicode=True, sort_keys=False)
+
+
 async def add_company(db: Database, name: str, careers_url: str) -> str:
     data = yaml.safe_load(WATCHLIST_FILE.read_text()) or {}
-    if any(c.get("name", "").lower() == name.lower() for c in data.get("companies", [])):
+    known = data.get("companies") or []
+    if any(c.get("name", "").lower() == name.lower() or (careers_url and c.get("careers_url") == careers_url) for c in known):
         return f"{name} bevakas redan."
     entry = {"name": name, "careers_url": careers_url}
     reachable = False
@@ -84,8 +102,9 @@ async def add_company(db: Database, name: str, careers_url: str) -> str:
         log.warning("detect_ats %s: %s", careers_url, e)
     if "ats" not in entry and not reachable:
         return f"{name}: karriärsidan {careers_url} svarar inte. Hitta rätt adress (t.ex. med en sökning) och lägg till igen."
-    text = WATCHLIST_FILE.read_text().rstrip("\n")
-    WATCHLIST_FILE.write_text(text + "\n  - " + json.dumps(entry, ensure_ascii=False) + "\n")
+    if "ats" in entry and any((c.get("ats"), c.get("slug")) == (entry["ats"], entry["slug"]) for c in known):
+        return f"{name} bevakas redan (samma rekryteringssystem, {entry['slug']})."   # 4 Nov: Sana, already there as Sana Labs
+    WATCHLIST_FILE.write_text(_appended(WATCHLIST_FILE.read_text(), data, entry))
     commit_config(f"agent: bevaka {name}")
     if "ats" in entry:
         return f"{name} bevakas nu ({entry['ats']})."
