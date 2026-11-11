@@ -46,8 +46,18 @@ class Inspector:
 
     # --- health -------------------------------------------------------------
 
-    async def health(self) -> list[str]:
-        """Problems worth knowing about. Empty list = healthy."""
+    async def reported(self) -> list:
+        """What the chat reported as a fault and nobody has marked fixed (./deploy/audax problems resolve <id>)."""
+        return await self.db.fetchall(
+            "SELECT id, created_at, description FROM problems WHERE resolved_at IS NULL AND created_at >= datetime('now', '-7 days') ORDER BY id")
+
+    def report_line(self, r) -> str:
+        d = datetime.fromisoformat(r["created_at"] + "+00:00").astimezone(self.tz)
+        return f"chatten rapporterade ett fel {WEEKDAYS[d.weekday()]} {d:%d/%m %H:%M} (#{r['id']}): {r['description']}"
+
+    async def health(self, reported: bool = True) -> list[str]:
+        """Problems worth knowing about. Empty list = healthy. `reported=False` leaves out the chat's reports, which are
+        single events rather than states (the health alarm sends each of them once)."""
         from agent.sources.streams import CONFIG_ERRORS
 
         problems = [f"Inställningsfilen {f} går inte att läsa" for f in CONFIG_ERRORS]   # the error itself is in the log
@@ -62,10 +72,8 @@ class Inspector:
         breaker = await self.db.kv_get("outbox.breaker")
         if breaker and datetime.fromisoformat(breaker) > datetime.now(ZoneInfo("UTC")) - timedelta(hours=2):
             problems.append("Utskicken höll inne: ovanligt många meddelanden på en timme, något kan loopa (se audax decisions)")
-        reported = await self.db.fetchall(
-            "SELECT created_at, description FROM problems WHERE resolved_at IS NULL AND created_at >= datetime('now', '-7 days') ORDER BY id DESC LIMIT 3"
-        )
-        problems += [f"Chatten rapporterade {self._t(r['created_at'])}: {r['description'][:160]}" for r in reported]
+        if reported:
+            problems += [self.report_line(r)[:200] for r in (await self.reported())[-3:]]
         last_any = await self.db.fetchone("SELECT max(created_at) AS t FROM claude_runs WHERE is_error = 0")
         # Only when something tried since and failed: a quiet day with nothing to run is not a fault (29 Oct: a guest
         # with no messages all afternoon was told something was broken).

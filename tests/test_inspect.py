@@ -56,3 +56,18 @@ async def test_usage_report_flags_waste(db):
     assert "bygga om cachen 2 gånger" in text and "109k" in text
     assert "Sökuppdraget jobs: 1 körning(ar) utan ett enda fynd" in text
     assert "stream:hn: 5 av 5" in text
+
+
+async def test_a_reported_fault_is_its_own_event_with_its_date_and_whole_text(db):
+    # 11 Nov: the chat's report came again at 05:25, cut off mid-word and dated only "18:02", fixed the evening before
+    i = Inspector(db, "Europe/Stockholm")
+    text = "Fyndet skickades trots att ägaren sagt nej två gånger. " * 5
+    await db.execute("INSERT INTO problems (description, created_at) VALUES (?, '2026-11-10 17:02:06')", (text,))
+    await db.execute("UPDATE problems SET created_at = datetime('now', '-1 day')")
+    assert await i.health(reported=False) == []   # not a state: the alarm sends it once, by itself
+    [r] = await i.reported()
+    line = i.report_line(r)
+    assert line.endswith(text) and f"(#{r['id']})" in line and "/" in line.split("(#")[0]
+    assert any("chatten rapporterade" in p for p in await i.health())   # the views still show it
+    await db.execute("UPDATE problems SET resolved_at = datetime('now')")
+    assert await i.reported() == [] and await i.health() == []

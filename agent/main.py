@@ -300,8 +300,13 @@ async def run() -> None:
     inspector = Inspector(db, settings.timezone)
 
     async def health_watch() -> None:
-        """Silence must never mean broken: real failures are reported, once per problem and half day."""
-        for problem in await inspector.health():
+        """Silence must never mean broken: a state that is wrong (Claude failing, the quota out) is reported once per half
+        day while it lasts; a fault the chat reported is one event, reported once. Nothing at night: the owner can do
+        nothing about it then, and the night binds (11 Nov: the same report came again at 05:25, fixed the evening before)."""
+        if settings.quiet_hours.contains(schedule.now().time()):
+            return   # it waits for the morning; the check runs every half hour
+        alarms = []
+        for problem in await inspector.health(reported=False):
             if problem.startswith("Ingen lyckad Claude-körning") and gate.paused_until(Priority.RESEARCH) is not None:
                 continue   # the quota is paused: that is known and shown under /data/, not a fault
             key = "health.alerted." + problem.split("(")[0].strip()[:60]
@@ -309,8 +314,16 @@ async def run() -> None:
             if last and datetime.fromisoformat(last) > datetime.now() - timedelta(hours=12):
                 continue
             await db.kv_set(key, datetime.now().isoformat())
+            alarms.append(problem)
+        for r in await inspector.reported():
+            key = f"health.reported.{r['id']}"
+            if await db.kv_get(key):
+                continue
+            await db.kv_set(key, datetime.now().isoformat())
+            alarms.append(inspector.report_line(r))
+        for problem in alarms:
             if settings.builder:   # the host's own instance: the owner maintains it
-                await bot.send(f"Något fungerar inte som det ska: {problem}.", origin="command")
+                await bot.send(f"Något fungerar inte som det ska: {problem}", origin="command")
             log.warning("health: %s", problem)   # a guest's is for the host (deploy/audax friends), not for the guest (3 Nov)
 
     scheduler.add_job(health_watch, "interval", minutes=30, id="health", max_instances=1)
