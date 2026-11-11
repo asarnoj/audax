@@ -133,6 +133,10 @@ async def review(db: Database, role: str, now: datetime, memory=None) -> str:
         await cases.collect(db)
         if cases_text := await cases.report(db):
             parts.append(cases_text)
+        from agent.crosscheck import mission_drops
+
+        if drops := await mission_drops(db):
+            parts.append(drops)
         if not await items.find("experiment", status=("planned", "running", "evaluating"), owner="researcher", limit=1):
             parts.append("Metodförsök: none running. The search is a standing project: start one experiment (#E) aimed at "
                          "its weakest spot in the test cases above (a blind spot, a kind of method that brings nothing of "

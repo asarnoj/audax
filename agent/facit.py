@@ -32,9 +32,9 @@ async def of(db: Database, belief_id: int, since: str | None = None) -> dict:
     from agent.timing import LET_PASS
 
     passed = "AND datetime(c.latest_useful) > datetime(?)" if since else ""
-    held = await db.fetchone(   # wanted after all: fetched, asked about, or held until the owner could no longer use it
+    held = await db.fetchone(   # wanted after all: fetched, asked about, found wrongly dropped, or held until it was too late
         "SELECT count(DISTINCT u.candidate_id) AS n, count(DISTINCT CASE WHEN EXISTS (SELECT 1 FROM feedback f "
-        f" WHERE f.candidate_id = c.id AND (f.signal = 'shelf_pull' OR f.value LIKE 'missed%') {when}) "
+        f" WHERE f.candidate_id = c.id AND (f.signal IN ('shelf_pull', 'triage_review') OR f.value LIKE 'missed%') {when}) "
         f" OR ({LET_PASS} {passed}) THEN c.id END) AS wanted "
         "FROM belief_uses u JOIN candidates c ON c.id = u.candidate_id WHERE u.belief_id = ? AND u.decision IN ('drop', 'shelf', 'at')",
         (*extra, *extra, belief_id))
@@ -55,7 +55,7 @@ def words(f: dict) -> str:
         return ""
     parts = []
     if f["held"]:
-        parts.append(f"höll tillbaka {f['held']}, varav {f['wanted']} hämtades, efterfrågades eller hölls tills tiden gått")
+        parts.append(f"höll tillbaka {f['held']}, varav {f['wanted']} hämtades, efterfrågades, befanns fel att släppa eller hölls tills tiden gått")
     if f["sent"]:
         parts.append(f"skickade {f['sent']}, varav {f['answered']} besvarades och {f['unwanted']} inte var önskade")
     return "facit: " + "; ".join(parts)

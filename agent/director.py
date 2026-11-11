@@ -23,7 +23,7 @@ from collections import defaultdict
 from datetime import datetime, timedelta
 from zoneinfo import ZoneInfo
 
-from agent import assumptions, search_map, texts, thoughts, trail
+from agent import crosscheck, assumptions, search_map, texts, thoughts, trail
 from agent.due import answered_since, earlier_runs, review, write_now
 from agent.beliefs import add_practice
 from agent.items import Items
@@ -73,6 +73,7 @@ SCHEMA = {
         "lessons": {"type": "array", "items": {"type": "string"},
                     "description": "Swedish: lessons about how the office works that every role should know; each becomes a practice belief (#U) resting on this run; usually none"},
         "summary": {"type": "string", "description": "Swedish. What you did in this run and why, briefly: the run's own account"},
+        "triage_review": crosscheck.SCHEMA,
     },
     "required": ["working_memory", "summary"],
 }
@@ -88,6 +89,7 @@ class Director:
         self.posts = Posts(db)
         self._lock = asyncio.Lock()  # one Director at a time: its notebook has one writer
         self._seen_posts: list[int] = []
+        self._triage_shown: list[int] = []   # the sample of triage in this run's review (agent/crosscheck.py)
         self._chain_from_owner = False
         self.tz = ZoneInfo(settings.timezone)
         self.dir = memory.path / "direction"
@@ -135,7 +137,7 @@ class Director:
             "missions": await self._search_report(),
             "windows": await self._windows(mode),
             "records": await Pursuits(self.db, self.settings.timezone).overview() + "\n\n" + await Pursuits(self.db).stats(),
-            "review": await review(self.db, "director", now, self.memory.path),
+            "review": await review(self.db, "director", now, self.memory.path) + await self._triage_sample(mode, now),
             "answers": await self._answers(last),
             "beliefs": await self._beliefs(),
             "forms": describe_forms("director"),
@@ -190,6 +192,10 @@ class Director:
         if lessons := await add_practice(self.db, self.memory.path, "director", out.get("lessons") or [], now):   # a lesson is a practice belief (omgång 13)
             changes += [f"lärdom: {x}" for x in lessons]
         changes += await thoughts.add(self.db, "director", out.get("thoughts"), self.settings.timezone)
+        if self._triage_shown:
+            changes += await crosscheck.apply_review(self.db, out.get("triage_review"), self._triage_shown,
+                                                     now.astimezone(ZoneInfo("UTC")).isoformat())
+            self._triage_shown = []
 
         for w in out.get("withdraw") or []:
             m = re.search(r"\d+", str(w.get("id", "")))
@@ -211,6 +217,16 @@ class Director:
         return changes
 
     # --- context ----------------------------------------------------------
+
+    async def _triage_sample(self, mode: str, now: datetime) -> str:
+        """The daily review checks the fast skill that is Director's own (omgång 14, B)."""
+        self._triage_shown = []
+        if mode != "understand":
+            return ""
+        last = await self.db.kv_get(crosscheck.KEY)
+        since = (datetime.fromisoformat(last) if last else now - timedelta(days=1)).astimezone(ZoneInfo("UTC"))
+        text, self._triage_shown = await crosscheck.triage_sample(self.db, since.strftime("%Y-%m-%d %H:%M:%S"))
+        return "\n\n" + text if text else ""
 
     async def reflection_due(self) -> bool:
         """Whether tonight is a reflection: Director's own routine (#N, config {"skill": "director_reflect", "every_days":

@@ -279,8 +279,19 @@ class Manager:
             "SELECT d.created_at, d.tier, d.reason, c.id, c.kind, c.title FROM decisions d JOIN candidates c ON c.id = d.candidate_id "
             "WHERE d.module LIKE 'dispatcher%' AND d.created_at >= ? ORDER BY d.id", (since,),
         )
+        leaned: dict[int, list[str]] = {}
+        for u in await self.db.fetchall("SELECT candidate_id, belief_id FROM belief_uses WHERE module LIKE 'dispatcher%' AND created_at >= ?", (since,)):
+            leaned.setdefault(u["candidate_id"], []).append(f"#U{u['belief_id']}")
         lines = [f"Decisions ({len(rows)}):"]
-        lines += [f"- {self._local(r['created_at'])} #F{r['id']} {r['kind']}: {r['title'][:70]} → {r['tier']}: {(r['reason'] or '')[:140]}" for r in rows[-40:]]
+        lines += [f"- {self._local(r['created_at'])} #F{r['id']} {r['kind']}: {r['title'][:70]} → {r['tier']}: {(r['reason'] or '')[:140]}"
+                  + (f" (leaned on {', '.join(sorted(set(leaned[r['id']])))})" if r["id"] in leaned else "") for r in rows[-40:]]
+        from agent.timing import LET_PASS
+
+        passed = await self.db.fetchall(f"SELECT c.id, c.title, c.latest_useful, c.status FROM candidates c WHERE {LET_PASS} "
+                                        "AND datetime(c.latest_useful) >= datetime(?)", (since,))
+        if passed:   # omgång 14: held until the owner could no longer use it
+            lines.append("Held until the moment the owner had to know it by had passed (the desk's error):")
+            lines += [f"- #F{p['id']} {p['title'][:70]}: by {self._local(p['latest_useful'][:19].replace('T', ' '))}, now {p['status']}" for p in passed]
         misses = await self.db.fetchall(
             "SELECT f.created_at, f.signal, f.value, f.note, c.id, c.title, c.tier FROM feedback f LEFT JOIN candidates c ON c.id = f.candidate_id "
             "WHERE f.created_at >= ? AND (f.signal = 'shelf_pull' OR f.value LIKE 'missed%') ORDER BY f.id", (since,),
@@ -291,7 +302,7 @@ class Manager:
                 f"- {self._local(m['created_at'])} {m['signal']}: " + (f"#F{m['id']} {m['title'][:70]} (the desk said {m['tier']})" if m["id"] else (m["note"] or "")[:140])
                 for m in misses
             ]
-        return "\n".join(lines) if rows or misses else "No decisions since the last run."
+        return "\n".join(lines) if rows or misses or passed else "No decisions since the last run."
 
     async def _measures(self) -> str:
         """How contact lands, counted per contact (agent/ledger.py), the settings and what binds, and the pursuits:

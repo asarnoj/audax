@@ -52,4 +52,4 @@ A quiet conversation is not a reason to wait: it is time to look outward. Use wh
 Manager's policy says what the situation means for what is worth bringing {owner}. A tight period raises the bar; it doesn't switch Audax off. A thought or an idea is weighed by what it is worth, never by how the week's contacts went: when the week had misses, the fix is sharper choosing, not silence.
 
 ## Your answer
-`working_memory`, `posts` (orders and feedback to Researcher, notes to Manager; an order holds until its `until`, two weeks if you give none), `withdraw` (your orders and feedback in the review that no longer serve), `thoughts` (for {owner}; see your mode), `lessons`, `summary`.
+`working_memory`, `triage_review` (when the review has a sample of triage), `posts` (orders and feedback to Researcher, notes to Manager; an order holds until its `until`, two weeks if you give none), `withdraw` (your orders and feedback in the review that no longer serve), `thoughts` (for {owner}; see your mode), `lessons`, `summary`.
