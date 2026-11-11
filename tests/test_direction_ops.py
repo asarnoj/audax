@@ -160,3 +160,15 @@ def test_an_unreadable_watchlist_is_told_to_the_maintainer(tmp_path):
     assert "watchlist.yaml" in CONFIG_ERRORS
     bad.write_text("companies:\n- name: A\n  ats: lever\n  slug: a\n")
     assert [c.name for c in load_watchlist(bad)] == ["A"] and "watchlist.yaml" not in CONFIG_ERRORS
+
+
+async def test_a_company_is_struck_from_the_watchlist_and_the_rest_of_the_file_stays_as_written(db):
+    path = instance_config("watchlist.yaml")
+    path.write_text("# lista\ncompanies:\n- name: A\n  ats: lever\n  slug: a\n- name: B Labs\n  ats: ashby\n  slug: b\n"
+                    "- {\"name\": \"C\", \"careers_url\": \"https://c\"}\n")
+    assert "bevakas inte längre" in await ops.remove_company(db, "B Labs", "404")
+    text = path.read_text()
+    assert text.startswith("# lista") and [c["name"] for c in yaml.safe_load(text)["companies"]] == ["A", "C"]
+    assert "bevakas inte längre" in await ops.remove_company(db, "C", "fel bolag")
+    assert [c["name"] for c in yaml.safe_load(path.read_text())["companies"]] == ["A"]
+    assert "finns inte" in await ops.remove_company(db, "Z", "x")

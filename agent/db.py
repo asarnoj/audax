@@ -617,6 +617,17 @@ MIGRATIONS: list[str] = [
     """
     ALTER TABLE candidates ADD COLUMN latest_useful TEXT;
     """,
+    # 31: each entry of a watch with many sources in one has its own health (agent/watching.py).
+    """
+    CREATE TABLE watch_health (
+        key TEXT PRIMARY KEY,              -- stream id / entry
+        stream TEXT NOT NULL,
+        entry TEXT NOT NULL,
+        last_ok TEXT,
+        failing_since TEXT,
+        error TEXT
+    );
+    """,
 ]
 
 # Tables whose rows carry the id of the run that wrote them (agent/trail.py).

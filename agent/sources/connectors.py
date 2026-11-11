@@ -166,14 +166,20 @@ async def fetch_company_jobs(c: Company, client: httpx.AsyncClient) -> list[tupl
 
 async def poll_ats(config: StreamConfig, client: httpx.AsyncClient) -> list[StreamItem]:
     """Every company on the watchlist. params: locations, roles (keywords in the title; empty = all)."""
+    from agent.watching import ENTRY_RESULTS
+
     p = config.params
     items = []
+    health: dict[str, str | None] = {}
+    ENTRY_RESULTS[config.id] = health   # each company's own health (agent/watching.py)
     for c in load_watchlist():
         try:
             jobs = await fetch_company_jobs(c, client)
         except Exception as e:
             log.warning("watchlist %s (%s) failed: %s", c.name, c.ats, e)
+            health[c.name] = f"{type(e).__name__}: {e}"
             continue
+        health[c.name] = None
         for jid, title, location, url in jobs:
             if not _matches(location or title, p.get("locations", [])) or not _matches_words(title, p.get("roles", [])):
                 continue

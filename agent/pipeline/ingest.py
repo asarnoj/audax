@@ -62,6 +62,9 @@ class Ingest:
             await trail.emit("print", "director", n=new)   # the printer on Director's desk
         await self._stats(config.id, fetched=len(items), new=0 if baseline else new)
         await self.db.kv_set(f"stream.failures.{config.id}", 0)
+        from agent.watching import record_entries
+
+        await record_entries(self.db, config.id)   # a watch with many sources: each entry's own health
         if new and not baseline:
             if config.urgent:
                 self._urgent.set()

@@ -84,6 +84,47 @@ def _appended(text: str, data: dict, entry: dict) -> str:
     return yaml.safe_dump({**data, "companies": [*(data.get("companies") or []), entry]}, allow_unicode=True, sort_keys=False)
 
 
+def _without(text: str, data: dict, name: str) -> str:
+    """The watchlist without one company, removing its own lines so the rest of the file stays as written; read back
+    before it is kept, else the whole list is written out plainly."""
+    import re
+
+    lines, out, skip = text.splitlines(keepends=True), [], None
+    for line in lines:
+        indent = len(line) - len(line.lstrip())
+        if skip is not None and line.strip() and indent > skip and not line.lstrip().startswith("- "):
+            continue   # the rest of the entry being removed
+        skip = None
+        m = re.match(r"\s*- (?:name:\s*(.+?)\s*$|\{.*\"name\":\s*\"([^\"]+)\")", line)
+        if m and (m.group(1) or m.group(2) or "").strip("'\"").lower() == name.lower():
+            skip = indent
+            continue
+        out.append(line)
+    new = "".join(out)
+    rest = [c for c in data.get("companies") or [] if c.get("name", "").lower() != name.lower()]
+    try:
+        if (yaml.safe_load(new) or {}).get("companies") == rest:
+            return new
+    except yaml.YAMLError:
+        pass
+    return yaml.safe_dump({**data, "companies": rest}, allow_unicode=True, sort_keys=False)
+
+
+async def remove_company(db: Database, name: str, why: str) -> str:
+    """Strikes a company from the watchlist (one whose address no longer reads, or that no longer serves)."""
+    data = yaml.safe_load(WATCHLIST_FILE.read_text()) or {}
+    if not any(c.get("name", "").lower() == name.lower() for c in data.get("companies") or []):
+        return f"{name} finns inte på bevakningslistan."
+    WATCHLIST_FILE.write_text(_without(WATCHLIST_FILE.read_text(), data, name))
+    commit_config(f"agent: sluta bevaka {name}: {why}"[:200])
+    from agent.sources.streams import load_stream_configs
+
+    for c in load_stream_configs():
+        if c.type == "ats":   # the senses that read the watchlist: its health goes with it
+            await db.execute("DELETE FROM watch_health WHERE stream = ? AND lower(entry) = lower(?)", (c.id, name))
+    return f"{name} bevakas inte längre ({why})."
+
+
 async def add_company(db: Database, name: str, careers_url: str) -> str:
     data = yaml.safe_load(WATCHLIST_FILE.read_text()) or {}
     known = data.get("companies") or []

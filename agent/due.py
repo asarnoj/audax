@@ -133,7 +133,12 @@ async def review(db: Database, role: str, now: datetime, memory=None) -> str:
         await cases.collect(db)
         if cases_text := await cases.report(db):
             parts.append(cases_text)
+        from agent import watching
         from agent.crosscheck import mission_drops
+
+        for text in (await watching.entries_for_review(db, now.tzinfo), await watching.missions_for_review(db)):
+            if text:
+                parts.append(text)
 
         if drops := await mission_drops(db):
             parts.append(drops)

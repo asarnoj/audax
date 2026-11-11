@@ -92,7 +92,7 @@ SCHEMA = {
             "items": {
                 "type": "object",
                 "properties": {
-                    "op": {"type": "string", "enum": ["add_page", "add_feed", "add_company", "add_topic", "tune", "narrow", "disable"]},
+                    "op": {"type": "string", "enum": ["add_page", "add_feed", "add_company", "remove_company", "add_topic", "tune", "narrow", "disable"]},
                     "name": {"type": "string", "description": "Id of the page/feed, company name, or the topic's name"},
                     "url": {"type": "string", "description": "URL of the page/feed or the company's careers page; add_topic: the search query; "
                                                           "narrow: a narrower address for the same source (or empty to keep it); tune/disable: empty"},
@@ -179,8 +179,12 @@ class ResearchPlanner:
             last_kept = datetime.fromisoformat(st["last_kept"] + "+00:00") if st["last_kept"] else None
             if st["runs_30d"] >= 3 and (last_kept is None or now - last_kept >= QUIET_AFTER) and now - datetime.fromisoformat(last) >= timedelta(days=3):
                 return f"quiet mission: {t.id}"
-        from agent import cases
+        from agent import cases, watching
 
+        if await watching.aged_missions(self.db):
+            return "a mission written before the owner's words changed"
+        if (bad := await watching.failing(self.db)) and max(r["failing_since"] for r in bad) > datetime.fromisoformat(last).astimezone(ZoneInfo("UTC")).strftime("%Y-%m-%d %H:%M:%S"):
+            return "a watched entry can't be read"
         await cases.collect(self.db)
         if (new := await cases.unreviewed(self.db)) and now - datetime.fromisoformat(last) >= timedelta(days=1):
             return f"{len(new)} new test case(s) the search didn't bring"
@@ -248,6 +252,9 @@ class ResearchPlanner:
         from agent import cases
 
         await cases.mark_reviewed(self.db)   # the test cases it was shown
+        from agent import watching
+
+        await watching.mark_looked(self.db)   # the missions it was shown beside the owner's changed words
         return result.structured
 
     async def _steps(self, now: datetime) -> str:
@@ -274,6 +281,8 @@ class ResearchPlanner:
                 changes.append(await ops.tune_sense(self.db, s["name"], s["poll_minutes"], s["reason"]))
             elif s["op"] == "disable":
                 changes.append(await ops.disable_sense(self.db, s["name"], s["reason"]))
+            elif s["op"] == "remove_company":   # to fix a company's address: remove_company, then add_company with the right careers page
+                changes.append(await ops.remove_company(self.db, s["name"], s["reason"]))
             elif s["op"] == "narrow":
                 changes.append(await ops.narrow_sense(self.db, s["name"], s.get("url") or None, s.get("note"), s["reason"]))
             elif not s.get("url"):

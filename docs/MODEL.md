@@ -243,6 +243,10 @@ För varje fall räknar koden ut hur Audax fick det:
 
 Researcher ser andelen som sökningen hittade, vilken sorts metod som hittade det, och de fall den inte hittade. Ett nytt fall den inte hittat väcker Researcher. Sökningen är ett pågående projekt: ett metodförsök i taget, riktat mot den svagaste punkten, med testfallen som mått. Arbetsminnet är labbjournalen.
 
+**Bevakat betyder att det fungerar** (omgång 15, `agent/watching.py`). En bevakning med flera källor i en, i dag bevakningslistan med bolagens rekryteringssystem, har hälsa per post: när den senast lästes utan fel och sedan när den fallerar. Researcher ser de poster som inte går att läsa, väcks när en ny börjar fallera, och rättar adressen (`remove_company` och sedan `add_company`) eller stryker posten. En bevakning som fallerar i sin helhet pausar sig själv som förut. En oläslig bevakningslista är ett hälsolarm till förvaltaren, och ett bolag läggs till i filens egen form och läses tillbaka innan det sparas.
+
+**Uppdragens egna texter åldras** som fynd gör (omgång 14). Ett aktivt uppdrag vars mål och frågor skrevs innan ägarens egna ord ändrades visas en gång i Researchers genomgång, bredvid orden som ändrats sedan dess, och väcker Researcher. Det behålls, skrivs om eller får en fråga struken.
+
 ## Budgeten
 
 Audax andel av din veckokvot sätts löst, i början 10 % (`agent/budget.py`). Varje förmåga har en nivå. Samtalet, det du bett om och det billiga flödet väntar aldrig. Rollernas vanliga arbete väntar när veckans andel är använd, det tunga och utforskande när dagens. Det som väntar syns i läget och på webbsidan.
