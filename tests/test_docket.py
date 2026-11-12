@@ -220,3 +220,17 @@ async def test_a_next_step_naming_what_has_closed_or_passed_is_a_point_once_per_
     await points.sweep_stale(db, "director", today)
     assert not [p for p in await docket.open_points(db, "director", today) if p["kind"] == "stale"]   # current again: resolved
     assert points.days_in("Armada 17–18 nov, ansökan 2027-01-15", today) == [date(2026, 11, 18), date(2027, 1, 15)]
+
+
+async def test_the_keeper_of_the_owners_words_sees_their_older_words_a_new_one_may_replace(db):
+    items = Items(db)
+    old = await items.create("belief", "Får störas utom under föreläsningar", "assistant", kind="preference",
+                             data={"area": "interrupt"}, source={"type": "owner", "quote": "utom föreläsningar"})
+    other = await items.create("belief", "Gillar ljud", "assistant", kind="preference", data={"area": "interests"}, source={"type": "owner"})
+    await db.execute("UPDATE items SET created_at = datetime('now', '-20 days') WHERE id IN (?, ?)", (old, other))
+    await items.create("belief", "Audax får skriva när som helst; jag stänger av mobilen om jag inte vill bli störd", "assistant",
+                       kind="preference", data={"area": "interrupt"}, source={"type": "owner", "quote": "när som helst"})
+    [p] = await docket.open_points(db, "assistant")
+    assert f"#U{old} Får störas utom under föreläsningar" in p["basis"] and "supersede" in p["basis"]
+    assert f"#U{other}" not in p["basis"]   # another part of life
+    assert await docket.open_points(db, "director") == []   # the owner's words are the Assistant's to keep

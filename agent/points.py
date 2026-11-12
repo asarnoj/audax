@@ -41,6 +41,7 @@ AREA_GROUPS = (("interests", "not_interested", "opportunities"), ("communication
 CLOSING = ("experiment", "aim", "routine", "rule", "wanted")   # forms whose ending holds a lesson
 AGING_CAP = 4000
 REVIEWED = ("assistant", "director", "researcher", "manager")   # the roles whose runs hold the points
+WORDS_KEEPER = "assistant"   # keeps what the owner said: a newer word that replaces an older one is its to mark
 
 
 def owner_of(item: dict) -> str:
@@ -83,6 +84,17 @@ async def interpretations(db: Database, role: str, areas: set[str]) -> list[dict
     return [b for b in rows if owner_of(b) == role and (b.get("area") or "other") in areas]
 
 
+async def older_words(db: Database, changed: list[dict], areas: set[str]) -> list[dict]:
+    """The owner's own current words in these areas, older than the newest change: what a new word may replace. The
+    same area as a change first (a new rule about contact beside the old one), then the rest of the group."""
+    newest = max(b["created_at"] for b in changed)
+    exact = {b.get("area") or "other" for b in changed}
+    rows = await Items(db).find("belief", status="current", limit=500, order="created_at DESC",
+                                where="json_extract(source, '$.type') = 'owner' AND kind != 'practice' AND created_at < ?", args=(newest,))
+    rows = [b for b in rows if (b.get("area") or "other") in areas and b["id"] not in {x["id"] for x in changed}]
+    return sorted(rows, key=lambda b: (b.get("area") or "other") not in exact)
+
+
 async def owner_words_changed(db: Database, item: dict, force: bool = False) -> None:
     """Items watcher: a belief from the owner was made, or changed status (replaced, withdrawn)."""
     if item["form"] != "belief" or (item.get("source") or {}).get("type") != "owner" or item["kind"] == "practice":
@@ -101,10 +113,16 @@ async def owner_words_changed(db: Database, item: dict, force: bool = False) -> 
         areas = {a for b in beliefs for a in _group(b.get("area"))}
         mine = await work(db, role)
         theirs = [b for b in await interpretations(db, role, areas) if b["id"] not in {x["id"] for x in beliefs}]
-        if not mine and not theirs:
+        older = await older_words(db, beliefs, areas) if role == WORDS_KEEPER else []
+        if not mine and not theirs and not older:
             continue
         words = "\n".join(f"- {ref(b)} {b['title'][:160]}" + ("" if b["status"] == "current" else f" ({b['status']})") for b in beliefs)
         parts = [_fit(f"Ägarens ord som ändrats:\n{words}", 1500)]
+        if older:
+            parts.append(_fit("Ägarens äldre ord om samma del av livet (does a newer word replace one of these? Then supersede "
+                              "the old one: update its status to superseded and link new → old 'supersedes'. Both standing "
+                              "means both bind, and they may say opposite things):\n"
+                              + "\n".join(f"- {ref(b)} {b['title'][:160]} ({b['created_at'][:10]})" for b in older), 1500))
         if theirs:
             parts.append(_fit("Dina egna tolkningar och antaganden om samma del av ägarens liv (do they still hold beside the owner's "
                               "words? Revise, supersede or retract what they contradict):\n"
