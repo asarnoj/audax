@@ -19,6 +19,8 @@
 #   ./deploy/audax friends         the friends' instances: running or not, and what each spent this week
 #   ./deploy/audax onboarding [host] try the first conversation in the terminal; nothing is kept (host: as a friend on host's machine)
 #   ./deploy/audax sizes [friend]  how large each role's prompt has grown, per week
+#   ./deploy/audax trace <id> [prompt] [friend]  follow one act back to why: R123 run, M123 message, F123 finding, P123 post,
+#                                  B123 booking, D123 point, an item (S5, U31 …), or policy.md:<words>; 'prompt' prints a run's whole prompt
 #   ./deploy/audax prompts [days] [friend]  what the prompts hold and what of it is used; the points to decide (omgång 16)
 #   ./deploy/audax problems [friend]              the faults the chat reported, not yet marked fixed
 #   ./deploy/audax problems resolve <id> [friend] mark one fixed: the health alarm stops showing it
@@ -49,6 +51,12 @@ case "${1:-today}" in
   sizes)   # how large each role's prompt has grown, per week (omgång 13: measure before choosing what to leave out)
     db="$DIR/data/agent.db"; [ -n "${2:-}" ] && db="audax-friends/$2/data/agent.db"
     exec ssh "$PI_HOST" "sqlite3 -column -header $db \"SELECT kind AS roll, strftime('%Y v%W', created_at) AS vecka, count(*) AS körningar, round(avg(context_tokens)/1000.0,1) AS 'k tokens' FROM claude_runs WHERE context_tokens IS NOT NULL AND created_at >= datetime('now','-56 days') GROUP BY kind, vecka ORDER BY kind, vecka\"" ;;
+  trace)
+    [ -n "${2:-}" ] || { echo "Användning: ./deploy/audax trace <id> [prompt] [friend]"; exit 1; }
+    extra="" friend=""
+    if [ "${3:-}" = "prompt" ]; then extra="prompt"; friend="${4:-}"; else friend="${3:-}"; fi
+    base="."; [ -n "$friend" ] && base="~/audax-friends/$friend"
+    exec ssh "$PI_HOST" "cd $DIR && .venv/bin/python -m agent.trace $(printf '%q' "$2") $extra --db=$base/data/agent.db --memory=$base/workspace/memory" ;;
   prompts)
     db="data/agent.db"; [ -n "${3:-}" ] && db="~/audax-friends/$3/data/agent.db"
     exec ssh "$PI_HOST" "cd $DIR && .venv/bin/python -m agent.measure ${2:-14} $db" ;;

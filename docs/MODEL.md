@@ -280,6 +280,8 @@ Tar kvoten slut stannar kedjan och fortsätter där den slutade.
 
 Allt som ska gå att följa upp har ett id: formerna (#S, #T, #E, #U, #Q, #G, #N, #J), poster (#P), fynd (#F), bokningar (#B), körningar (#R) och punkter att avgöra (D). Meddelanden i samtalet kopplas till de id:n de handlar om, och allt en körning skriver bär dess id. Assistant slår upp i stället för att minnas. Id:n är kökets verktyg och syns på webbsidan, inte i chatten. Rådatan finns under `/data/`.
 
+**Spåra en handling** (`agent/trace.py`, `./deploy/audax trace <id>`): ett meddelande, ett fynd, en post, en bokning, en punkt, en körning eller en rad i en text följs bakåt: körningen som gjorde det, de rader i dess prompt som handlade om saken, vad den gjorde, och varifrån det den lutade sig mot kom (vilken körning som skrev det, när och varför). Ett fel namnges sedan efter sin orsak: hur prompten byggdes, vad arkitekturen sparar, eller ett tidigare misstag som fördes vidare. Triagens och deskens prompter sparas därför också.
+
 **Läget och historiken** (omgång 16): en posts fält säger hur det står nu, och formulären har en storlek för de fält som annars växer (ett måls "varför" högst 400 tecken). Den som skriver över en text måste ge en anteckning, och den gamla texten sparas i postens historik. **Länkarna gör koden:** varje id som en post nämner i sina fält blir en länk (`mentions`), så "allt om X" fungerar utan att någon roll behöver länka.
 
 ## Återkoppling: hur kontoret blir bättre

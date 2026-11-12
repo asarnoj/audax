@@ -231,7 +231,10 @@ WEEK_STOP = 0.9  # mechanical quota guard: above this share of the weekly window
 
 TOOLS_UP_FRONT = {"assistant_night", "director_understand", "director_reflect", "researcher_plan", "manager", "research", "research_deep"}
 TRANSCRIPT_PART = 3000   # characters kept of each tool call and each tool result in a run's transcript
-UNRECORDED = {"page_extract", "triage", "dispatcher", "chat_summary"}   # frequent, cheap, with nothing to read back
+# Frequent, cheap, with nothing to read back. Triage and the desk are kept: what they drop or hold the owner never
+# sees, so their prompts are what a trace of a decision reads (agent/trace.py; 12 Nov: a planned finding couldn't be
+# followed to what the desk was shown). Kept prompts go after 60 days like the others.
+UNRECORDED = {"page_extract", "chat_summary"}
 
 
 def _result_text(content: Any) -> str:
