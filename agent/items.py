@@ -78,7 +78,7 @@ class Items:
             for word in text.casefold().split():
                 sql.append("lower(title || ' ' || data) LIKE ?"); params.append(f"%{word}%")
         if where:
-            sql.append(where); params += list(args)
+            sql.append(f"({where})"); params += list(args)   # its own OR must not undo the conditions above (12 Nov)
         rows = await self.db.fetchall(f"SELECT * FROM items WHERE {' AND '.join(sql)} ORDER BY {order} LIMIT ?", (*params, limit))
         return [self._flat(r) for r in rows]
 

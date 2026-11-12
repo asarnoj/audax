@@ -118,3 +118,14 @@ async def test_the_aims_moved_in_with_their_numbers_and_history(tmp_path):
     assert [h["note"] for h in await items.history(1)] == ["lades till"]
     assert await items.create("aim", "Nytt", "director", kind="idea") == 7   # the numbering goes on
     await db.close()
+
+
+async def test_a_raw_condition_with_or_keeps_the_other_conditions(db):
+    # 12 Nov: "status IN (...) OR updated_at >= ..." without brackets matched every item of every form, and Manager's
+    # section on its experiments held all the goals and pursuits (30 000 characters)
+    items = Items(db)
+    await items.create("aim", "Ett mål", "director", kind="goal", data={"why": "x"})
+    e = await items.create("experiment", "Prövar", "manager", kind="improve", owner="manager", review_at="2026-12-01",
+                           data={"hypothesis": "h", "intervention": "i", "measure": "m"})
+    rows = await items.find("experiment", owner="manager", where="status IN ('planned', 'running') OR updated_at >= datetime('now', '-30 days')")
+    assert [r["id"] for r in rows] == [e]
