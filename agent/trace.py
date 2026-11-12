@@ -113,7 +113,7 @@ class Trace:
         item = await self.items.get(item_id)
         if item is None:
             return f"Ingen post {item_id}."
-        out = [f"Post {Items.line(item)}" + (f" · ägare {item['owner']}" if item["owner"] else "")]
+        out = [f"{Items.line(item)}" + (f" · ägare {item['owner']}" if item["owner"] else "")]
         form = FORMS[item["form"]]
         for f in form.fields:
             if item.get(f.name) not in (None, ""):
