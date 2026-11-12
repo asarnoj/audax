@@ -51,8 +51,18 @@ async def test_old_references_and_rules_resting_on_nothing_are_shown(db, tmp_pat
     (tmp_path / "arbetsminne" / "manager.md").write_text(f"Trial #E{e} pågår till 9 nov.\n")
     (tmp_path / "policy.md").write_text(f"# Policy\n- Max ca 3 proaktiva per dag.\n- Inga Javajobb (#U{u}).\n")
     text = await freshness.for_review(db, tmp_path, "manager")
-    assert f"#E{e} i arbetsminne/manager.md är dropped" in text
     assert "policy.md: Max ca 3 proaktiva per dag." in text and "Inga Javajobb" not in text
+    from agent import docket   # what cites the closed, or a belief, is a point set beside the words it cites (omgång 16)
+
+    assert await freshness.cite_points(db, tmp_path, "manager") == 2
+    points = {p["key"]: p for p in await docket.open_points(db, "manager")}
+    assert f"#E{e} (dropped" in points["cite:arbetsminne/manager.md"]["basis"]
+    policy = points["cite:policy.md"]
+    assert f"#U{u} (current, ägarens egna ord): Kan inte Java" in policy["basis"]
+    await docket.answer(db, "manager", policy["id"], "kept", "stämmer")
+    assert await freshness.cite_points(db, tmp_path, "manager") == 1   # checked: not asked again
+    (tmp_path / "policy.md").write_text(f"# Policy\n- Javajobb går bra (#U{u}).\n")
+    assert await freshness.cite_points(db, tmp_path, "manager") == 2   # the line changed: asked again
 
 
 def test_the_latest_week_is_read_against_the_owners_own_baseline():

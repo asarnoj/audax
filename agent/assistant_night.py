@@ -83,7 +83,12 @@ class AssistantNight:
         since_sql = since.astimezone(ZoneInfo("UTC")).strftime("%Y-%m-%d %H:%M:%S")
         await write_profile(self.db, self.memory.path, self.settings.owner or "ägaren", self.settings.timezone)  # temporary beliefs past their date leave it
         await write_now(self.db, self.memory.path / "direction" / "now.md", now)   # the dates in now.md, fresh for the night
+        from agent import docket
+        from agent.due import sweeps
+
+        await sweeps(self.db, "assistant", now, self.memory.path)
         context = {
+            "decide": await docket.render(self.db, "assistant", now.date()) or "Inget just nu.",
             "now": f"{now:%Y-%m-%d %H:%M}",
             "working_memory": (self.memory.read(WORKING_MEMORY) or "(empty: this is your first night pass)")
             + await earlier_runs(self.db, "assistant", self.settings.timezone),

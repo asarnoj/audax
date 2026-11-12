@@ -27,6 +27,9 @@ Keep `arbetsminne/assistant.md` current through `working_memory` in your answer,
 
 Now: {now}
 
+## Att avgöra nu
+{decide}
+
 ## Your working memory (from last night)
 {working_memory}
 

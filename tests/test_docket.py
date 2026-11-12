@@ -185,3 +185,38 @@ async def test_the_measure_counts_ids_shown_and_used(db):
     m = (await measure.runs(db, 1))["researcher_plan"]
     assert m["shown"] == 3 and m["used"] == 1 and m["fetches"] == 1
     assert "researcher_plan" in await measure.report(db, 1)
+
+
+async def test_the_owners_words_are_set_beside_the_roles_own_interpretations_of_the_same_part_of_their_life(db):
+    items = Items(db)
+    guess = await items.create("belief", "Intressen: AI och cybersäkerhet", "assistant", kind="hypothesis", owner="assistant",
+                               data={"area": "interests"}, source={"type": "inferred"})
+    await items.create("belief", "Tre kontakter om dagen", "manager", kind="hypothesis", owner="manager",
+                       data={"area": "interrupt"}, source={"type": "assumed"})
+    await items.create("belief", "Inte intresserad av cybersäkerhet", "assistant", kind="preference",
+                       data={"area": "not_interested"}, source={"type": "owner", "quote": "inte säkerhet"})
+    [p] = await docket.open_points(db, "assistant")   # the interpretation's owner sees it beside the words
+    assert f"#U{guess}" in p["basis"] and "Inte intresserad av cybersäkerhet" in p["basis"]
+    assert await docket.open_points(db, "manager") == []   # another part of life: nothing to weigh
+
+
+async def test_a_next_step_naming_what_has_closed_or_passed_is_a_point_once_per_state(db):
+    items = Items(db)
+    eid = await items.create("experiment", "En jam som ram", "director", kind="explore",
+                             data={"hypothesis": "h", "intervention": "i", "measure": "m"}, review_at="2026-11-01")
+    gid = await items.create("aim", "Spel med brodern", "director", kind="project", owner="director",
+                             data={"next_step": f"Game Off delas före 1 nov som ram, se #E{eid}"})
+    today = date(2026, 11, 12)
+    assert await points.sweep_stale(db, "director", today) == 1
+    [p] = [p for p in await docket.open_points(db, "director", today) if p["kind"] == "stale"]
+    assert "1 Nov har passerat" in p["basis"] or "1 nov har passerat" in p["basis"].lower()
+    await docket.answer(db, "director", p["id"], "kept", "gäller")
+    assert await points.sweep_stale(db, "director", today) == 0   # answered for this state: not again
+    await items.update(eid, "director", status="dropped", note="avbrutet")
+    await points.sweep_stale(db, "director", today)
+    [p] = [p for p in await docket.open_points(db, "director", today) if p["kind"] == "stale"]
+    assert f"#E{eid} är dropped" in p["basis"]   # a new closed thing: asked again
+    await items.update(gid, "director", data={"next_step": "Bygga i egen takt med brodern"}, note="ny riktning")
+    await points.sweep_stale(db, "director", today)
+    assert not [p for p in await docket.open_points(db, "director", today) if p["kind"] == "stale"]   # current again: resolved
+    assert points.days_in("Armada 17–18 nov, ansökan 2027-01-15", today) == [date(2026, 11, 18), date(2027, 1, 15)]

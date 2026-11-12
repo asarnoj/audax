@@ -149,6 +149,9 @@ async def run() -> None:
     if not await db.kv_get("omgang16.seeded"):
         await db.kv_set("omgang16.seeded", datetime.now().isoformat())
         log.info("points: the owner's words of the last week set beside the work (%d)", await points.seed_aging(db))
+    if not await db.kv_get("omgang16.seeded_b"):   # and beside the roles' own interpretations, over two weeks
+        await db.kv_set("omgang16.seeded_b", datetime.now().isoformat())
+        log.info("points: the owner's words of the last two weeks set beside work and interpretations (%d)", await points.seed_aging(db, days=14))
     if await write_profile(db, memory.path, settings.owner or "ägaren", settings.timezone):
         await memory.commit_if_changed("profilen skriven ur uppfattningarna")
     if await write_practice(db, memory.path):   # the lessons were lines; now they are practice beliefs (omgång 13)

@@ -51,13 +51,23 @@ async def answered_since(db: Database, role: str, since: str) -> list[dict]:
     return await Items(db).find("question", status=("answered", "unanswered"), owner=role, where="updated_at >= ?", args=(since,))
 
 
+async def sweeps(db: Database, role: str, now: datetime, memory=None) -> None:
+    """Before a role's run: what has grown, passed or drifted from what it cites becomes points (omgång 16)."""
+    from agent import freshness, points
+
+    await points.sweep_oversized(db, role)
+    await points.sweep_stale(db, role, now.date())
+    if memory is not None:
+        await freshness.cite_points(db, memory, role)
+
+
 async def review(db: Database, role: str, now: datetime, memory=None) -> str:
     """What a role should look at in its run and tidy in its cleaning pass. Swedish headings, English notes."""
     items = Items(db)
     parts = []
     from agent import docket, points
 
-    await points.sweep_oversized(db, role)
+    await sweeps(db, role, now, memory)
     if decide := await docket.render(db, role, now.date()):   # what must be answered comes first (omgång 16)
         parts.append(decide)
     due = await due_items(db, now, role)
