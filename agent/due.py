@@ -55,6 +55,11 @@ async def review(db: Database, role: str, now: datetime, memory=None) -> str:
     """What a role should look at in its run and tidy in its cleaning pass. Swedish headings, English notes."""
     items = Items(db)
     parts = []
+    from agent import docket, points
+
+    await points.sweep_oversized(db, role)
+    if decide := await docket.render(db, role, now.date()):   # what must be answered comes first (omgång 16)
+        parts.append(decide)
     due = await due_items(db, now, role)
     if due:
         parts.append("Dags nu (due; act on each, or move its date with a reason):\n" + "\n".join(f"- {describe(i)}" for i in due))
@@ -133,12 +138,7 @@ async def review(db: Database, role: str, now: datetime, memory=None) -> str:
         await cases.collect(db)
         if cases_text := await cases.report(db):
             parts.append(cases_text)
-        from agent import watching
         from agent.crosscheck import mission_drops
-
-        for text in (await watching.entries_for_review(db, now.tzinfo), await watching.missions_for_review(db)):
-            if text:
-                parts.append(text)
 
         if drops := await mission_drops(db):
             parts.append(drops)
@@ -148,6 +148,8 @@ async def review(db: Database, role: str, now: datetime, memory=None) -> str:
                          "what mattered), with the test cases as its measure.")
     if role == "manager":
         parts.append(await pulse(db, now))
+        if slid := await docket.unanswered(db):
+            parts.append(slid)
     if role in ("researcher", "manager"):
         from agent.thoughts import outcomes
 

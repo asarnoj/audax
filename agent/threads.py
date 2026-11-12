@@ -20,7 +20,7 @@ from datetime import datetime, timedelta
 from zoneinfo import ZoneInfo
 
 from agent.db import Database
-from agent.forms import LETTERS
+from agent.forms import FORMS, LETTERS
 from agent.items import Items, ref
 
 log = logging.getLogger(__name__)
@@ -55,7 +55,8 @@ async def unfollow(db: Database, role: str, item_id: int, why: str) -> bool:
 
 
 async def followed(db: Database, role: str | None = None) -> list[dict]:
-    sql, args = "SELECT * FROM follows WHERE status = 'active'", []
+    """The items followed (a saved question is followed too, but has no thread: see `questions_of`)."""
+    sql, args = "SELECT * FROM follows WHERE status = 'active' AND item_id IS NOT NULL", []
     if role:
         sql += " AND role = ?"; args.append(role)
     return [dict(r) for r in await db.fetchall(sql + " ORDER BY look_at", tuple(args))]
@@ -73,7 +74,7 @@ async def news(db: Database, item_id: int, what: str, by: str | None, now: datet
 
 async def due(db: Database, now: datetime) -> list[dict]:
     return [dict(r) for r in await db.fetchall(
-        "SELECT * FROM follows WHERE status = 'active' AND look_at <= ? ORDER BY look_at", (_stamp(now),))]
+        "SELECT * FROM follows WHERE status = 'active' AND item_id IS NOT NULL AND look_at <= ? ORDER BY look_at", (_stamp(now),))]
 
 
 def watcher(tz: str):
@@ -114,6 +115,87 @@ async def deadlines(db: Database, now: datetime) -> None:
         day = item.get("deadline") or item.get("date")
         if day and f"{now:%Y-%m-%d}" <= day <= until and f"sista dag {day}" not in (f["news"] or ""):
             await news(db, item["id"], f"sista dag {day} närmar sig", None, now)
+
+
+# --- saved questions --------------------------------------------------------------------------
+# A role can follow a question instead of an item (omgång 16): "opportunities whose deadline is within 21 days",
+# "my rules that never hit". Its answer is shown in each of the role's runs, a line per item. It is made of the same
+# words as `find`, and checked and run once when it is saved, so a role sees at once what it will get.
+
+QUERY = {"form", "kind", "status", "open", "owner", "words", "within_days", "limit"}
+QUESTIONS_PER_ROLE = 8
+QUESTION_LINES = 15
+
+
+def _query(raw) -> dict:
+    q = json.loads(raw) if isinstance(raw, str) else dict(raw or {})
+    if bad := set(q) - QUERY:
+        raise ValueError(f"a saved question takes only {', '.join(sorted(QUERY))} (not {', '.join(sorted(bad))})")
+    if q.get("form") and q["form"] not in FORMS:
+        raise ValueError(f"no form {q['form']!r}")
+    if q.get("within_days") is not None and not (0 < int(q["within_days"]) <= 365):
+        raise ValueError("within_days is 1 to 365")
+    q["limit"] = max(1, min(int(q.get("limit") or 10), QUESTION_LINES))
+    return q
+
+
+async def ask(db: Database, q: dict, now: datetime | None = None) -> list[dict]:
+    """The items a saved question finds. within_days: a deadline, a date or a review day within that many days."""
+    where, args = "", ()
+    if q.get("within_days"):
+        today = f"{(now or datetime.now()):%Y-%m-%d}"
+        until = f"{(now or datetime.now()) + timedelta(days=int(q['within_days'])):%Y-%m-%d}"
+        where = ("(coalesce(json_extract(data, '$.deadline'), json_extract(data, '$.date'), substr(review_at, 1, 10)) "
+                 "BETWEEN ? AND ?)")
+        args = (today, until)
+    order = "coalesce(json_extract(data, '$.deadline'), json_extract(data, '$.date'), review_at)" if q.get("within_days") else "updated_at DESC"
+    return await Items(db).find(q.get("form"), kind=q.get("kind"), status=q.get("status"), open_only=bool(q.get("open")),
+                                owner=q.get("owner"), text=q.get("words"), where=where, args=args, order=order, limit=q["limit"])
+
+
+def _item_line(i: dict) -> str:
+    extra = " · ".join(f"{k} {i[k]}" for k in ("deadline", "date") if i.get(k))
+    return f"- {Items.line(i)}" + (f" · {extra}" if extra else "")
+
+
+async def follow_question(db: Database, role: str, name: str, query, why: str) -> str:
+    """Saves (or replaces) a question the role follows. Returns what it finds now, so the role sees what it made."""
+    q = _query(query)
+    name = name.strip()[:60]
+    if not name:
+        raise ValueError("give the question a short name")
+    n = await db.fetchone("SELECT count(*) AS n FROM follows WHERE role = ? AND query IS NOT NULL AND status = 'active' AND name != ?", (role, name))
+    if n["n"] >= QUESTIONS_PER_ROLE:
+        raise ValueError(f"you follow {QUESTIONS_PER_ROLE} questions already: stop one first")
+    found = await ask(db, q)
+    await db.execute(
+        "INSERT INTO follows (role, name, query, why) VALUES (?, ?, ?, ?) ON CONFLICT(role, name) DO UPDATE SET "
+        "query = excluded.query, why = excluded.why, status = 'active', updated_at = datetime('now')",
+        (role, name, json.dumps(q, ensure_ascii=False), why))
+    return "\n".join(_item_line(i) for i in found) or "(finds nothing now)"
+
+
+async def stop_question(db: Database, role: str, name: str, why: str) -> bool:
+    return bool(await db.execute_count(
+        "UPDATE follows SET status = 'ended', why = why || ' · slutade följa: ' || ?, updated_at = datetime('now') "
+        "WHERE role = ? AND name = ? AND query IS NOT NULL AND status = 'active'", (why, role, name.strip())))
+
+
+async def questions_of(db: Database, role: str) -> list[dict]:
+    return [dict(r) for r in await db.fetchall(
+        "SELECT * FROM follows WHERE role = ? AND query IS NOT NULL AND status = 'active' ORDER BY id", (role,))]
+
+
+async def questions_text(db: Database, role: str, now: datetime | None = None) -> str:
+    parts = []
+    for f in await questions_of(db, role):
+        try:
+            found = await ask(db, _query(f["query"]), now)
+        except ValueError as e:
+            parts.append(f"{f['name']} ({f['why'][:100]}): kan inte köras: {e}")
+            continue
+        parts.append(f"{f['name']} ({f['why'][:100]}):\n" + ("\n".join(_item_line(i) for i in found) or "- inget just nu"))
+    return "Dina sparade frågor (what you chose to keep an eye on; change or stop one with `follow`):\n" + "\n\n".join(parts) if parts else ""
 
 
 # --- what a contact came to ---------------------------------------------------------------
@@ -183,10 +265,12 @@ async def thread(db: Database, item_id: int, tz: str = "Europe/Stockholm") -> st
 
 
 async def for_review(db: Database, role: str, now: datetime, tz: str = "Europe/Stockholm") -> str:
-    """For a role's review: the threads that have come up (whole), and the rest it follows (one line each)."""
+    """For a role's review: the threads that have come up (whole), the rest it follows (one line each), and its saved
+    questions with what they find."""
     mine = await followed(db, role)
+    asked = await questions_text(db, role, now)
     if not mine:
-        return ""
+        return asked
     stamp = _stamp(now)
     up = [f for f in mine if f["look_at"] <= stamp]
     rest = [f for f in mine if f["look_at"] > stamp]
@@ -204,4 +288,6 @@ async def for_review(db: Database, role: str, now: datetime, tz: str = "Europe/S
             if item is not None:
                 lines.append(f"- {ref(item)} {item['title'][:70]}: {f['why'][:120]} · ses över {f['look_at']}")
         parts.append("Du följer också:\n" + "\n".join(lines))
+    if asked:
+        parts.append(asked)
     return "\n\n".join(parts)

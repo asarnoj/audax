@@ -2,8 +2,9 @@
 during its run. Every write is checked at once against the form and the role's rights, and a problem goes straight
 back to the role so it can put it right, instead of being found after the run, or never.
 
-Exposed as mcp__office__<name>: forms, find, read, create, update, link, and text (a section of a text the role
-owns, agent/texts.py).
+Exposed as mcp__office__<name>: forms, find, read, create, update, link, find_out, follow (an item or a saved
+question), answer (a point to decide, agent/docket.py), thread, and text (a section of a text the role owns,
+agent/texts.py).
 """
 
 from __future__ import annotations
@@ -111,7 +112,10 @@ def office_tools(db: Database, role: str, turn: TurnContext | None = None, memor
             return _text(f"[internal] Not created: {e}")
         item = await items.get(new)
         touched(new, item["form"])
-        return _text(f"[internal] Created {Items.line(item)}")
+        from agent.lessons import tried_before
+
+        before = await tried_before(db, item, role)   # what is like it and has been tried (omgång 16)
+        return _text(f"[internal] Created {Items.line(item)}" + (f"\n\n{before}" if before else ""))
 
     @tool(
         "update",
@@ -191,20 +195,36 @@ def office_tools(db: Database, role: str, turn: TurnContext | None = None, memor
 
     @tool(
         "follow",
-        "Follow anything you judge important for your work (a goal, a belief about the owner, a hypothesis, an experiment, "
-        "another role's item too): say when you mean to look at it again and why, from what you know of it now. It comes "
-        "up then, or earlier if something new happens in it (the owner mentions it, it changes, a deadline comes close). "
-        "When it comes up, read its thread and follow again with your next date, or stop=true.",
+        "Keep an eye on something; it is what you carry from run to run. Either an item (id): anything you judge "
+        "important for your work, another role's too. Say when you mean to look at it again and why; it comes up then, "
+        "or earlier if something new happens in it (the owner mentions it, it changes, a deadline comes close); then "
+        "read its thread and follow again with your next date, or stop=true. Or a saved question (name + question): "
+        "what it finds is shown in each of your runs, e.g. {\"form\": \"opportunity\", \"open\": true, \"within_days\": 21}. "
+        "A question takes form, kind, status, open, owner, words, within_days (a deadline, date or review day that "
+        "close) and limit (at most 15). You see at once what it finds. stop=true with the name ends it.",
         {"type": "object", "properties": {
             "id": {"type": "string"}, "when": {"type": "string", "description": "YYYY-MM-DD (or YYYY-MM-DD HH:MM)"},
+            "name": {"type": "string", "description": "a saved question's short name"},
+            "question": {"type": "object", "description": "a saved question"},
             "why": {"type": "string", "description": "Swedish: why you follow it, and what to look for next time"},
             "stop": {"type": "boolean"}},
-         "required": ["id", "why"]},
+         "required": ["why"]},
     )
     async def follow(args: dict[str, Any]) -> dict[str, Any]:
         from agent import threads
 
+        if args.get("name") and not args.get("id"):
+            try:
+                if args.get("stop"):
+                    ok = await threads.stop_question(db, role, args["name"], args["why"])
+                    return _text(f"[internal] {'Stopped following' if ok else 'You did not follow'} the question {args['name']}.")
+                found = await threads.follow_question(db, role, args["name"], _obj(args.get("question")) or {}, args["why"])
+            except (ValueError, FormError) as e:
+                return _text(f"[internal] Not saved: {e}")
+            return _text(f"[internal] Following the question {args['name']}. It finds now:\n{found}")
         try:
+            if not args.get("id"):
+                raise FormError("give an id, or a name and a question")
             n = item_id(args["id"])
             item = await items.get(n)
             if item is None:
@@ -219,6 +239,39 @@ def office_tools(db: Database, role: str, turn: TurnContext | None = None, memor
             return _text(f"[internal] Not followed: {e}")
         return _text(f"[internal] Following {ref(item)} until {args['when']}.")
 
+    @tool(
+        "answer",
+        "Answer a point under 'Att avgöra nu' (D12). decision: done (handled), changed (you changed what it is about), "
+        "kept (looked, it stays), struck (removed it), nothing (nothing is touched / nothing new), later (give `later`, "
+        "the day it comes back, and why), lesson (give `lesson`: what it teaches about how to work, one or two "
+        "sentences). The note says what you decided and why, in Swedish. Do the work first (update, create …), then answer.",
+        {"type": "object", "properties": {
+            "id": {"type": "string", "description": "e.g. D12"},
+            "decision": {"type": "string", "enum": ["done", "changed", "kept", "struck", "nothing", "later", "lesson"]},
+            "note": {"type": "string", "description": "Swedish: what you decided and why"},
+            "later": {"type": "string", "description": "YYYY-MM-DD, with decision later"},
+            "lesson": {"type": "string", "description": "Swedish, with decision lesson: the lesson, general enough to use next time"}},
+         "required": ["id", "decision", "note"]},
+    )
+    async def answer(args: dict[str, Any]) -> dict[str, Any]:
+        from agent import docket
+        from agent.lessons import learn
+
+        raw = str(args["id"]).strip().lstrip("#").upper().lstrip("D")
+        if not raw.isdigit():
+            return _text(f"[internal] Not answered: not a point: {args['id']!r} (points read D12)")
+        try:
+            if args["decision"] == "lesson" and not (args.get("lesson") or "").strip():
+                raise ValueError("decision lesson needs the lesson itself")
+            p = await docket.answer(db, role, int(raw), args["decision"], args.get("note") or "", args.get("later"))
+        except ValueError as e:
+            return _text(f"[internal] Not answered: {e}")
+        extra = ""
+        if args["decision"] == "lesson":
+            lid = await learn(db, memory, role, args["lesson"], json.loads(p["refs"] or "[]"))
+            extra = f" Lesson kept as #U{lid}."
+        return _text(f"[internal] D{p['id']} answered ({args['decision']}).{extra}")
+
     @tool("thread", "Everything about one thing: its history, what the owner said about it, what hangs together with it, every time "
                     "it was brought up with the owner and how that landed, and what is coming. Read it before you decide what to ask.",
           {"type": "object", "properties": {"id": {"type": "string"}}, "required": ["id"]})
@@ -231,7 +284,7 @@ def office_tools(db: Database, role: str, turn: TurnContext | None = None, memor
             return _text(f"[internal] {e}")
         return _text(text or "[internal] No such item.")
 
-    tools = [forms, find, read, create, update, link, find_out, follow, thread]
+    tools = [forms, find, read, create, update, link, find_out, follow, answer, thread]
     if memory is not None:
         from agent import texts
 

@@ -9,11 +9,25 @@ as a dict. Every change is logged with who made it and in which run (agent/trail
 from __future__ import annotations
 
 import json
+import re
 from datetime import date
 
 from agent import trail
 from agent.db import Database
 from agent.forms import CORE, FORMS, LETTERS, FormError, check, may
+
+
+MENTION = re.compile(r"#([" + "".join(LETTERS) + r"])(\d+)\b")
+
+
+def mentions(*texts) -> set[tuple[str, int]]:
+    """The items a text names by id, as (form, number): #S5, #U31. A link the code makes, so no role has to remember to
+    (omgång 16)."""
+    found = set()
+    for t in texts:
+        for m in MENTION.finditer(str(t or "")):
+            found.add((LETTERS[m.group(1)], int(m.group(2))))
+    return found
 
 
 def ref(item: dict) -> str:
@@ -98,7 +112,8 @@ class Items:
                      item_id: int | None = None, check_rights: bool = False) -> int:
         if check_rights and not may(by, "create", form):
             raise FormError(f"{by} may not create a {form}.")
-        form, kind, status, clean = check(form, kind, status, data or {}, title=title, source=source, review_at=review_at, creating=True)
+        form, kind, status, clean = check(form, kind, status, data or {}, title=title, source=source, review_at=review_at, creating=True,
+                                          sized=check_rights)
         if parent is not None and not await self.get(parent):
             raise FormError(f"parent {parent} doesn't exist")
         item_id = await self.db.insert(
@@ -108,6 +123,7 @@ class Items:
             valid_until=_day_or_time(valid_until), data=json.dumps({k: v for k, v in clean.items() if v is not None}, ensure_ascii=False), by=by,
         )
         await self._log(item_id, by, status, {"created": True}, note or "skapad")
+        await self._link_mentions(item_id, by, title, *clean.values())
         await trail.emit("item", by, ref=f"#{FORMS[form].letter}{item_id}", form=form, action="create")
         await self._changed(item_id)
         return item_id
@@ -125,13 +141,17 @@ class Items:
             raise FormError(f"{by} may not change {ref(item)} (owned by {item['owner']}).")
         new_kind = kind or item["kind"]
         _, new_kind, new_status, clean = check(item["form"], new_kind, status or item["status"], data or {}, title=title, source=source,
-                                               review_at=review_at, creating=False)
+                                               review_at=review_at, creating=False, sized=check_rights)
         row = await self.db.fetchone("SELECT data FROM items WHERE id = ?", (item_id,))
         stored = json.loads(row["data"] or "{}")
         changes: dict = {}
+        was: dict = {}   # a text written over is kept in the history, so the field can hold only where it stands (omgång 16)
         for k, v in clean.items():
             if stored.get(k) != v:
                 changes[k] = v
+                f = FORMS[item["form"]].field(k)
+                if f and f.type == "text" and stored.get(k):
+                    was[k] = stored[k]
                 if v is None:
                     stored.pop(k, None)
                 else:
@@ -151,10 +171,14 @@ class Items:
             changes["source"] = source
         if not changes and not note:
             return []
+        if check_rights and was and not (note or "").strip():
+            raise FormError(f"give a note: what changed in {', '.join(was)} and why. The old text is kept in the history with your note")
         if changes:
             sets = ", ".join(f"{c} = ?" for c in cols) + (", " if cols else "") + "data = ?, updated_at = datetime('now')"
             await self.db.execute(f"UPDATE items SET {sets} WHERE id = ?", (*cols.values(), json.dumps(stored, ensure_ascii=False), item_id))
-        await self._log(item_id, by, cols.get("status"), changes or None, note)
+        await self._log(item_id, by, cols.get("status"), ({**changes, "was": was} if was else changes) or None, note)
+        if changes:
+            await self._link_mentions(item_id, by, title, *clean.values())
         await trail.emit("item", by, ref=ref(item), form=item["form"], action="update")
         if changes:
             await self._changed(item_id)
@@ -165,6 +189,12 @@ class Items:
             raise FormError("both items must exist")
         await self.db.execute(
             "INSERT OR IGNORE INTO item_links (from_id, to_id, relation, by) VALUES (?, ?, ?, ?)", (from_id, to_id, relation, by))
+
+    async def _link_mentions(self, item_id: int, by: str, *texts) -> None:
+        for form, other in mentions(*texts):
+            if other != item_id and await self.db.fetchone("SELECT 1 FROM items WHERE id = ? AND form = ?", (other, form)):
+                await self.db.execute("INSERT OR IGNORE INTO item_links (from_id, to_id, relation, by) VALUES (?, ?, 'mentions', ?)",
+                                      (item_id, other, by))
 
     async def _log(self, item_id: int, by: str, status: str | None, changes: dict | None, note: str | None) -> None:
         await self.db.insert("item_log", item_id=item_id, by=by, status=status,

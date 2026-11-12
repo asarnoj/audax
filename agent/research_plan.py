@@ -179,12 +179,10 @@ class ResearchPlanner:
             last_kept = datetime.fromisoformat(st["last_kept"] + "+00:00") if st["last_kept"] else None
             if st["runs_30d"] >= 3 and (last_kept is None or now - last_kept >= QUIET_AFTER) and now - datetime.fromisoformat(last) >= timedelta(days=3):
                 return f"quiet mission: {t.id}"
-        from agent import cases, watching
+        from agent import cases, docket
 
-        if await watching.aged_missions(self.db):
-            return "a mission written before the owner's words changed"
-        if (bad := await watching.failing(self.db)) and max(r["failing_since"] for r in bad) > datetime.fromisoformat(last).astimezone(ZoneInfo("UTC")).strftime("%Y-%m-%d %H:%M:%S"):
-            return "a watched entry can't be read"
+        if n := await docket.new_since(self.db, "researcher", datetime.fromisoformat(last).astimezone(ZoneInfo("UTC")).strftime("%Y-%m-%d %H:%M:%S")):
+            return f"{n} new point(s) to decide"   # a watched entry failing, the owner's words changed, a lesson due (omgång 16)
         await cases.collect(self.db)
         if (new := await cases.unreviewed(self.db)) and now - datetime.fromisoformat(last) >= timedelta(days=1):
             return f"{len(new)} new test case(s) the search didn't bring"
@@ -252,9 +250,6 @@ class ResearchPlanner:
         from agent import cases
 
         await cases.mark_reviewed(self.db)   # the test cases it was shown
-        from agent import watching
-
-        await watching.mark_looked(self.db)   # the missions it was shown beside the owner's changed words
         return result.structured
 
     async def _steps(self, now: datetime) -> str:

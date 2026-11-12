@@ -45,7 +45,7 @@ def words_of(query: str) -> list[str]:
 
 
 async def search(db: Database, query: str, limit: int = 8, kinds: tuple[str, ...] | None = None,
-                 exclude_messages_after: int | None = None) -> list[Hit]:
+                 exclude_messages_after: int | None = None, exclude_item: int | None = None) -> list[Hit]:
     """Best matches first. Every word must match; if nothing does, any word may. Ids are 'P12', 'F210' or an item's
     number, as the hit's kind says."""
     words = words_of(query)
@@ -62,6 +62,9 @@ async def search(db: Database, query: str, limit: int = 8, kinds: tuple[str, ...
         if exclude_messages_after is not None:
             sql += " AND NOT (kind = 'message' AND ref > ?)"
             args.append(exclude_messages_after)
+        if exclude_item is not None:   # what is like an item, not the item itself
+            sql += " AND NOT (kind = 'item' AND ref = ?)"
+            args.append(exclude_item)
         rows = await db.fetchall(sql + " ORDER BY bm25(search), at DESC LIMIT ?", (*args, limit))
         if rows or len(words) == 1:
             break

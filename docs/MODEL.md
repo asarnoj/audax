@@ -102,6 +102,11 @@ All kommunikation mellan rollerna går genom en central postlogg (#P). Varje rol
 - **Ett steg kan vänta på något.** När det det väntar på blir klart är steget dags direkt.
 - **En fråga utan svar** stängs efter en vecka. Det är också något att förstå, inte något att fråga om igen direkt.
 - **Städpasset:** varje långsam körning får en granskning av det som är dags, har stannat, pågår eller väntar, uppfattningar som passerat sitt datum, texter som vuxit förbi sin storlek, och för Researcher varje källas avkastning. Rollen tar ställning till varje sak.
+- **Att avgöra nu** (omgång 16, `agent/docket.py`): det som kräver ett ställningstagande är en *punkt*, inte en rad i genomgången. En punkt är en sak, med underlaget inskrivet, och den ligger kvar tills rollen svarar med verktyget `answer` (gjort, ändrat, behållet, struket, inget, senare med en dag, eller en lärdom). En obesvarad punkt kommer tillbaka räknad, och efter tre körningar ser Manager den. En punkt vars sak klarnar av sig själv stängs av koden. Punkterna kommer i genomgångens början, de med sista dag först, inom en budget; det som inte ryms väntar räknat. Koden tar upp punkter där något händer (`agent/points.py`):
+  - **en bevakad post går inte att läsa** (Researchers, och den stängs när posten läses igen);
+  - **ägarens egna ord ändras** medan en roll har arbete som gör något för ägaren (uppdrag, bevakningar, regler, mål, experiment): en öppen punkt per roll samlar ändringarna, med orden och arbetet bredvid. Den hänger inte på att orden matchar ("säkerhet" hittar inte en fråga om "cybersecurity");
+  - **något avslutas** (ett experiment avgörs, ett mål eller uppdrag tar slut, en regel eller bevakning stryks, en efterlysning avslutas, ett rapporterat fel löses): vad lärde vi oss?
+  - **ett fält har vuxit förbi sin storlek**: skriv om till hur det står nu.
 
 ## Schemat (Managers)
 
@@ -176,6 +181,8 @@ Assistant är det enda du möter, och skriver allt du läser.
 ## Trådar: när Audax hör av sig
 
 Audax hör av sig själv, men inte efter ett schema. Allt en roll bedömer viktigt för sitt arbete kan den följa: ett mål, en uppfattning om personen, en hypotes, ett experiment. Att följa något betyder att rollen själv har sagt när den vill se på det igen och varför, utifrån vad den vet (till exempel "inget att fråga förrän i december, när sommarjobben öppnar"). Saken kommer upp då, eller tidigare om något nytt händer i den: personen nämner den, en annan roll ändrar den, eller en deadline närmar sig.
+
+En roll kan också följa en **sparad fråga** (omgång 16), till exempel "möjligheter med deadline inom 21 dagar". Den byggs av samma ord som `find`, körs en gång när den sparas så att rollen ser vad den ger, och det den hittar visas i varje körning. Det är rollens sätt att forma vad den ser, utan kod.
 
 Tråden är vyn som koden bygger kring saken: dess historia, vad personen sagt om den, vad som hör ihop med den, varje gång kontoret tagit upp den och hur det landade, och det som väntar i världen. Med den avgör rollen själv om något är värt att fråga, vilken vinkel, och om det redan frågats. Svar gör bilden aktuell, tystnad låter trådarnas egna datum komma, och obesvarade kontakter syns, så balansen uppstår ur förståelsen i stället för ur en takt.
 
@@ -269,7 +276,9 @@ Tar kvoten slut stannar kedjan och fortsätter där den slutade.
 
 ## ID:n och uppslag
 
-Allt som ska gå att följa upp har ett id: formerna (#S, #T, #E, #U, #Q, #G, #N, #J), poster (#P), fynd (#F), bokningar (#B) och körningar (#R). Meddelanden i samtalet kopplas till de id:n de handlar om, och allt en körning skriver bär dess id. Assistant slår upp i stället för att minnas. Id:n är kökets verktyg och syns på webbsidan, inte i chatten. Rådatan finns under `/data/`.
+Allt som ska gå att följa upp har ett id: formerna (#S, #T, #E, #U, #Q, #G, #N, #J), poster (#P), fynd (#F), bokningar (#B), körningar (#R) och punkter att avgöra (D). Meddelanden i samtalet kopplas till de id:n de handlar om, och allt en körning skriver bär dess id. Assistant slår upp i stället för att minnas. Id:n är kökets verktyg och syns på webbsidan, inte i chatten. Rådatan finns under `/data/`.
+
+**Läget och historiken** (omgång 16): en posts fält säger hur det står nu, och formulären har en storlek för de fält som annars växer (ett måls "varför" högst 400 tecken). Den som skriver över en text måste ge en anteckning, och den gamla texten sparas i postens historik. **Länkarna gör koden:** varje id som en post nämner i sina fält blir en länk (`mentions`), så "allt om X" fungerar utan att någon roll behöver länka.
 
 ## Återkoppling: hur kontoret blir bättre
 
@@ -278,7 +287,8 @@ Allt som ska gå att följa upp har ett id: formerna (#S, #T, #E, #U, #Q, #G, #N
 - **Director → triagen** (omgång 14, `agent/crosscheck.py`): triagen är Directors snabba förmåga, och det den släpper ser du aldrig, så testfallen kan inte visa det. Directors dagliga genomgång får därför ett stickprov av vad triagen gjort sedan sist: några släppta fynd slumpvis, alla släppta som lutade sig mot en uppfattning som sedan ändrats eller strukits, och det den behöll som du inte ville ha. Ett felaktigt släppt fynd som fortfarande är aktuellt går tillbaka till desken och räknas i facit mot det triagen lutade sig mot. Rättelsen görs där triagen läser, i `now.md` och målen.
 - **Researcher → triagen:** Researcher ser triagens skäl för det dess egna uppdrag hittade och som släpptes, och ifrågasätter dem med en post till Director när de ser fel ut.
 - **Mått för Manager** räknas fram av Python och tolkas av Manager: svarstid, reaktioner, pauser, hämtningar och knuffar som följdes. Det är signaler, inte mål.
-- **Lärdomar** är uppfattningar av sorten `practice`; `lardomar.md` är vyn av dem.
+- **Lärdomar** är uppfattningar av sorten `practice`; `lardomar.md` är vyn av dem. När något avslutas frågar en punkt vad det lärde (se Kalendern och städpassen), och svaret blir en lärdom länkad till det den lärdes av. När en roll skapar något som prövar ett arbetssätt (ett experiment, en regel, en rutin, en efterlysning, en idé) letar koden upp det som liknar det och redan prövats: avslutade poster av samma slag med vad det blev, och lärdomarna. Det kommer med i verktygets svar (`agent/lessons.py`), så samma misstag inte görs omedvetet igen.
+- **Mätning** (`agent/measure.py`, `./deploy/audax prompts`): per sorts körning promptens storlek, hur många id den visade och hur många körningen använde, hur ofta den hämtade, punkternas utfall och hur ofta "tidigare prövat" visats.
 - **Levande kunskap** (omgång 13): allt som styr vilar på en uppfattning, och en uppfattning på sina observationer (daterade rader). Koden visar överallt vad den vilar på ("vilar på 3 observationer, 3–5 nov", "ägarens egna ord", "ett antagande"), och liggaren jämför senaste veckan med ägarens egen baslinje. Före varje körning visar genomgången hänvisningar till sådant som stängts och rader i policyn och `now.md` som styr utan att vila på något. Inget faller för att tiden går; det faller när underlaget inte håller. **Facit** (`agent/facit.py`): när triagen eller desken lutar sig mot en uppfattning namnger de den (`rests_on`), och koden följer vad det blev: det som hölls tillbaka och sedan hämtades eller efterfrågades, det som skickades och besvarades eller inte var önskat. En uppfattning vars facit pekar emot den sedan den sist sågs över kommer upp till prövning hos sin ägare: behåll med skäl, ändra eller släpp. Vilken roll som helst kan ifrågasätta en annans uppfattning med en post. Du kan fråga varför Audax gör något och få uppfattningen, vad den vilar på och dess facit; stryker du den får rollen veta det, och det binder.
 
 ## Utanför kontoret

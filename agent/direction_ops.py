@@ -122,6 +122,8 @@ async def remove_company(db: Database, name: str, why: str) -> str:
     for c in load_stream_configs():
         if c.type == "ats":   # the senses that read the watchlist: its health goes with it
             await db.execute("DELETE FROM watch_health WHERE stream = ? AND lower(entry) = lower(?)", (c.id, name))
+            await db.execute("UPDATE docket SET status = 'resolved', answer = 'struken från bevakningslistan', answered_at = datetime('now') "
+                             "WHERE status = 'open' AND lower(key) = lower(?)", (f"failing:{c.id}/{name}",))
     return f"{name} bevakas inte längre ({why})."
 
 

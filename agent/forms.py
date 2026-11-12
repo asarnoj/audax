@@ -36,6 +36,7 @@ class Field:
     required: bool = False
     choices: tuple[str, ...] = ()
     help: str = ""
+    max: int = 0         # a text field's size: it holds where things stand, the history goes to the item's log (omgång 16)
 
 
 @dataclass(frozen=True)
@@ -76,9 +77,9 @@ FORMS: dict[str, Form] = {f.name: f for f in (
         },
         closed=("done", "dropped", "accepted", "rejected", "declined", "missed", "dismissed"),
         fields=(
-            Field("why", help="Swedish: why it matters to the owner"),
-            Field("about", help="Swedish notes: a goal's what helps, what is noise and where it stands; an idea's content"),
-            Field("next_step", help="Swedish, short"),
+            Field("why", help="Swedish: why it matters to the owner", max=400),
+            Field("about", help="Swedish notes: a goal's what helps, what is noise and where it stands; an idea's content", max=900),
+            Field("next_step", help="Swedish, short", max=250),
             Field("deadline", "date"),
             Field("remind_at", "date", help="an opportunity not yet applied to: when a nudge would help most"),
             Field("organization"),
@@ -98,9 +99,9 @@ FORMS: dict[str, Form] = {f.name: f for f in (
         fields=(
             Field("action", "enum", True, ("ask_owner", "tell_owner", "research", "decide", "check", "other"),
                   "what kind of work: ask the owner, tell the owner, research, decide, check, other"),
-            Field("done_when", required=True, help="Swedish: what counts as done"),
+            Field("done_when", required=True, help="Swedish: what counts as done", max=300),
             Field("after", help="Swedish: a condition instead of (or as well as) a date"),
-            Field("result", help="Swedish: what came of it"),
+            Field("result", help="Swedish: what came of it", max=700),
         ),
         needs_review=True,
     ),
@@ -116,8 +117,8 @@ FORMS: dict[str, Form] = {f.name: f for f in (
             Field("hypothesis", required=True, help="Swedish: what we expect"),
             Field("intervention", required=True, help="Swedish: what is done"),
             Field("measure", required=True, help="Swedish: what will show whether it worked"),
-            Field("outcome", help="Swedish: what happened"),
-            Field("decision", help="Swedish: keep, adjust or drop, and why"),
+            Field("outcome", help="Swedish: what happened", max=900),
+            Field("decision", help="Swedish: keep, adjust or drop, and why", max=500),
             Field("setting", "enum", False, SETTINGS, "set by the engine: the experience setting this tries (agent/assumptions.py)"),
             Field("test_value", help="set by the engine: the value tried"),
             Field("starts", help="set by the engine: when the trial began, YYYY-MM-DD HH:MM"),
@@ -162,9 +163,9 @@ FORMS: dict[str, Form] = {f.name: f for f in (
             Field("why", required=True, help="Swedish: what hangs on it"),
             Field("guess", help="Swedish: your best guess now, and how sure"),
             Field("settles_it", help="Swedish: what would settle it"),
-            Field("context", help="Swedish: what the asker knows that helps ask it well and follow up: background, what was said before, what to leave alone"),
+            Field("context", help="Swedish: what the asker knows that helps ask it well and follow up: background, what was said before, what to leave alone", max=900),
             Field("answer", help="Swedish: the answer, in the owner's words where possible"),
-            Field("conclusion", help="Swedish: what the answer meant, and what changed because of it"),
+            Field("conclusion", help="Swedish: what the answer meant, and what changed because of it", max=600),
             Field("asked_at", "datetime"),
             Field("reminded_at", "datetime", help="when the Assistant brought it up once more, after it was forgotten in a conversation"),
         ),
@@ -213,7 +214,7 @@ FORMS: dict[str, Form] = {f.name: f for f in (
         closed=("ended",),
         fields=(
             Field("asked", required=True, help="the owner's own words"),
-            Field("interpretation", help="Swedish: what is looked for, as understood"),
+            Field("interpretation", help="Swedish: what is looked for, as understood", max=600),
             Field("missed_url", "url", help="a miss: where the owner found it"),
             Field("names", help="JSON list: what it is called"),
             Field("organizer"),
@@ -224,7 +225,7 @@ FORMS: dict[str, Form] = {f.name: f for f in (
             Field("checks", help="JSON list of {watch, result pass|fail|unverifiable, note}: the watches against the past"),
             Field("finding", help="the last one found: title (url)"),
             Field("question", help="the #Q put to the owner, while it waits"),
-            Field("post_mortem", help="a miss: Swedish, why it was missed and what changed"),
+            Field("post_mortem", help="a miss: Swedish, why it was missed and what changed", max=900),
             Field("why_now", help="why it is investigated now"),
             Field("investigated_at", help="when it was last investigated, local time"),
             Field("tries", "int", help="investigations in a row whose watches all failed the check"),
@@ -273,9 +274,9 @@ def may(role: str, action: str, form: str, owner: str | None = None) -> bool:
 
 
 def check(form_name: str, kind: str | None, status: str | None, data: dict, *, title: str | None, source: dict | None,
-          review_at: str | None, creating: bool) -> tuple[str, str | None, str, dict]:
+          review_at: str | None, creating: bool, sized: bool = False) -> tuple[str, str | None, str, dict]:
     """Checks an item against its form. Returns (form, kind, status, data) cleaned, or raises FormError with every
-    problem at once."""
+    problem at once. `sized`: a role's write, held to the fields' sizes."""
     form = FORMS.get(form_name)
     if form is None:
         raise FormError(f"No form called {form_name!r}. Forms: {', '.join(FORMS)}.")
@@ -305,6 +306,10 @@ def check(form_name: str, kind: str | None, status: str | None, data: dict, *, t
             clean[name] = _value(f, value)
         except ValueError as e:
             problems.append(f"{name}: {e}")
+            continue
+        if sized and f.max and len(clean[name]) > f.max:
+            problems.append(f"{name} is {len(clean[name])} characters, the limit is {f.max}: write where it stands now; "
+                            "what happened on the way goes in the note, which is kept in the item's history")
     if creating:
         for f in form.fields:
             if f.required and clean.get(f.name) in (None, ""):
@@ -319,6 +324,13 @@ def check(form_name: str, kind: str | None, status: str | None, data: dict, *, t
     if problems:
         raise FormError(f"{form.label} ({form.name}): " + "; ".join(problems) + ".")
     return form.name, kind, status, clean
+
+
+def oversized(item: dict) -> list[tuple[str, int, int]]:
+    """An item's text fields past their size: (field, length, limit)."""
+    form = FORMS.get(item.get("form", ""))
+    return [(f.name, len(str(item[f.name])), f.max) for f in (form.fields if form else ())
+            if f.max and item.get(f.name) and len(str(item[f.name])) > f.max]
 
 
 def _value(f: Field, value):

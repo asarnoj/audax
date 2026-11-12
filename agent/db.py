@@ -628,6 +628,51 @@ MIGRATIONS: list[str] = [
         error TEXT
     );
     """,
+    # 32: what a role must decide now (agent/docket.py, omgång 16): points with their basis, each needing an answer.
+    """
+    CREATE TABLE docket (
+        id INTEGER PRIMARY KEY,
+        role TEXT NOT NULL,
+        key TEXT NOT NULL,                 -- what it is about, so the same matter is one open point
+        kind TEXT NOT NULL,                -- failing|aging|lesson|oversized|...
+        title TEXT NOT NULL,
+        basis TEXT NOT NULL DEFAULT '',    -- what is needed to decide it, written in
+        refs TEXT,                         -- JSON list of the ids it is about
+        due TEXT,                          -- the last day it is useful to decide it
+        weight INTEGER NOT NULL DEFAULT 0,
+        status TEXT NOT NULL DEFAULT 'open',   -- open|answered|resolved
+        later TEXT,                        -- answered "later": not shown before this day
+        shown INTEGER NOT NULL DEFAULT 0,  -- how many runs it was shown in without an answer
+        decision TEXT,
+        answer TEXT,
+        answered_at TEXT,
+        created_at TEXT NOT NULL DEFAULT (datetime('now')),
+        updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+    );
+    CREATE UNIQUE INDEX docket_open ON docket(role, key) WHERE status = 'open';
+    """,
+    # 33: a role follows an item or a saved question (agent/threads.py, omgång 16): the follow table takes either.
+    """
+    CREATE TABLE follows_new (
+        id INTEGER PRIMARY KEY,
+        role TEXT NOT NULL,
+        item_id INTEGER REFERENCES items(id),
+        name TEXT,                         -- a saved question's name
+        query TEXT,                        -- a saved question: JSON (agent/threads.py, QUERY)
+        why TEXT NOT NULL,
+        look_at TEXT,
+        news TEXT,
+        status TEXT NOT NULL DEFAULT 'active',
+        created_at TEXT NOT NULL DEFAULT (datetime('now')),
+        updated_at TEXT NOT NULL DEFAULT (datetime('now')),
+        UNIQUE (role, item_id),
+        UNIQUE (role, name)
+    );
+    INSERT INTO follows_new (id, role, item_id, why, look_at, news, status, created_at, updated_at)
+        SELECT id, role, item_id, why, look_at, news, status, created_at, updated_at FROM follows;
+    DROP TABLE follows;
+    ALTER TABLE follows_new RENAME TO follows;
+    """,
 ]
 
 # Tables whose rows carry the id of the run that wrote them (agent/trail.py).

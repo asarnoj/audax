@@ -143,6 +143,12 @@ async def run() -> None:
     Items.watchers.append(threads.watcher(settings.timezone))   # a change in a followed thing is news for its followers   # a question to the world becomes a step; a step or experiment answers its question
     Items.watchers.append(opportunities.follow)   # what the owner goes for keeps its opportunity's link and dates
     Items.watchers.append(starter(lambda role, why: wake(role, why)))   # a research step is done now, not on its date (wake is set below)
+    from agent import points
+
+    Items.watchers.extend(points.WATCHERS)   # the owner's words changed, something closed, a field within size again (omgång 16)
+    if not await db.kv_get("omgang16.seeded"):
+        await db.kv_set("omgang16.seeded", datetime.now().isoformat())
+        log.info("points: the owner's words of the last week set beside the work (%d)", await points.seed_aging(db))
     if await write_profile(db, memory.path, settings.owner or "ägaren", settings.timezone):
         await memory.commit_if_changed("profilen skriven ur uppfattningarna")
     if await write_practice(db, memory.path):   # the lessons were lines; now they are practice beliefs (omgång 13)
@@ -321,6 +327,9 @@ async def run() -> None:
                 continue
             await db.kv_set(key, datetime.now().isoformat())
             alarms.append(inspector.report_line(r))
+        from agent import points as _points
+
+        await _points.resolved_problems(db)   # a fixed fault asks what was learned (omgång 16)
         for problem in alarms:
             if settings.builder:   # the host's own instance: the owner maintains it
                 await bot.send(f"Något fungerar inte som det ska: {problem}", origin="command")
