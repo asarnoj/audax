@@ -38,7 +38,7 @@ async def record_entries(db: Database, stream_id: str) -> None:
                 db, "researcher", f"failing:{key}", "failing", f"{entry} ({stream_id}) går inte att läsa",
                 f"Fel: {first}. Sedan {row['failing_since'][:10]}, {ok}. It is unwatched while it fails: fix its address "
                 "(remove_company, then add_company with the right careers page) or strike it (remove_company) with a reason.",
-                weight=2, quiet_days=3)
+                weight=2, quiet_days=3, persists=True)
 
 
 async def failing(db: Database) -> list:

@@ -23,6 +23,7 @@ SHOWN_TOO_OFTEN = 3      # shown this many runs without an answer: Manager sees 
 BUDGET = 9000            # characters of points in one prompt; the rest waits, counted
 BASIS_MAX = 2500         # characters of basis per point
 DECISIONS = ("done", "changed", "kept", "struck", "nothing", "later", "lesson")
+FIXED = ("done", "changed", "struck")   # answers that say the matter was handled: if it persists, it is asked again at once
 NUMBER = re.compile(r"^\s*\[(\d+)\] ", re.M)   # a numbered line of a basis: '[3] …'
 
 
@@ -37,15 +38,23 @@ def numbers_in(basis: str) -> set[int]:
 
 
 async def raise_point(db: Database, role: str, key: str, kind: str, title: str, basis: str = "", refs: list[str] | None = None,
-                      due: str | None = None, weight: int = 0, cap: int = BASIS_MAX, quiet_days: int = 0) -> int:
+                      due: str | None = None, weight: int = 0, cap: int = BASIS_MAX, quiet_days: int = 0,
+                      persists: bool = False) -> int:
     """Opens the point, or updates the open one with the same key. Returns its id, or 0 when the same matter was
-    answered within `quiet_days` (a state that persists isn't asked about at every reading)."""
-    basis = _cap(basis, cap)
+    answered within `quiet_days` (a state that persists isn't asked about at every reading). `persists`: the point is
+    raised while a state lasts, so one answered as handled that is raised again was not handled, and is asked at once."""
     row = await db.fetchone("SELECT id FROM docket WHERE role = ? AND key = ? AND status = 'open'", (role, key))
-    if not row and quiet_days and await db.fetchone(
-            "SELECT 1 FROM docket WHERE role = ? AND key = ? AND status = 'answered' AND answered_at >= datetime('now', ?)",
-            (role, key, f"-{quiet_days} days")):
+    last = None if row else await db.fetchone(
+        "SELECT * FROM docket WHERE role = ? AND key = ? AND status = 'answered' ORDER BY id DESC LIMIT 1", (role, key))
+    if persists and last and last["decision"] in FIXED:
+        # it was answered as handled, and the matter is still here: asked again at once, with the answer beside it
+        # (13 Nov: a failing entry answered 'changed' while the op used could not strike it, and it went on failing)
+        basis = (f"Svarat {last['answered_at'][:10]} ({last['decision']}): {last['answer'][:300]}\nMen saken står kvar. "
+                 "Look at what was done and why it didn't take.\n\n" + basis)
+    elif last and quiet_days and await db.fetchone("SELECT 1 FROM docket WHERE id = ? AND answered_at >= datetime('now', ?)",
+                                                   (last["id"], f"-{quiet_days} days")):
         return 0
+    basis = _cap(basis, cap)
     if row:
         await db.execute("UPDATE docket SET title = ?, basis = ?, refs = ?, due = ?, weight = max(weight, ?), updated_at = datetime('now') "
                          "WHERE id = ?", (title, basis, json.dumps(refs or []), due, weight, row["id"]))

@@ -55,7 +55,7 @@ async def _sources(db: Database, now: datetime) -> None:
             f"{whole:.0f} %), {y['sent']} nådde ägaren.\nDet den gav senast, och vad det blev:\n" + "\n".join(f"- {r}" for r in rows)
             + "\nWhat do the kept differ from the rest by? Then, roughly in this order: narrow it at the source, filter "
             "with a rule, slow it, replace it with a mission, or pause it. Answer 'changed' with what you did, or 'kept' "
-            "with why it is worth what it brings.", [ref(y["routine"])], quiet_days=AGAIN_AFTER)
+            "with why it is worth what it brings.", [ref(y["routine"])], quiet_days=AGAIN_AFTER, persists=True)
 
 
 async def _missions(db: Database, now: datetime) -> None:
@@ -81,7 +81,7 @@ async def _missions(db: Database, now: datetime) -> None:
                      "numbered ones you removed or replaced.")
             await docket.raise_point(db, "researcher", f"queries:{t.id}", "queries",
                                      f"Uppdraget {t.id}: frågor som inte ger något" if stale else f"Uppdraget {t.id}: för få frågor",
-                                     basis, quiet_days=AGAIN_AFTER)
+                                     basis, quiet_days=AGAIN_AFTER, persists=True)
         else:
             await docket.resolve(db, f"queries:{t.id}", "portföljen ger", "researcher")
         from agent import parts
@@ -92,7 +92,7 @@ async def _missions(db: Database, now: datetime) -> None:
                 f"Mål: {t.goal[:400]}\nIts searches judge what they find against the goals it serves (why, what helps, what "
                 "is noise), and this one names none, so they see the goals as titles only. Name the goal (#S…) it serves in "
                 "its goal (`missions`, op update), or disable it if it serves none. Director's goals: find form=aim.",
-                quiet_days=AGAIN_AFTER)
+                quiet_days=AGAIN_AFTER, persists=True)
         else:
             await docket.resolve(db, f"serves:{t.id}", "knutet till ett mål", "researcher")
         st = await search_map.mission_stats(db, t.id)

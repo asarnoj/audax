@@ -49,6 +49,9 @@ async def test_a_point_stays_until_it_is_answered_and_its_basis_is_written_in(db
     await docket.answer(db, "researcher", pid, "struck", "struken")
     assert await docket.render(db, "researcher", today=date(2099, 1, 2)) == ""
     assert await docket.raise_point(db, "researcher", "x", "failing", "igen", quiet_days=3) == 0   # answered lately: not asked again at once
+    again = await docket.raise_point(db, "researcher", "x", "failing", "igen", "Fel: 404", quiet_days=3, persists=True)
+    assert again and "Svarat" in (await docket.get(db, again))["basis"] and "struken" in (await docket.get(db, again))["basis"]
+    # a lasting state answered as handled, still there: asked at once, with what was answered beside it
 
 
 async def test_points_with_a_last_day_come_first_and_the_rest_wait_counted(db):

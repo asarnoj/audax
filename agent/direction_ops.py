@@ -196,6 +196,9 @@ async def tune_sense(db: Database, stream_id: str, poll_minutes: float, reason: 
 
 async def disable_sense(db: Database, stream_id: str, reason: str = "", by: str = "researcher") -> str:
     if not await routines.pause(db, "stream", stream_id, by, reason or "avstängd"):
+        data = yaml.safe_load(WATCHLIST_FILE.read_text()) or {} if WATCHLIST_FILE.exists() else {}
+        if any(c.get("name", "").lower() == stream_id.lower() for c in data.get("companies") or []):
+            return f"Inte avstängt: {stream_id} är ett företag på bevakningslistan, inget sinne; det stryks med remove_company."
         return f"Hittar inget sinne {stream_id}."
     return f"{stream_id}: avstängt"
 
