@@ -46,6 +46,9 @@ SKILL_ROLE = {"triage": "director", "research": "researcher", "research_deep": "
               "assistant_night": "assistant", "director_understand": "director", "director_reflect": "director"}
 # Areas whose lines carry their heading in Det vi vet, because a prompt applies them by that name ("Inte intresserad av").
 MARKED = ("not_interested",)
+# What the owner said must not happen comes first within their words: a part over its budget is cut from the end, and
+# a no that is cut lets the skill do what the owner refused.
+FIRST = ("limits", "not_interested")
 BUDGET = {"known": 6000, "following": 5000, "decide": docket.BUDGET}
 
 
@@ -59,16 +62,23 @@ async def known(db: Database, skill: str, owner_name: str | None = None, tz: str
     beliefs = [b for b in await current(db, today=today) if b["kind"] != "practice" and b.get("setting") is None]
     if areas is not None:
         beliefs = [b for b in beliefs if (b.get("area") or "other") in areas]
-    order = {a: i for i, a in enumerate(AREAS)}
+    order = {a: i for i, a in enumerate(FIRST + tuple(a for a in AREAS if a not in FIRST))}
     beliefs.sort(key=lambda b: ((b.get("source") or {}).get("type") != "owner", order.get(b.get("area") or "other", 99), b["id"]))
-    about = [f"- {HEADINGS[b['area']] + ': ' if b.get('area') in MARKED else ''}{b['title']} ({source_note(b, owner_name)}) {ref(b)}"
-             for b in beliefs]
+    line = lambda b: f"- {HEADINGS[b['area']] + ': ' if b.get('area') in MARKED else ''}{b['title']} ({source_note(b, owner_name)}) {ref(b)}"
+    own = [line(b) for b in beliefs if (b.get("source") or {}).get("type") == "owner"]
+    others = [line(b) for b in beliefs if (b.get("source") or {}).get("type") != "owner"]
     role = SKILL_ROLE.get(skill)
     lessons = [b for b in await current(db, today=today, kinds=("practice",)) if b["owner"] in (role, None, "system")]
     work = [f"- {b['title']} {ref(b)}" for b in lessons]
     parts = []
-    if about:
-        parts.append("Om " + owner_name + " (their own words bind; an interpretation is guidance to weigh):\n" + _fit(about, budget * 2 // 3, "find form=belief"))
+    if own or others:
+        # The owner's own words bind, so none is cut (a cut word lets the skill do what they ruled out); the budget is the
+        # interpretations', after them.
+        room = budget * 2 // 3 - sum(len(x) + 1 for x in own)
+        rest = (_fit(others, room, "find form=belief") if room > 0 and others
+                else f"…({len(others)} tolkningar till: find form=belief)" if others else "")
+        parts.append("Om " + owner_name + " (their own words bind; an interpretation is guidance to weigh):\n"
+                     + "\n".join(own + ([rest] if rest else [])))
     if work:
         parts.append("Om arbetet (the office's lessons; one that turns out wrong is replaced, not ignored):\n" + _fit(work, budget // 3, "find form=belief kind=practice"))
     return "\n\n".join(parts)

@@ -104,10 +104,13 @@ async def test_bundles_and_the_days_contacts(db):
     assert assumptions.next_bundle(times, datetime(2026, 10, 30, 9, 35, tzinfo=tz)) is None   # a bundle moment: it goes
     assert assumptions.next_bundle(times, datetime(2026, 10, 30, 18, 0, tzinfo=tz)).day == 31
     assert assumptions.next_bundle([], datetime(2026, 10, 30, 12, 0, tzinfo=tz)) is None
+    from datetime import timedelta
+
+    noon = datetime.now(tz).replace(hour=12, minute=0, second=0, microsecond=0)   # the same at any time of day
     for minutes in (0, 1, 60):   # a message in two parts is one contact
         await db.execute("INSERT INTO messages (telegram_message_id, direction, origin, text, created_at) "
-                         "VALUES (1, 'out', 'proactive', 'x', datetime('now', ?))", (f"-{minutes} minutes",))
-    assert await assumptions.contacts_today(db, datetime.now(tz)) == 2
+                         "VALUES (1, 'out', 'proactive', 'x', ?)", (assumptions._utc(noon - timedelta(minutes=minutes)),))
+    assert await assumptions.contacts_today(db, noon) == 2
 
 
 async def test_manager_is_told_once_that_its_trials_ended(db):

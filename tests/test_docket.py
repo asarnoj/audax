@@ -185,7 +185,15 @@ async def test_what_we_know_is_the_skills_areas_with_the_owners_words_first(db):
     search = await parts.known(db, "research")
     assert search.index("Älskar ljud") < search.index("spelutveckling") and "korta meddelanden" not in search
     await items.create("belief", "Banker", "assistant", kind="preference", data={"area": "not_interested"}, source={"type": "owner"})
-    assert "- Inte intresserad av: Banker" in await parts.known(db, "research")   # the search applies it by that name
+    search = await parts.known(db, "research")
+    assert "- Inte intresserad av: Banker" in search   # the search applies it by that name
+    assert search.index("Banker") < search.index("Älskar ljud")   # a no comes first: a cut takes from the end
+    for i in range(80):
+        await items.create("belief", f"Gillar ämne nummer {i} ganska mycket, med en lång förklaring om varför", "assistant",
+                           kind="preference", data={"area": "interests"}, source={"type": "owner"})
+    search = await parts.known(db, "research")
+    assert "Inte intresserad av: Banker" in search and "nummer 79" in search   # the owner's words are never cut
+    assert "spelutveckling" not in search and "1 tolkningar till" in search     # the interpretations give way
 
 
 async def test_the_measure_counts_ids_shown_and_used(db):
