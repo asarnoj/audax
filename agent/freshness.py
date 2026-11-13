@@ -105,7 +105,7 @@ async def cite_points(db: Database, memory: Path, role: str) -> int:
                 said = weight(await Items(db).get(row["id"])) if form == "belief" else ""
                 cited.append((pair, f"#{letter}{num} ({row['status']}{', ' + said if said else ''}): {row['title'][:160]}"))
             if cited:
-                shown.append(f"- {line[:240]}\n" + "\n".join(f"  → {c}" for _, c in cited))
+                shown.append(f"[{len(shown) + 1}] {line[:240]}\n" + "\n".join(f"  → {c}" for _, c in cited))
                 pairs += [p for p, _ in cited]
             if len(shown) >= CITE_LINES:
                 break
@@ -114,9 +114,11 @@ async def cite_points(db: Database, memory: Path, role: str) -> int:
             continue
         await docket.raise_point(
             db, role, key, "cite", f"Säger raderna i {name} det de hänvisar till?",
-            "Each line, and beside it the words and state of what it cites:\n" + "\n".join(shown)
+            "Each line, and beside it the words and state of what it cites. Read each line against its own sources: does "
+            "it say what they say?\n" + "\n".join(shown)
             + f"\nWhere a line says something other than what it cites, or leans on what has closed or been replaced, change "
-            f"the line (text: {name}) or the item; then answer 'changed', or 'kept' if every line holds.", pairs, cap=3500)
+            f"the line (text: {name}) or the item and answer 'changed' with its number in `off`; 'kept' with off [] if "
+            "every line holds.", pairs, cap=3500)
         raised += 1
     return raised
 

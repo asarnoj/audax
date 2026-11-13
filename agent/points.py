@@ -117,20 +117,21 @@ async def owner_words_changed(db: Database, item: dict, force: bool = False) -> 
         if not mine and not theirs and not older:
             continue
         words = "\n".join(f"- {ref(b)} {b['title'][:160]}" + ("" if b["status"] == "current" else f" ({b['status']})") for b in beliefs)
-        parts = [_fit(f"Ägarens ord som ändrats:\n{words}", 1500)]
-        if older:
-            parts.append(_fit("Ägarens äldre ord om samma del av livet (does a newer word replace one of these? Then supersede "
-                              "the old one: update its status to superseded and link new → old 'supersedes'. Both standing "
-                              "means both bind, and they may say opposite things):\n"
-                              + "\n".join(f"- {ref(b)} {b['title'][:160]} ({b['created_at'][:10]})" for b in older), 1500))
-        if theirs:
-            parts.append(_fit("Dina egna tolkningar och antaganden om samma del av ägarens liv (do they still hold beside the owner's "
-                              "words? Revise, supersede or retract what they contradict):\n"
-                              + "\n".join(f"- {Items.line(b)}" for b in theirs), 1200))
-        if mine:
-            parts.append(_fit("Ditt arbete som gör något för ägaren (does any of it still search, watch, filter or aim for what they no "
-                              "longer want, or miss what they now want?):\n" + "\n".join(f"- {_work_line(w)}" for w in mine), 1700))
-        basis = "\n\n".join(parts) + "\nChange what is touched, and answer with what you changed, or 'nothing' if nothing is."
+        parts, n = [_fit(f"Ägarens ord som ändrats:\n{words}", 1500)], 1   # the reference; what may be touched is numbered
+        sections = [
+            (older, "Ägarens äldre ord om samma del av livet (does a newer word replace one of these? Then supersede the old "
+                    "one: update its status to superseded and link new → old 'supersedes'. Both standing means both bind, "
+                    "and they may say opposite things)", lambda b: f"{ref(b)} {b['title'][:160]} ({b['created_at'][:10]})", 1500),
+            (theirs, "Dina egna tolkningar och antaganden om samma del av ägarens liv (does each still hold beside the owner's "
+                     "words? Revise, supersede or retract what they contradict)", Items.line, 1200),
+            (mine, "Ditt arbete som gör något för ägaren (does any of it still search, watch, filter or aim for what they no "
+                   "longer want, or miss what they now want?)", _work_line, 1700)]
+        for rows, head, show, cap in sections:
+            if rows:
+                parts.append(_fit(f"{head}:\n" + "\n".join(docket.numbered([show(b) for b in rows], n)), cap))
+                n += len(rows)
+        basis = "\n\n".join(parts) + ("\nRead each numbered line against the owner's words above. Change what is touched "
+                                       "and answer 'changed' with its numbers in `off`, or 'nothing' with off [] if none is.")
         await docket.raise_point(db, role, "aging", "aging", f"Ägarens ord har ändrats ({len(beliefs)}): berörs ditt arbete eller dina tolkningar?",
                                  basis, ids, weight=2, cap=AGING_CAP + 200)
 

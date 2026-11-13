@@ -99,7 +99,13 @@ async def test_when_the_owners_words_change_each_role_with_work_for_them_gets_on
     assert "Vill ha deltid" in p["basis"] and "säkerhet" in p["basis"] and "(2)" in p["title"]
     await items.create("belief", "Gillar korta svar", "director", kind="pattern", source={"type": "inferred"})
     assert "korta svar" not in (await docket.open_points(db, "researcher"))[0]["basis"]   # an interpretation is not the owner's words
-    await docket.answer(db, "researcher", p["id"], "changed", "strök säkerhetsfrågan")
+    assert "[1] " in p["basis"]   # the work beside the words is numbered, to be judged line by line
+    with pytest.raises(ValueError, match="off"):
+        await docket.answer(db, "researcher", p["id"], "changed", "strök säkerhetsfrågan")   # which line?
+    with pytest.raises(ValueError, match="name its numbers"):
+        await docket.answer(db, "researcher", p["id"], "changed", "strök säkerhetsfrågan", off=[])
+    await docket.answer(db, "researcher", p["id"], "changed", "strök säkerhetsfrågan", off=[1])
+    assert (await docket.get(db, p["id"]))["answer"].startswith("Håller inte: 1.")
     assert await docket.open_points(db, "researcher") == []
     assert await points.seed_aging(db) == 2   # the first start sets the last week's words beside the work once more
     assert "deltid" in (await docket.open_points(db, "researcher"))[0]["basis"]

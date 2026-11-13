@@ -250,7 +250,9 @@ def office_tools(db: Database, role: str, turn: TurnContext | None = None, memor
             "decision": {"type": "string", "enum": ["done", "changed", "kept", "struck", "nothing", "later", "lesson"]},
             "note": {"type": "string", "description": "Swedish: what you decided and why"},
             "later": {"type": "string", "description": "YYYY-MM-DD, with decision later"},
-            "lesson": {"type": "string", "description": "Swedish, with decision lesson: the lesson, general enough to use next time"}},
+            "lesson": {"type": "string", "description": "Swedish, with decision lesson: the lesson, general enough to use next time"},
+            "off": {"type": "array", "items": {"type": "integer"},
+                    "description": "For a point with numbered lines [1] …: the numbers that do not hold, [] if every one does"}},
          "required": ["id", "decision", "note"]},
     )
     async def answer(args: dict[str, Any]) -> dict[str, Any]:
@@ -263,7 +265,8 @@ def office_tools(db: Database, role: str, turn: TurnContext | None = None, memor
         try:
             if args["decision"] == "lesson" and not (args.get("lesson") or "").strip():
                 raise ValueError("decision lesson needs the lesson itself")
-            p = await docket.answer(db, role, int(raw), args["decision"], args.get("note") or "", args.get("later"))
+            p = await docket.answer(db, role, int(raw), args["decision"], args.get("note") or "", args.get("later"),
+                                  args.get("off"))
         except ValueError as e:
             return _text(f"[internal] Not answered: {e}")
         extra = ""

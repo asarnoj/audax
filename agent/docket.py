@@ -14,6 +14,7 @@ grown past its form's size. One matter is one open point (role + key); raising i
 from __future__ import annotations
 
 import json
+import re
 from datetime import date
 
 from agent.db import Database
@@ -22,6 +23,17 @@ SHOWN_TOO_OFTEN = 3      # shown this many runs without an answer: Manager sees 
 BUDGET = 9000            # characters of points in one prompt; the rest waits, counted
 BASIS_MAX = 2500         # characters of basis per point
 DECISIONS = ("done", "changed", "kept", "struck", "nothing", "later", "lesson")
+NUMBER = re.compile(r"^\s*\[(\d+)\] ", re.M)   # a numbered line of a basis: '[3] …'
+
+
+def numbered(lines: list[str], start: int = 1) -> list[str]:
+    """Lines to be judged one by one (12 Nov: a point of ten lines got one 'kept' while one of them said the opposite of
+    what it cited). Each gets a number, and the answer names the numbers that do not hold."""
+    return [f"[{i}] {x}" for i, x in enumerate(lines, start)]
+
+
+def numbers_in(basis: str) -> set[int]:
+    return {int(n) for n in NUMBER.findall(basis or "")}
 
 
 async def raise_point(db: Database, role: str, key: str, kind: str, title: str, basis: str = "", refs: list[str] | None = None,
@@ -89,13 +101,17 @@ async def render(db: Database, role: str, today: date | None = None, budget: int
     if count and shown:
         await db.execute(f"UPDATE docket SET shown = shown + 1 WHERE id IN ({','.join('?' * len(shown))})", tuple(shown))
     head = ("Att avgöra nu (each point needs an answer with the `answer` tool: its id, a decision and a note in Swedish; "
-            "decide each on the basis written in, and read more only if you need to. An unanswered point comes back):")
+            "decide each on the basis written in, and read more only if you need to. A point with numbered lines [1] … "
+            "also needs `off`: judge each line on its own and name the numbers that do not hold, or [] if every one does. "
+            "An unanswered point comes back):")
     tail = f"\n({rest} punkt(er) till väntar; de kommer i nästa körning)" if rest else ""
     return head + "\n" + "\n\n".join(out) + tail
 
 
-async def answer(db: Database, role: str, point_id: int, decision: str, note: str, later: str | None = None) -> dict:
-    """The role's answer. 'later' needs a day; the point comes back then. Returns the point."""
+async def answer(db: Database, role: str, point_id: int, decision: str, note: str, later: str | None = None,
+                 off: list[int] | None = None) -> dict:
+    """The role's answer. 'later' needs a day; the point comes back then. A point with numbered lines needs `off`: the
+    numbers that do not hold, or none, and the decision must agree with it. Returns the point."""
     p = await get(db, point_id)
     if p is None or p["role"] != role:
         raise ValueError(f"D{point_id} is not one of your points")
@@ -105,6 +121,19 @@ async def answer(db: Database, role: str, point_id: int, decision: str, note: st
         raise ValueError(f"decision must be one of {', '.join(DECISIONS)}")
     if not (note or "").strip():
         raise ValueError("a note is needed: what you decided and why, in Swedish")
+    if (numbers := numbers_in(p["basis"])) and decision != "later":
+        if off is None:
+            raise ValueError(f"D{point_id} has numbered lines: give `off`, the number of each line that does not hold, "
+                             "or [] if every one holds. Judge each line on its own")
+        off = sorted({int(x) for x in off})
+        if wrong := [x for x in off if x not in numbers]:
+            raise ValueError(f"D{point_id} has no line {', '.join(map(str, wrong))}")
+        if off and decision in ("kept", "nothing"):
+            raise ValueError(f"you name {', '.join(map(str, off))} as not holding: change them (or strike them), then "
+                             "answer 'changed' or 'struck'")
+        if not off and decision in ("changed", "struck"):
+            raise ValueError(f"'{decision}' says something did not hold: name its numbers in `off`")
+        note = f"Håller inte: {', '.join(map(str, off)) or 'ingen'}. {note.strip()}"
     if decision == "later":
         try:
             day = date.fromisoformat((later or "")[:10])

@@ -59,7 +59,12 @@ async def test_old_references_and_rules_resting_on_nothing_are_shown(db, tmp_pat
     assert f"#E{e} (dropped" in points["cite:arbetsminne/manager.md"]["basis"]
     policy = points["cite:policy.md"]
     assert f"#U{u} (current, ägarens egna ord): Kan inte Java" in policy["basis"]
-    await docket.answer(db, "manager", policy["id"], "kept", "stämmer")
+    assert "[1] - Inga Javajobb" in policy["basis"]   # each citing line numbered
+    with pytest.raises(ValueError, match="change them"):
+        await docket.answer(db, "manager", policy["id"], "kept", "stämmer", off=[1])   # a line named off can't be 'kept'
+    with pytest.raises(ValueError, match="no line 2"):
+        await docket.answer(db, "manager", policy["id"], "kept", "stämmer", off=[2])
+    await docket.answer(db, "manager", policy["id"], "kept", "stämmer", off=[])
     assert await freshness.cite_points(db, tmp_path, "manager") == 1   # checked: not asked again
     (tmp_path / "policy.md").write_text(f"# Policy\n- Javajobb går bra (#U{u}).\n")
     assert await freshness.cite_points(db, tmp_path, "manager") == 2   # the line changed: asked again
