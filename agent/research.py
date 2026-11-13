@@ -18,7 +18,7 @@ from agent.db import Database
 from agent.memory import MemoryRepo
 from agent import search_map
 from agent.prompts import prompt as prompt_template
-from agent.pursuits import judged_against
+from agent import parts
 from agent import opportunities
 from agent.tools import TurnContext, build_web_tools
 
@@ -95,6 +95,7 @@ RETIRE_AFTER_RUNS = 3  # without a single kept finding: shown to Researcher as w
 RUNS_KEY = "research.query_runs.{id}"
 
 KEPT = ("sent", "shelved", "pulled")
+KNOWN = 25   # opportunities shown to recognise what is found: the mission's own first
 
 
 @dataclass(frozen=True)
@@ -246,6 +247,7 @@ class Researcher:
             (source,),
         )
         seen_lines = [f"- {json.loads(r['payload'])['title']} ({json.loads(r['payload'])['url']})" for r in seen]
+        seen_urls = {json.loads(r["payload"])["url"] for r in seen}
         try:
             queries = await self.portfolio.select(task, DEEP_BATCH if deep else BATCH)
         except QuotaPaused:
@@ -265,10 +267,11 @@ class Researcher:
             goal=task.goal,
             scope=task.scope,
             today=datetime.now(self.tz).date().isoformat(),
-            memory=await judged_against(self.db, self.memory, self.settings.timezone),
+            memory=await parts.known(self.db, "research", tz=self.settings.timezone),
+            goals=await parts.goals_for(self.db, task.id, f"{task.goal} {task.scope}"),
             seen="\n".join(seen_lines) or "(nothing yet)",
             gaps=await search_map.gaps(self.memory.path, task.id) or "(no map yet: explore freely)",
-            known=await opportunities.known(self.db),
+            known=await opportunities.known(self.db, KNOWN, task.id, seen_urls) or "(only those already found)",
         )
         try:
             result = await self.gate.run(

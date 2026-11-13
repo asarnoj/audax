@@ -26,13 +26,14 @@ from agent.db import Database
 from agent.memory import MemoryRepo
 from agent.posts import ROLES, Posts
 from agent.prompts import prompt as prompt_template
-from agent.due import due_items, earlier_runs, review, source_yields
+from agent.due import due_items, earlier_runs, review
 from agent.forms import FormError
 from agent.beliefs import add_practice
 from agent.items import Items, parse_ref, ref
 from agent.office_tools import build_office_tools
-from agent.pursuits import judged_against
-from agent.research import BATCH, RETIRE_AFTER_RUNS, Portfolio, load_research
+from agent import parts
+from agent.pursuits import Pursuits
+from agent.research import Portfolio, load_research
 from agent.tools import build_web_tools
 
 log = logging.getLogger(__name__)
@@ -41,8 +42,6 @@ LAST_KEY = "researcher.last_plan"
 WORKING_MEMORY = "arbetsminne/researcher.md"
 DEEP_KEY = "research.deep_requested.{id}"
 PLAN_EVERY = timedelta(days=7)
-LOOKED_AT = timedelta(days=7)   # a noisy source its owner changed this recently is being worked on
-QUIET_AFTER = timedelta(days=14)  # a mission with nothing kept this long is looked at (mechanics; the judgement is Researcher's)
 
 SCHEMA = {
     "type": "object",
@@ -170,26 +169,13 @@ class ResearchPlanner:
             return "steps due"
         if await Items(self.db).find("step", status="planned", owner="researcher", limit=1):
             return "steps to do"
-        for t in load_research():
-            if not t.enabled:
-                continue
-            if len(t.queries) < BATCH:
-                return f"thin portfolio: {t.id}"
-            st = await search_map.mission_stats(self.db, t.id)
-            last_kept = datetime.fromisoformat(st["last_kept"] + "+00:00") if st["last_kept"] else None
-            if st["runs_30d"] >= 3 and (last_kept is None or now - last_kept >= QUIET_AFTER) and now - datetime.fromisoformat(last) >= timedelta(days=3):
-                return f"quiet mission: {t.id}"
-        from agent import cases, docket
+        from agent import docket, search_points
 
+        await search_points.sweep(self.db, now)   # noisy sources, queries that don't pay, quiet missions, test cases: points
         if n := await docket.new_since(self.db, "researcher", datetime.fromisoformat(last).astimezone(ZoneInfo("UTC")).strftime("%Y-%m-%d %H:%M:%S")):
-            return f"{n} new point(s) to decide"   # a watched entry failing, the owner's words changed, a lesson due (omgång 16)
-        await cases.collect(self.db)
-        if (new := await cases.unreviewed(self.db)) and now - datetime.fromisoformat(last) >= timedelta(days=1):
-            return f"{len(new)} new test case(s) the search didn't bring"
-        if now - datetime.fromisoformat(last) >= timedelta(days=3):
-            for y in await source_yields(self.db):
-                if y["flag"] in ("noisy", "low yield") and y["routine"]["updated_at"] < f"{now - LOOKED_AT:%Y-%m-%d}":
-                    return f"{y['flag']} source: {y['id']}"   # not looked at in a week (instance/granskning/2026-11-01-omgang-9-kallor.md)
+            return f"{n} new point(s) to decide"   # also a watched entry failing, the owner's words changed, a lesson due
+        if now - datetime.fromisoformat(last) >= timedelta(days=1) and (left := await docket.open_points(self.db, "researcher", now.date())):
+            return f"{len(left)} open point(s)"   # left for later or not reached: they wait a day, not a week
         return None
 
     async def run_if_due(self) -> dict | None:
@@ -214,15 +200,17 @@ class ResearchPlanner:
             "working_memory": (self.memory.read(WORKING_MEMORY) or "(empty: this is your first run with a working memory)")
             + await earlier_runs(self.db, "researcher", self.settings.timezone),
             "notes": Posts.format(inbox),
-            "goals": await judged_against(self.db, self.memory, self.settings.timezone),
+            "known": await parts.known(self.db, "researcher_plan", tz=self.settings.timezone),
+            "goals": await Pursuits(self.db, self.settings.timezone).overview(notes=False, ideas=False),
             "missions": await self._missions(),
-            "senses": await self._senses(),
             "steps": await self._steps(now),
             "review": await review(self.db, "researcher", now, self.memory.path),
         }
         tools = ["WebSearch", "Read(./memory/**)"]
         mcp, names = build_office_tools(self.db, "researcher", memory=self.memory.path)   # steps, questions, routines, rules (agent/office_tools.py)
         tools = tools + names
+        own, names = self._tools()   # a mission's whole picture, and the sources: fetched when wanted (omgång 16)
+        mcp, tools = {**mcp, **own}, tools + names
         if self.web is not None:
             w, names = build_web_tools(self.web)
             mcp, tools = {**mcp, **w}, tools + names
@@ -247,9 +235,6 @@ class ResearchPlanner:
             return None
         await self.apply(result.structured, now)
         await self.db.kv_set(LAST_KEY, now.isoformat())
-        from agent import cases
-
-        await cases.mark_reviewed(self.db)   # the test cases it was shown
         return result.structured
 
     async def _steps(self, now: datetime) -> str:
@@ -363,18 +348,53 @@ class ResearchPlanner:
     # --- context ----------------------------------------------------------------
 
     async def _missions(self) -> str:
+        """One line per mission: what it is for and how it goes. Its portfolio, deliveries, leads and map: `mission`."""
         lines = []
         for t in load_research():
-            lines.append(f"### {t.id} ({'on' if t.enabled else 'off'}, every {t.interval_days:g} days)\nGoal: {t.goal}\nScope: {t.scope}")
             if not t.enabled:
+                lines.append(f"- {t.id} (off): {t.goal[:120]}")
                 continue
-            q = sorted(await Portfolio(self.db, self.gate, self.memory, self.settings).stats(t.id, t.queries), key=lambda x: (-x["kept"], x["runs"]))
-            lines.append("Portfolio (kept/runs · query): " + ("; ".join(f"{x['kept']}/{x['runs']} \"{x['query']}\"" for x in q[:24]) or "empty"))
-            if stale := [x["query"] for x in q if x["runs"] >= RETIRE_AFTER_RUNS and x["kept"] == 0]:
-                lines.append("Run a few times without anything kept (worth replacing): " + "; ".join(f'"{x}"' for x in stale))
-            lines.append(await search_map.deliveries(self.db, t.id))
-            lines.append(await search_map.overview(self.db, self.memory.path, t.id))
-        return "\n\n".join(lines) or "No missions yet."
+            st = await search_map.mission_stats(self.db, t.id)
+            lines.append(f"- {t.id} (every {t.interval_days:g} days): {t.goal[:160]} · 30 d: {st['runs_30d']} runs, "
+                         f"{st['findings_30d']} findings · kept in all {st['kept_total']}"
+                         + (f", latest {st['last_kept'][:10]}" if st["last_kept"] else "") + f" · {st['queries']} queries")
+        return "\n".join(lines) or "No missions yet."
+
+    async def _mission(self, mission: str) -> str:
+        """The whole picture of one mission: goal, portfolio, what it delivered, leads, coverage and its map."""
+        t = next((t for t in load_research() if t.id == mission), None)
+        if t is None:
+            return f"No mission {mission!r}: " + ", ".join(x.id for x in load_research())
+        lines = [f"### {t.id} ({'on' if t.enabled else 'off'}, every {t.interval_days:g} days)\nGoal: {t.goal}\nScope: {t.scope}"]
+        q = sorted(await Portfolio(self.db, self.gate, self.memory, self.settings).stats(t.id, t.queries), key=lambda x: (-x["kept"], x["runs"]))
+        lines.append("Portfolio (kept/runs · query): " + ("; ".join(f"{x['kept']}/{x['runs']} \"{x['query']}\"" for x in q) or "empty"))
+        lines.append(await search_map.deliveries(self.db, t.id))
+        lines.append(await search_map.overview(self.db, self.memory.path, t.id))
+        return "\n\n".join(lines)
+
+    async def _sources_text(self) -> str:
+        from agent.due import source_yield
+
+        return await source_yield(self.db) + "\n\n" + await self._senses()
+
+    def _tools(self) -> tuple[dict, list[str]]:
+        from claude_agent_sdk import tool
+
+        from agent.tools import _text, create_sdk_mcp_server
+
+        @tool("mission", "One search mission's whole picture: goal and scope, every query with kept/runs, what it delivered "
+              "lately, the places it came across, the latest coverage audit, and its map.",
+              {"type": "object", "properties": {"id": {"type": "string", "description": "the mission's id"}}, "required": ["id"]})
+        async def mission(args: dict) -> dict:
+            return _text(await self._mission(str(args["id"]).strip()))
+
+        @tool("sources", "Every watched source: its last month (in, kept, reached the owner, flag), the pace and errors of each, "
+              "the verified sources not yet in use, and how reading goes per domain.", {"type": "object", "properties": {}})
+        async def sources(args: dict) -> dict:
+            return _text(await self._sources_text())
+
+        server = "researcher"
+        return {server: create_sdk_mcp_server(server, tools=[mission, sources])}, [f"mcp__{server}__{n}" for n in ("mission", "sources")]
 
     async def _senses(self) -> str:
         lines = [await self._sense_pace(), self._catalog()]

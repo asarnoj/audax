@@ -108,10 +108,14 @@ async def test_researcher_plans_when_needed_with_the_web_but_never_mail(env, tmp
     [task] = calls
     assert task.kind == "researcher_plan" and "mcp__web__web_read" in task.allowed_tools
     assert not any("mail" in t for t in task.allowed_tools)
-    assert "Mål: Sommarpraktik 2027" in task.prompt and "Brus: banker" in task.prompt  # Director's brief
-    assert await p.due() == "thin portfolio: jobs"  # no queries yet: plan again
+    assert "Sommarpraktik 2027" in task.prompt and "Brus: banker" not in task.prompt  # the goal's line; its brief is read when wanted
+    from agent import docket
+
+    assert "Uppdraget jobs: för få frågor" in task.prompt   # no queries yet: a point, in the run
+    assert await p.due() is None   # just planned
     await p.apply({"queries": [{"mission": "jobs", "op": "add", "query": f"q{i}", "rationale": "r"} for i in range(6)]}, NOW)
     assert await p.due() is None
+    assert not [x for x in await docket.open_points(db, "researcher") if x["key"] == "queries:jobs"]   # cleared by itself
     await Posts(db).send("director", "researcher", "feedback", "för mycket storbolag")
     assert await p.due() == "inbox"
 
@@ -129,21 +133,59 @@ async def test_every_open_step_gets_an_outcome_written_on_it(env, tmp_path):
     assert f"steg utan åtgärd: #T{armada}" in changes   # left out: named in the run's account
 
 
-async def test_a_noisy_source_not_looked_at_in_a_week_wakes_researcher(env, tmp_path, monkeypatch):
+async def test_a_noisy_source_not_looked_at_in_a_week_is_a_point_that_wakes_researcher(env, tmp_path, monkeypatch):
     from datetime import timedelta
 
+    import agent.due as due_mod
     import agent.research_plan as rp
+    from agent import docket
 
     db, memory, research, sources = env
     p = planner(db, memory, tmp_path)
     await db.kv_set("researcher.last_plan", (datetime.now(ZoneInfo("Europe/Stockholm")) - timedelta(days=4)).isoformat())
     monkeypatch.setattr(rp, "load_research", lambda: [])   # no mission asks for a run
-    seen = {"updated_at": "2026-01-01 00:00:00"}
+    monkeypatch.setattr("agent.research.load_research", lambda: [])
+    seen = {"id": 7, "form": "routine", "updated_at": datetime.now(ZoneInfo("UTC")).strftime("%Y-%m-%d %H:%M:%S")}
 
     async def yields(db_, days=30):
         return [{"routine": seen, "id": "hn", "n": 40, "kept": 1, "sent": 0, "flag": "noisy"}]
 
-    monkeypatch.setattr(rp, "source_yields", yields)
-    assert await p.due() == "noisy source: hn"
-    seen["updated_at"] = datetime.now(ZoneInfo("UTC")).strftime("%Y-%m-%d %H:%M:%S")   # just narrowed: being worked on
-    assert await p.due() is None
+    monkeypatch.setattr(due_mod, "source_yields", yields)
+    assert await p.due() is None   # just narrowed: being worked on
+    seen["updated_at"] = "2026-01-01 00:00:00"
+    assert await p.due() == "1 new point(s) to decide"
+    [point] = [x for x in await docket.open_points(db, "researcher") if x["key"] == "source:hn"]
+    assert "noisy" in point["title"] and "40 in, 1 behållna" in point["basis"]
+
+
+async def test_a_mission_sees_the_goals_it_serves_whole_and_the_opportunities_it_found_first(env):
+    from agent import opportunities, parts
+
+    db, *_ = env
+    items = Items(db)
+    jobs = await items.create("aim", "Sommarjobb 2027", "director", kind="goal", owner="director", status="active",
+                              data={"why": "Merit", "about": "Hjälper: backend. Brus: banker. Uppdrag: jobs."})
+    trip = await items.create("aim", "Utbytet", "director", kind="goal", owner="director", status="active",
+                              data={"why": "Ett år ute", "about": "Hjälper: stipendier."})
+    text = await parts.goals_for(db, "jobs", "Hitta sommarjobb")
+    assert "Brus: banker" in text and "Om: Hjälper: stipendier" not in text and f"- #S{trip} Utbytet" in text
+    assert "Hjälper: stipendier" in await parts.goals_for(db, "exchange", f"Bara det som hjälper #S{trip}")   # named by the mission
+    other, = [await opportunities.record(db, {"title": "Annat", "url": "https://a.example", "kind": "opportunity"})]
+    mine, = [await opportunities.record(db, {"title": "Mitt", "url": "https://m.example", "kind": "opportunity"}, mission="jobs")]
+    known = await opportunities.known(db, 1, "jobs")
+    assert f"#O{mine[0]}" in known and f"#O{other[0]}" not in known
+    assert jobs
+
+
+async def test_a_test_case_the_search_failed_on_is_a_point_once(env):
+    from agent import docket, search_points
+
+    db, *_ = env
+    await db.execute("INSERT INTO search_cases (key, origin, title, url, happened, ref, status) VALUES "
+                     "('x', 'miss', 'Nybörjarkurs i impro', 'https://impro.example', '2026-11-01', '#J9', 'missed')")
+    await search_points._cases(db)
+    [p] = [x for x in await docket.open_points(db, "researcher") if x["kind"] == "case"]
+    assert "blind fläck" in p["basis"] and "https://impro.example" in p["basis"]
+    await docket.answer(db, "researcher", p["id"], "changed", "lade till kurssidan som källa")
+    await search_points._cases(db)
+    assert not [x for x in await docket.open_points(db, "researcher") if x["kind"] == "case"]   # seen: not again

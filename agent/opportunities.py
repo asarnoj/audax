@@ -50,11 +50,20 @@ async def by_address(db: Database, url: str | None) -> dict | None:
     return None
 
 
-async def known(db: Database, limit: int = 40) -> str:
-    """The open opportunities, for a search run to recognise what it finds."""
-    rows = await Items(db).find("opportunity", status=OPEN, order="id DESC", limit=limit)
+async def known(db: Database, limit: int = 40, mission: str | None = None, listed: set[str] | None = None) -> str:
+    """The open opportunities, for a search run to recognise what it finds. For a mission: the ones it found itself
+    first (what it will meet again), then the newest others, up to the limit."""
+    items = Items(db)
+    rows = await items.find("opportunity", status=OPEN, order="id DESC", limit=limit, where=(
+        "id IN (SELECT item_id FROM item_log WHERE note = ?)" if mission else ""), args=((f"hittad av sökuppdraget {mission}",) if mission else ()))
+    if len(rows) < limit:
+        have = {r["id"] for r in rows}
+        rows += [r for r in await items.find("opportunity", status=OPEN, order="id DESC", limit=limit) if r["id"] not in have][: limit - len(rows)]
     lines = []
+    listed = {_norm(u) for u in listed or ()}
     for o in rows:
+        if listed and _norm(o["url"]) in listed:
+            continue   # the run lists it among what it already found
         bits = [o.get("organization") or "", o.get("place") or "", f"sista dag {o['deadline']}" if o.get("deadline") else "",
                 f"datum {o['date']}" if o.get("date") else ""]
         lines.append(f"- {ref(o)} {o['kind']}: {o['title']} · " + " · ".join(b for b in bits if b) + f" · {o['url']}"

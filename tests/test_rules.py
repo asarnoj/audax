@@ -70,11 +70,16 @@ async def test_researchers_review_shows_each_sources_yield_and_its_rules(db):
     await add_candidate(db, "news", "Nytt spel", "b", {}, event_id=eid)
     await Items(db).create("rule", "LessWrong: inga AI-nyheter", "researcher",
                            data={"applies_to": "lesswrong", "condition": json.dumps({"any": ["Hugging Face"]}), "action": "drop", "reason": "Ägaren ville inte"})
+    await db.execute("UPDATE items SET updated_at = '2026-10-01 00:00:00' WHERE form = 'routine'")   # not touched in a week
     text = await review(db, "researcher", datetime(2026, 10, 21, 12, tzinfo=ZoneInfo("Europe/Stockholm")))
-    assert "lesswrong: 25 in, 0 kept (0 %), 0 reached the owner · low yield" in text
-    assert "studio-x: 1 in, 1 kept (100 %), 0 reached the owner" in text
-    assert "dead-careers: 0 in, 0 kept, 0 reached the owner · paused (404)" in text
+    assert "Källan lesswrong" in text and "är low yield" in text   # a weak source is a point to decide (omgång 16)
     assert "LessWrong: inga AI-nyheter" in text and "hits 0" in text
+    from agent.due import source_yield
+
+    table = await source_yield(db)   # every source: fetched with `sources`
+    assert "lesswrong: 25 in, 0 kept (0 %), 0 reached the owner · low yield" in table
+    assert "studio-x: 1 in, 1 kept (100 %), 0 reached the owner" in table
+    assert "dead-careers: 0 in, 0 kept, 0 reached the owner · paused (404)" in table
 
 
 async def test_postings_with_the_same_title_on_the_same_site_are_not_duplicates(db):

@@ -29,8 +29,11 @@ A few findings that are real, current and clearly right for {owner}. Quality com
 
 ---
 
-About {owner} (Director's goals and current picture weigh most):
+What Audax knows about {owner} for a search ({owner_s} own words bind; an interpretation is guidance):
 {memory}
+
+The goals this mission serves (what helps and what is noise is written in them), and the others:
+{goals}
 
 Already found. Don't include these again unless they have changed in a way that matters:
 {seen}

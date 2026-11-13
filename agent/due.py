@@ -59,6 +59,10 @@ async def sweeps(db: Database, role: str, now: datetime, memory=None) -> None:
     await points.sweep_stale(db, role, now.date())
     if memory is not None:
         await freshness.cite_points(db, memory, role)
+    if role == "researcher":
+        from agent import search_points
+
+        await search_points.sweep(db, now)
 
 
 async def review(db: Database, role: str, now: datetime, memory=None) -> str:
@@ -137,24 +141,22 @@ async def review(db: Database, role: str, now: datetime, memory=None) -> str:
 
     if trial := await facit.for_review(db, role):
         parts.append(trial)
-    if role == "researcher":
-        parts.append(await source_yield(db))
+    if role == "researcher":   # each weak source and failed test case is a point now (agent/search_points.py)
         from agent.wanted import for_review as wanted_review
 
         if wanted_text := await wanted_review(db):
             parts.append(wanted_text)
         from agent import cases
 
-        await cases.collect(db)
         if cases_text := await cases.report(db):
-            parts.append(cases_text)
+            parts.append(cases_text.split("\n")[0])   # the measure; each failed case is a point
         from agent.crosscheck import mission_drops
 
         if drops := await mission_drops(db):
             parts.append(drops)
         if not await items.find("experiment", status=("planned", "running", "evaluating"), owner="researcher", limit=1):
             parts.append("Metodförsök: none running. The search is a standing project: start one experiment (#E) aimed at "
-                         "its weakest spot in the test cases above (a blind spot, a kind of method that brings nothing of "
+                         "its weakest spot in the test cases (a blind spot, a kind of method that brings nothing of "
                          "what mattered), with the test cases as its measure.")
     if role == "manager":
         parts.append(await pulse(db, now))

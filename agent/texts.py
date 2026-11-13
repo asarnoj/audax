@@ -39,7 +39,7 @@ TEXTS = (
          "wishes about style stay verbatim under their own heading.", 3500),
     Text("arbetsminne/director.md", "director", "Working memory: focus, open hypotheses, waiting for, tried and learned. Ids only.", 2000),
     Text("arbetsminne/manager.md", "manager", "Working memory: focus, open hypotheses, waiting for, tried and learned. Ids only.", 2000),
-    Text("arbetsminne/researcher.md", "researcher", "Working memory: focus, open hypotheses, waiting for, tried and learned. Ids only.", 2000),
+    Text("arbetsminne/researcher.md", "researcher", "Working memory: what you are trying to learn about the search now, and what you wait for. Ids only; lessons are `lessons`, the rest you follow.", 1500),
     Text("arbetsminne/assistant.md", "assistant", "Working memory: ongoing threads, what the owner cares about now, how they want it. Ids only.", 2000),
     Text("research/maps/*.md", "researcher", "How to search one space: segments, where they publish, methods, gaps.", 4000),
     Text("lardomar.md", "all", "The office's practice: written by the code from the practice beliefs (#U), not edited.", 6000),
