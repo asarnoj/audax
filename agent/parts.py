@@ -21,7 +21,7 @@ from datetime import datetime
 from zoneinfo import ZoneInfo
 
 from agent import docket, threads
-from agent.beliefs import current, source_note
+from agent.beliefs import HEADINGS, current, source_note
 from agent.db import Database
 from agent.forms import AREAS
 from agent.items import Items, ref
@@ -44,6 +44,8 @@ SKILL_AREAS: dict[str, tuple[str, ...] | None] = {
 SKILL_ROLE = {"triage": "director", "research": "researcher", "research_deep": "researcher", "researcher_plan": "researcher",
               "check": "researcher", "deliver": "assistant", "dispatcher": "manager", "manager": "manager", "chat": "assistant",
               "assistant_night": "assistant", "director_understand": "director", "director_reflect": "director"}
+# Areas whose lines carry their heading in Det vi vet, because a prompt applies them by that name ("Inte intresserad av").
+MARKED = ("not_interested",)
 BUDGET = {"known": 6000, "following": 5000, "decide": docket.BUDGET}
 
 
@@ -59,7 +61,8 @@ async def known(db: Database, skill: str, owner_name: str | None = None, tz: str
         beliefs = [b for b in beliefs if (b.get("area") or "other") in areas]
     order = {a: i for i, a in enumerate(AREAS)}
     beliefs.sort(key=lambda b: ((b.get("source") or {}).get("type") != "owner", order.get(b.get("area") or "other", 99), b["id"]))
-    about = [f"- {b['title']} ({source_note(b, owner_name)}) {ref(b)}" for b in beliefs]
+    about = [f"- {HEADINGS[b['area']] + ': ' if b.get('area') in MARKED else ''}{b['title']} ({source_note(b, owner_name)}) {ref(b)}"
+             for b in beliefs]
     role = SKILL_ROLE.get(skill)
     lessons = [b for b in await current(db, today=today, kinds=("practice",)) if b["owner"] in (role, None, "system")]
     work = [f"- {b['title']} {ref(b)}" for b in lessons]

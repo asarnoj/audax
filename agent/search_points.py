@@ -31,7 +31,7 @@ async def sweep(db: Database, now: datetime) -> int:
     await _missions(db, now)
     await _cases(db)
     r = await db.fetchone("SELECT count(*) AS n FROM docket WHERE role = 'researcher' AND status = 'open' AND "
-                          "(key LIKE 'source:%' OR key LIKE 'queries:%' OR key LIKE 'quiet:%' OR key LIKE 'case:%')")
+                          "(key LIKE 'source:%' OR key LIKE 'queries:%' OR key LIKE 'serves:%' OR key LIKE 'quiet:%' OR key LIKE 'case:%')")
     return r["n"]
 
 
@@ -66,6 +66,7 @@ async def _missions(db: Database, now: datetime) -> None:
         if not t.enabled:
             await docket.resolve(db, f"queries:{t.id}", "uppdraget är avstängt", "researcher")
             await docket.resolve(db, f"quiet:{t.id}", "uppdraget är avstängt", "researcher")
+            await docket.resolve(db, f"serves:{t.id}", "uppdraget är avstängt", "researcher")
             continue
         stats = await Portfolio(db, None, None, None).stats(t.id, t.queries)
         stale = [q for q in stats if q["runs"] >= RETIRE_AFTER_RUNS and q["kept"] == 0]

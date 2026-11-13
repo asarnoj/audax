@@ -189,3 +189,14 @@ async def test_a_test_case_the_search_failed_on_is_a_point_once(env):
     await docket.answer(db, "researcher", p["id"], "changed", "lade till kurssidan som källa")
     await search_points._cases(db)
     assert not [x for x in await docket.open_points(db, "researcher") if x["kind"] == "case"]   # seen: not again
+
+
+async def test_a_mission_serving_no_goal_is_a_point_that_clears_when_it_is_disabled(env):
+    from agent import docket, search_points
+
+    db, *_ = env
+    await search_points._missions(db, NOW)
+    assert [x for x in await docket.open_points(db, "researcher") if x["kind"] == "serves"]
+    await ops.apply_missions(db, [{"op": "disable", "id": "jobs", "reason": "tjänar inget mål"}])
+    await search_points._missions(db, NOW)
+    assert not [x for x in await docket.open_points(db, "researcher") if x["kind"] == "serves"]   # done as asked

@@ -184,6 +184,8 @@ async def test_what_we_know_is_the_skills_areas_with_the_owners_words_first(db):
     assert "korta meddelanden" in deliver and "spelutveckling" not in deliver   # the voice gets how the owner wants it
     search = await parts.known(db, "research")
     assert search.index("Älskar ljud") < search.index("spelutveckling") and "korta meddelanden" not in search
+    await items.create("belief", "Banker", "assistant", kind="preference", data={"area": "not_interested"}, source={"type": "owner"})
+    assert "- Inte intresserad av: Banker" in await parts.known(db, "research")   # the search applies it by that name
 
 
 async def test_the_measure_counts_ids_shown_and_used(db):
