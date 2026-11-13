@@ -100,6 +100,8 @@ async def cite_points(db: Database, memory: Path, role: str) -> int:
                 if form != "belief" and not closed:
                     continue
                 pair = f"{hashlib.sha1(line.encode()).hexdigest()[:10]}:#{letter}{num}"
+                if form == "belief" and row["status"] != "current":
+                    pair += f":{row['status']}"   # checked while it stood: replaced since, the line is asked again
                 if pair in checked:
                     continue
                 said = weight(await Items(db).get(row["id"])) if form == "belief" else ""

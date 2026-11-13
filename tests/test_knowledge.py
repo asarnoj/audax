@@ -66,6 +66,11 @@ async def test_old_references_and_rules_resting_on_nothing_are_shown(db, tmp_pat
         await docket.answer(db, "manager", policy["id"], "kept", "stämmer", off=[2])
     await docket.answer(db, "manager", policy["id"], "kept", "stämmer", off=[])
     assert await freshness.cite_points(db, tmp_path, "manager") == 1   # checked: not asked again
+    await items.update(u, "assistant", status="superseded", note="ersatt")
+    assert await freshness.cite_points(db, tmp_path, "manager") == 2   # what it cites was replaced since: asked again
+    policy = {p["key"]: p for p in await docket.open_points(db, "manager")}["cite:policy.md"]
+    assert "(superseded" in policy["basis"]
+    await docket.answer(db, "manager", policy["id"], "kept", "stämmer ändå", off=[])
     (tmp_path / "policy.md").write_text(f"# Policy\n- Javajobb går bra (#U{u}).\n")
     assert await freshness.cite_points(db, tmp_path, "manager") == 2   # the line changed: asked again
 
