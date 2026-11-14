@@ -422,7 +422,11 @@ async def run() -> None:
     await bot.start()
     if settings.telegram_chat_id is None:   # nobody to work for yet (a friend's instance before the invite): only /start answers
         log.info("waiting for the owner to open the invite; nothing else runs")
-        await asyncio.Event().wait()
+        await stop.wait()   # a stop is still heard (14 Nov: waiting on an event nobody set, every restart timed out and was killed)
+        log.info("shutting down (never bound)")
+        await bot.stop()
+        await db.close()
+        return
     if settings.telegram_chat_id and memory.is_new() and not await db.kv_get("onboarding.started"):
         await db.kv_set("onboarding.started", datetime.now().isoformat())   # a new owner who just joined: get to know them
         await bot.chat.start_interview()
