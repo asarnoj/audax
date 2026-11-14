@@ -89,13 +89,13 @@ async def following(db: Database, role: str, now: datetime, tz: str = "Europe/St
     return text if len(text) <= budget else text[:budget].rsplit("\n", 1)[0] + "\n…(the rest: thread <id>, or find)"
 
 
-async def compose(db: Database, role: str, skill: str, now: datetime, owner_name: str | None = None, tz: str = "Europe/Stockholm",
-                  count: bool = True) -> dict[str, str]:
-    """The three parts for a role's run. `count=False` only looks (for measuring), without counting points as shown."""
+async def compose(db: Database, role: str, skill: str, now: datetime, owner_name: str | None = None,
+                  tz: str = "Europe/Stockholm") -> dict[str, str]:
+    """The three parts for a role's run."""
     return {
         "known": await known(db, skill, owner_name, tz),
         "following": await following(db, role, now, tz),
-        "decide": await docket.render(db, role, now.date(), count=count),
+        "decide": await docket.render(db, role, now.date()),
     }
 
 

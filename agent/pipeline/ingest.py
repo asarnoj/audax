@@ -43,6 +43,10 @@ class Ingest:
         self._wake = asyncio.Event()
         self._urgent = asyncio.Event()   # something from a source the owner asked for: sorted at once
         self._streams: list[asyncio.Task] = []
+        # One restart at a time: changes made together (a role retuning three sources in one run) each restart the
+        # pollers, and restarts interleaved at their awaits tore down each other's half-built lists (14 Nov: twelve
+        # sources stopped being read for half a day, and a paused one went on).
+        self._restarting = asyncio.Lock()
         self._loop_task: asyncio.Task | None = None
 
     async def emit(self, config: StreamConfig, items: list[StreamItem], baseline: bool = False) -> int:
@@ -97,15 +101,17 @@ class Ingest:
             log.warning("stream %s paused after %d failures in a row: %s", config.id, failures, what)
 
     async def start(self, configs: list[StreamConfig] | None = None) -> None:
-        await self._start_streams(load_stream_configs() if configs is None else configs)
+        async with self._restarting:
+            await self._start_streams(load_stream_configs() if configs is None else configs)
         self._loop_task = asyncio.create_task(self._loop())
         if await self.db.fetchone("SELECT 1 FROM events WHERE triaged_at IS NULL LIMIT 1"):
             self._wake.set()  # events left untriaged by a restart
 
     async def restart_streams(self) -> None:
         """Called when a watched source (a routine, agent/routines.py) is added, paused or changed."""
-        await self._stop_streams()
-        await self._start_streams(load_stream_configs())
+        async with self._restarting:
+            await self._stop_streams()
+            await self._start_streams(load_stream_configs())
 
     async def _start_streams(self, configs: list[StreamConfig]) -> None:
         for c in configs:
@@ -130,7 +136,8 @@ class Ingest:
         self._streams = []
 
     async def stop(self) -> None:
-        await self._stop_streams()
+        async with self._restarting:
+            await self._stop_streams()
         if self._loop_task:
             self._loop_task.cancel()
             await asyncio.gather(self._loop_task, return_exceptions=True)

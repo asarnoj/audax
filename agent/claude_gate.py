@@ -351,6 +351,9 @@ class ClaudeGate:
             run_id = await self.db.execute("INSERT INTO claude_runs (kind, model, by_host) VALUES (?, ?, ?)",
                                            (task.kind, task.model, int(BY_HOST.get())))
             trail.current_run.set(run_id)
+            from agent import docket
+
+            await docket.shown_in(self.db, task.prompt)   # the points in it are shown now, not when the prompt was built
             await trail.emit("start", role_of(task.kind), task=task.kind)
             RUNNING[id(task)] = (task, time.time())
             try:

@@ -36,8 +36,8 @@ async def test_a_point_stays_until_it_is_answered_and_its_basis_is_written_in(db
     assert await docket.raise_point(db, "researcher", "x", "failing", "Bolaget går inte att läsa", "Fel: 410") == pid   # one matter, one point
     shown = await docket.render(db, "researcher")
     assert f"D{pid}" in shown and "Fel: 410" in shown and "answer" in shown
-    for _ in range(docket.SHOWN_TOO_OFTEN - 1):
-        await docket.render(db, "researcher")
+    for _ in range(docket.SHOWN_TOO_OFTEN):   # three runs started with it
+        await docket.shown_in(db, shown)
     assert f"D{pid} hos researcher" in await docket.unanswered(db)   # Manager sees what slides by
     with pytest.raises(ValueError):
         await docket.answer(db, "researcher", pid, "kept", "")   # a note is needed
@@ -253,3 +253,19 @@ async def test_the_keeper_of_the_owners_words_sees_their_older_words_a_new_one_m
     assert f"#U{old} Får störas utom under föreläsningar" in p["basis"] and "supersede" in p["basis"]
     assert f"#U{other}" not in p["basis"]   # another part of life
     assert await docket.open_points(db, "director") == []   # the owner's words are the Assistant's to keep
+
+
+async def test_a_point_counts_as_shown_when_a_run_with_it_starts_not_when_its_prompt_is_built(db, tmp_path):
+    from agent.claude_gate import ClaudeGate, ClaudeTask, Priority, RunResult
+
+    pid = await docket.raise_point(db, "manager", "x", "aging", "Något att avgöra", "underlag")
+    prompt = await docket.render(db, "manager")
+    for _ in range(3):   # built and held (the budget), as through a night
+        await docket.render(db, "manager")
+    assert (await docket.get(db, pid))["shown"] == 0
+
+    async def runner(task, ws, on_rl):
+        return RunResult(text="")
+
+    await ClaudeGate(db, tmp_path, runner=runner).run(ClaudeTask(kind="manager", prompt="intro\n" + prompt, priority=Priority.MANAGER))
+    assert (await docket.get(db, pid))["shown"] == 1

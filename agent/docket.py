@@ -71,6 +71,18 @@ async def resolve(db: Database, key: str, why: str, role: str | None = None) -> 
     return await db.execute_count(sql, tuple(args))
 
 
+SHOWN = re.compile(r"^D(\d+) \[", re.M)
+
+
+async def shown_in(db: Database, prompt: str) -> None:
+    """A run started with this prompt: the open points in it count as shown once more. Counted here and not when the
+    prompt is built, for a prompt can be built and the run held (14 Nov: Manager's run waited for the budget every ten
+    minutes through a night, and its points were counted as shown 36 times by a role that had not seen them once)."""
+    ids = sorted({int(m) for m in SHOWN.findall(prompt or "")})
+    if ids:
+        await db.execute(f"UPDATE docket SET shown = shown + 1 WHERE status = 'open' AND id IN ({','.join('?' * len(ids))})", tuple(ids))
+
+
 async def get(db: Database, point_id: int) -> dict | None:
     row = await db.fetchone("SELECT * FROM docket WHERE id = ?", (point_id,))
     return dict(row) if row else None
@@ -93,8 +105,8 @@ def line(p: dict) -> str:
     return head + ("\n" + "\n".join("  " + x for x in p["basis"].splitlines()) if p["basis"] else "")
 
 
-async def render(db: Database, role: str, today: date | None = None, budget: int = BUDGET, count: bool = True) -> str:
-    """The points for a role's prompt, within the budget. Those shown are counted as shown once more; an answer clears it."""
+async def render(db: Database, role: str, today: date | None = None, budget: int = BUDGET) -> str:
+    """The points for a role's prompt, within the budget. They count as shown when a run with them starts (shown_in)."""
     points = await open_points(db, role, today)
     if not points:
         return ""
@@ -107,8 +119,6 @@ async def render(db: Database, role: str, today: date | None = None, budget: int
         used += len(text)
         shown.append(p["id"])
     rest = len(points) - len(shown)
-    if count and shown:
-        await db.execute(f"UPDATE docket SET shown = shown + 1 WHERE id IN ({','.join('?' * len(shown))})", tuple(shown))
     head = ("Att avgöra nu (each point needs an answer with the `answer` tool: its id, a decision and a note in Swedish; "
             "decide each on the basis written in, and read more only if you need to. A point with numbered lines [1] … "
             "also needs `off`: judge each line on its own and name the numbers that do not hold, or [] if every one does. "

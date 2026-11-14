@@ -145,3 +145,27 @@ async def test_the_shelf_keeps_things_only_until_their_best_before(db):
     assert await outbox.expire_shelf() == 1
     status = {r["id"]: r["status"] for r in await db.fetchall("SELECT id, status FROM candidates")}
     assert status == {fresh: "shelved", old: "expired"}
+
+
+async def test_changes_that_come_together_leave_each_source_one_poller(db, monkeypatch):
+    """14 Nov: three sources retuned in one run restarted the pollers three times at once; the restarts tore down each
+    other's half-built lists, twelve sources stopped being read and a paused one went on."""
+    from agent.pipeline import ingest as ingest_mod
+
+    configs = [StreamConfig(id=f"s{i}", type="rss", url=f"https://x/{i}", poll_minutes=60) for i in range(12)]
+    monkeypatch.setattr(ingest_mod, "load_stream_configs", lambda: list(configs))
+    polled: list[str] = []
+
+    async def poller(config, client):
+        polled.append(config.id)
+        return []
+
+    ingest = Ingest(db, lambda: None)
+    ingest._pollers["rss"] = poller
+    await ingest.start(configs)
+    configs[0] = StreamConfig(id="s0", type="rss", url="https://x/0", poll_minutes=60, enabled=False)   # one paused
+    await asyncio.gather(*(ingest.restart_streams() for _ in range(3)))
+    await asyncio.sleep(0.05)
+    live = [t for t in asyncio.all_tasks() if t.get_coro().__name__ == "run_poller" and not t.done()]
+    assert len(live) == 11 and set(live) == set(ingest._streams)   # each running source once, none left untracked
+    await ingest.stop()
