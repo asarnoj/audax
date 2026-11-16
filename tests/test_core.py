@@ -240,10 +240,12 @@ async def test_the_budget_paces_the_heavy_work_and_never_the_conversation(db, tm
     assert "dagens andel" in e.value.why and datetime.fromtimestamp(e.value.resets_at, ZoneInfo(settings.timezone)).hour == 0
     for kind in ("chat", "triage", "page_extract", "manager"):   # the conversation, the pipeline, the roles' week share
         assert (await gate.run(task(kind, Priority.MANAGER))).text == "ok"
-    for _ in range(9):
+    for _ in range(6):
         await gate.run(task("triage", Priority.RESEARCH))
+    assert (await gate.run(task("manager", Priority.MANAGER))).text == "ok"   # 7.2 $: past the share, within a day's room
+    await gate.run(task("triage", Priority.RESEARCH))
     with pytest.raises(QuotaPaused):
-        await gate.run(task("manager", Priority.MANAGER))   # the week's share is used now too
+        await gate.run(task("manager", Priority.MANAGER))   # 8.4 $: past the week's share and its day of room
     assert (await gate.run(task("chat", Priority.CHAT))).text == "ok"
     words = await budget.words()
     assert "Audax förbrukning: i dag" in words and "väntar till" in words

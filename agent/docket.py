@@ -44,14 +44,17 @@ async def raise_point(db: Database, role: str, key: str, kind: str, title: str, 
     answered within `quiet_days` (a state that persists isn't asked about at every reading). `persists`: the point is
     raised while a state lasts, so one answered as handled that is raised again was not handled, and is asked at once."""
     row = await db.fetchone("SELECT id FROM docket WHERE role = ? AND key = ? AND status = 'open'", (role, key))
-    last = None if row else await db.fetchone(
+    # the last answer, also when the point is open: a state that lasts is raised again at each reading, and the answer
+    # beside it must stay (16 Nov: it was written only when the point opened, the next reading wrote the basis anew
+    # without it, and the role answered from its memory that the matter was handled, three times)
+    last = await db.fetchone(
         "SELECT * FROM docket WHERE role = ? AND key = ? AND status = 'answered' ORDER BY id DESC LIMIT 1", (role, key))
     if persists and last and last["decision"] in FIXED:
         # it was answered as handled, and the matter is still here: asked again at once, with the answer beside it
         # (13 Nov: a failing entry answered 'changed' while the op used could not strike it, and it went on failing)
         basis = (f"Svarat {last['answered_at'][:10]} ({last['decision']}): {last['answer'][:300]}\nMen saken står kvar. "
                  "Look at what was done and why it didn't take.\n\n" + basis)
-    elif last and quiet_days and await db.fetchone("SELECT 1 FROM docket WHERE id = ? AND answered_at >= datetime('now', ?)",
+    elif not row and last and quiet_days and await db.fetchone("SELECT 1 FROM docket WHERE id = ? AND answered_at >= datetime('now', ?)",
                                                    (last["id"], f"-{quiet_days} days")):
         return 0
     basis = _cap(basis, cap)

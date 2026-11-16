@@ -3,7 +3,7 @@ paced by what is left instead of a switch.
 
 Until 19 Oct a weekly warning held all heavy work until the week reset, and the search stood still for five days
 without anyone knowing. Now each skill has a tier (agent/vocab.py). The conversation, what the owner asked for and
-the cheap pipeline never wait for the budget. The roles' regular work waits when the week's share is used up.
+the cheap pipeline never wait for the budget. The roles' regular work waits when the week is a day past its share.
 The heavy and exploratory work waits when today's share is used up, and goes on tomorrow. A full stop only
 happens when Claude itself refuses, or near the top of the whole week (claude_gate.WEEK_STOP).
 
@@ -114,8 +114,12 @@ class Budget:
         self.waiting.pop(kind, None)
         now = now or datetime.now(self.tz)
         if tier == 4:
+            # The heavy work is paced by the day, a seventh of the week each, and the conversation and the pipeline come
+            # on top: so the week sits at its share or just over most of the time. Held at the share itself, the
+            # roles' regular work waited while the heavy work went on (16 Nov: Manager did not run for four nights).
+            # It has one day's room above the share; past that the week is truly over.
             week = await self.spent(now - timedelta(days=7))
-            if week < self.weekly:
+            if week < self.weekly + self.daily:
                 return None
             until, why = now + timedelta(hours=6), f"veckans andel är använd ({week:.2f} av {self.weekly:.2f} $)"
         else:
