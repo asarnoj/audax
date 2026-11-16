@@ -1,8 +1,8 @@
 """The night sweep (docs/MODEL.md, "Natten"): the slow tasks run once, in order, while the owner sleeps.
 
 1. Assistant: tidies the memory, writes its working memory and the conversation summary, books its promises.
-2. Director: the daily review, or the reflection on reflection nights (falling back to the review if the
-   reflection can't run, e.g. the weekly quota holds heavy work).
+2. Director: the daily review, and on reflection nights the reflection after it, with the picture just made current
+   (a reflection the budget holds waits for the next night; the review has run).
 3. Researcher: plans, if an order, feedback, a thin portfolio or a quiet mission calls for it.
 4. Manager: reviews the day and plans the schedule with the fresh picture.
 

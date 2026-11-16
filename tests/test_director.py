@@ -108,6 +108,22 @@ async def test_reflect_thinks_longer_with_web_and_understand_does_not(env, tmp_p
     assert await db.kv_get("director.last_reflect") is not None
 
 
+async def test_the_reflection_thinks_on_a_current_picture_and_leaves_the_points_and_inbox_to_the_review(env, tmp_path):
+    from agent import docket
+
+    db, memory, *_ = env
+    calls = []
+    d = director(db, memory, tmp_path, structured=BASE, calls=calls)
+    await docket.raise_point(db, "director", "x", "aging", "Något att avgöra", "underlag")
+    await Posts(db).send("researcher", "director", "note", "en rapport")
+    await d.run("reflect")
+    r = calls[-1]
+    assert "Något att avgöra" not in r.prompt and "en rapport" not in r.prompt   # the review's, not the reflection's
+    assert "ways to each goal" in r.prompt and await Posts(db).inbox("director")   # still waiting for the review
+    await d.run("understand")
+    assert "Något att avgöra" in calls[-1].prompt and "en rapport" in calls[-1].prompt
+
+
 
 async def test_empty_person_md_triggers_first_picture_from_whole_history(env, tmp_path):
     db, memory, *_ = env

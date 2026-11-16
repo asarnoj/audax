@@ -267,7 +267,7 @@ Audax andel av din veckokvot sätts löst, i början 10 % (`agent/budget.py`). V
 En kedja som startar när du med störst sannolikhet sover, räknat ur när du brukar skriva sist och nattron.
 
 1. **Assistant** städar uppfattningarna, skriver samtalssammanfattningen och bokar sina löften.
-2. **Director** gör sin genomgång, eller reflektion när den är dags.
+2. **Director** gör sin genomgång varje natt, och när det är dags reflektionen efter den. Reflektionen får bilden som genomgången just gjort aktuell och inga punkter, ingen inkorg och ingen genomgång: den är bara till för att tänka (16 nov: när den ersatte genomgången ärvde den städningen, och på elva dagar kom ingen ny idé ur den). En av dess frågor gäller vägarna till varje mål: hur folk faktiskt når dit, vilka av vägarna kontorets arbete täcker, och vilken ägaren minst troligt tar själv.
 3. **Researcher** planerar, om något kräver det.
 4. **Manager** granskar gårdagen och ser över schemat med den färska bilden.
 

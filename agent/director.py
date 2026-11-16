@@ -4,7 +4,10 @@ Two loops, both in the background, never talking to the owner directly:
 - understand (daily, Sonnet): keeps the picture (person, now), the goals and what the owner goes for (#S) current,
   and steers the search
 - reflect (a routine, about every other day; Opus, medium effort, web search): thinks deeply, checks ideas, and occasionally
-  shares one through the outbox, where the dispatcher and Manager's policy still decide when
+  shares one through the outbox, where the dispatcher and Manager's policy still decide when. It runs after the night's
+  review, on a picture just made current, and carries no review, points or inbox: the housekeeping is the review's.
+  (16 Nov: run instead of the review, the reflection inherited all of it, and spent its turns on points and statuses;
+  no new idea came from it in eleven days.)
 
 Python gathers the facts, Claude judges and writes beliefs, aims, steps, experiments and questions with the office's
 tools during its run (agent/office_tools.py); Python applies the rest: the direction files, posts to the other roles
@@ -116,7 +119,8 @@ class Director:
             since = now - timedelta(days=60)
         since_sql = since.astimezone(ZoneInfo("UTC")).strftime("%Y-%m-%d %H:%M:%S")
 
-        inbox = await self.posts.inbox("director")
+        reflect = mode == "reflect"
+        inbox = [] if reflect else await self.posts.inbox("director")   # the review acts on the posts
         self._seen_posts = [p["id"] for p in inbox]
         self._chain_from_owner = any(p["from_owner"] for p in inbox)
         context = {
@@ -137,14 +141,13 @@ class Director:
             "missions": await self._search_report(),
             "windows": await self._windows(mode),
             "records": await Pursuits(self.db, self.settings.timezone).overview() + "\n\n" + await Pursuits(self.db).stats(),
-            "review": await review(self.db, "director", now, self.memory.path) + await self._triage_sample(mode, now),
-            "answers": await self._answers(last),
+            "review": "" if reflect else await review(self.db, "director", now, self.memory.path) + await self._triage_sample(mode, now),
+            "answers": "" if reflect else await self._answers(last),
             "beliefs": await self._beliefs(),
             "forms": describe_forms("director"),
         }
-        if mode == "reflect":
+        if reflect:
             context["idea_feedback"] = await self._idea_feedback()
-        reflect = mode == "reflect"
         # Isolation: a run that reads mail never reaches new web addresses (so a mail can't make it leak data in a
         # URL). With mail connected, the daily review reads mail and has no web_read; the reflection has the web and
         # never sees mail. WebSearch only sends a query to the search provider, so both keep it.

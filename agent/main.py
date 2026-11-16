@@ -379,9 +379,16 @@ async def run() -> None:
         if await db.kv_get("night.force_reflect"):   # deploy/audax night reflect
             await db.kv_set("night.force_reflect", None)
             return await director.run("reflect") is not None
-        if await director.reflection_due() and await director.run("reflect") is not None:
-            return True  # the reflection, as often as Director's own routine says (layer 2)
-        return await director.run("understand") is not None
+        # The review every night; on reflection nights the reflection after it, on the picture the review just made
+        # current. A reflection that can't run (the budget holds heavy work) waits for the next night, not the review.
+        if await director.run("understand") is None:
+            return False
+        if await director.reflection_due():   # as often as Director's own routine says (layer 2)
+            try:
+                await director.run("reflect")
+            except Exception:   # the review is done: a failed reflection must not run it again
+                log.exception("director reflection failed; it is due again next night")
+        return True
 
     async def researcher_step() -> bool:
         if await db.kv_get("night.force_researcher"):   # a replay of the night (agent/night.py)
