@@ -100,6 +100,13 @@ async def run() -> None:
     (settings.workspace / "CLAUDE.md").write_text(prompt("claude_md"))  # personalized agent instructions
     db = Database(settings.database)
     await db.open()
+    try:
+        await serve(settings, db)
+    finally:   # an open connection keeps the process alive after a crash, and systemd never restarts it
+        await db.close()   # (22 Nov: no network at boot, the bot failed to start, all three instances hung a day)
+
+
+async def serve(settings, db: Database) -> None:
     from agent import trail
 
     trail.attach(db)   # the office's event log (agent/trail.py)
@@ -432,7 +439,6 @@ async def run() -> None:
         await stop.wait()   # a stop is still heard (14 Nov: waiting on an event nobody set, every restart timed out and was killed)
         log.info("shutting down (never bound)")
         await bot.stop()
-        await db.close()
         return
     if settings.telegram_chat_id and memory.is_new() and not await db.kv_get("onboarding.started"):
         await db.kv_set("onboarding.started", datetime.now().isoformat())   # a new owner who just joined: get to know them
@@ -460,7 +466,6 @@ async def run() -> None:
         await ingest.stop()
         scheduler.shutdown(wait=False)
         await bot.stop()
-        await db.close()
 
 
 def main() -> None:

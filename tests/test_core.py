@@ -334,3 +334,27 @@ async def test_a_change_is_told_to_a_role_once(tmp_path):
     assert (await db.fetchone("SELECT sender, recipient FROM posts WHERE id = ?", (pid,)))["recipient"] == "manager"
     assert await tell_once(db, "x", "manager", "Något har ändrats.") is None
     await db.close()
+
+
+async def test_a_failed_start_closes_the_database(tmp_path, monkeypatch):
+    """A start that fails (no network at boot) must leave nothing open: an open connection keeps the process alive
+    after the error, and the service is never restarted."""
+    import types
+    import pytest
+    from agent import main
+
+    settings = types.SimpleNamespace(owner="Test", telegram_token="x", workspace=tmp_path / "ws", database=tmp_path / "a.db")
+    monkeypatch.setattr(main, "ensure_instance", lambda: [])
+    monkeypatch.setattr(main, "load_settings", lambda: settings)
+    monkeypatch.setattr(main, "assert_subscription_auth", lambda: None)
+    monkeypatch.setattr(main, "prompt", lambda name: "")
+    opened = []
+
+    async def serve(s, db):
+        opened.append(db)
+        raise ConnectionError("no network")
+
+    monkeypatch.setattr(main, "serve", serve)
+    with pytest.raises(ConnectionError):
+        await main.run()
+    assert opened and opened[0]._conn is None
